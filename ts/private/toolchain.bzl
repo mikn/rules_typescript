@@ -1,7 +1,8 @@
 """Toolchain definitions for rules_typescript.
 
-Defines the toolchain providers and rules for the oxc-bazel and tsgo
-compilers, and the repository rule that fetches a TypeScript compiler binary.
+The oxc and tsgo compilers, the Go tools the actions run (tsaction, the lcov
+merger, the workspace copier) and the launcher every executable runs through,
+with the repository rules that fetch a compiler binary and a tools release.
 """
 
 load("//npm/private:npmrc_auth.bzl", "npmrc_auth")
@@ -11,6 +12,8 @@ load("//platforms:platforms.bzl", "constraints")
 # they keep working when a consumer gives rules_typescript another repo name.
 OXC_TOOLCHAIN_TYPE = Label("//ts/toolchain:oxc_toolchain_type")
 TSGO_TOOLCHAIN_TYPE = Label("//ts/toolchain:tsgo_toolchain_type")
+TOOLS_TOOLCHAIN_TYPE = Label("//ts/toolchain:tools_toolchain_type")
+LAUNCHER_TOOLCHAIN_TYPE = Label("//ts/toolchain:launcher_toolchain_type")
 
 OxcToolchainInfo = provider(
     doc = "Information about the oxc-bazel toolchain.",
@@ -23,6 +26,26 @@ TsgoToolchainInfo = provider(
     doc = "Information about the tsgo toolchain.",
     fields = {
         "tsgo_binary": "File: The tsgo CLI binary.",
+    },
+)
+
+ToolsInfo = provider(
+    doc = "The Go tools the actions run on the exec platform.",
+    fields = {
+        "tsaction": "File: the runner behind the TsConfig, TsEmit, tsgo, " +
+                    "TsLint, TsTestPaths, TsManifest and NpmStore actions.",
+        "lcov_merger": "File: ts_test's coverage merger.",
+        "copy_to_workspace": "File: the copier `bazel run` targets write " +
+                             "the source tree with.",
+    },
+)
+
+LauncherInfo = provider(
+    doc = "The launcher a ts_test, ts_binary, ts_dev_server or npm_bin " +
+          "executable is a symlink of; built for the target platform, it " +
+          "runs where the program runs.",
+    fields = {
+        "launcher": "File: the launcher binary.",
     },
 )
 
@@ -84,6 +107,85 @@ tsgo_toolchain = rule(
     },
 )
 
+def _tools_toolchain_impl(ctx):
+    files = [
+        ctx.file.tsaction,
+        ctx.file.lcov_merger,
+        ctx.file.copy_to_workspace,
+    ]
+    runfiles = ctx.runfiles(files)
+    for target in [
+        ctx.attr.tsaction,
+        ctx.attr.lcov_merger,
+        ctx.attr.copy_to_workspace,
+    ]:
+        runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
+    return [platform_common.ToolchainInfo(
+        tools_info = ToolsInfo(
+            tsaction = ctx.file.tsaction,
+            lcov_merger = ctx.file.lcov_merger,
+            copy_to_workspace = ctx.file.copy_to_workspace,
+        ),
+        executable = ctx.file.tsaction,
+        variable = "TSACTION",
+        default = DefaultInfo(files = depset(files), runfiles = runfiles),
+    )]
+
+def _tool_attr(doc):
+    return attr.label(
+        doc = doc,
+        mandatory = True,
+        allow_single_file = True,
+        executable = True,
+        cfg = "exec",
+    )
+
+tools_toolchain = rule(
+    implementation = _tools_toolchain_impl,
+    attrs = {
+        "tsaction": _tool_attr("The tsaction binary."),
+        "lcov_merger": _tool_attr("The lcov_merger binary."),
+        "copy_to_workspace": _tool_attr("The copy_to_workspace binary."),
+    },
+    doc = """The Go tools the build actions run, built for the exec platform.
+
+`//ts/toolchain:all` registers one per platform over the tools release's
+binaries; the ruleset's own workspace registers `//ts/tools/tsaction:
+source_toolchain`, built from source, ahead of them, and `//tools/launcher:all`
+for the launcher.
+""",
+)
+
+def _launcher_toolchain_impl(ctx):
+    launcher = ctx.file.launcher
+    return [platform_common.ToolchainInfo(
+        launcher_info = LauncherInfo(launcher = launcher),
+        executable = launcher,
+        variable = "TS_LAUNCHER",
+        default = DefaultInfo(
+            files = depset([launcher]),
+            runfiles = ctx.runfiles([launcher]),
+        ),
+    )]
+
+launcher_toolchain = rule(
+    implementation = _launcher_toolchain_impl,
+    attrs = {
+        "launcher": attr.label(
+            doc = "The launcher binary.",
+            mandatory = True,
+            allow_single_file = True,
+            executable = True,
+            cfg = "target",
+        ),
+    },
+    doc = """The launcher every rules_typescript executable is a symlink of.
+
+Built for the target platform, as `js_runtime_type`'s node is: it is staged
+into the program's runfiles and runs wherever the program runs.
+""",
+)
+
 def get_oxc_toolchain(ctx):
     """The resolved OxcToolchainInfo."""
     return ctx.toolchains[OXC_TOOLCHAIN_TYPE].oxc_info
@@ -92,8 +194,19 @@ def get_tsgo_toolchain(ctx):
     """The resolved TsgoToolchainInfo."""
     return ctx.toolchains[TSGO_TOOLCHAIN_TYPE].tsgo_info
 
-# Keys of //platforms:platforms.bzl%PLATFORMS. Both compiler packages publish
-# win32 builds too; Windows is unsupported here (COMPATIBILITY.md#windows).
+def get_tools_toolchain(ctx):
+    """The resolved ToolsInfo."""
+    return ctx.toolchains[TOOLS_TOOLCHAIN_TYPE].tools_info
+
+def get_launcher_toolchain(ctx):
+    """The resolved LauncherInfo, or None when none resolved."""
+    toolchain = ctx.toolchains[LAUNCHER_TOOLCHAIN_TYPE]
+    if toolchain:
+        return toolchain.launcher_info
+    return None
+
+# Keys of //platforms:platforms.bzl%PLATFORMS: the compiler packages and the
+# tools release cover these four; Windows is unsupported (COMPATIBILITY.md).
 TSGO_PLATFORMS = ["linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"]
 
 # oxc-bazel needs no such list: it is built from source by rules_rust for
@@ -149,6 +262,108 @@ def declare_tsgo_toolchains(name, repo_prefix = None):
             toolchain_type = TSGO_TOOLCHAIN_TYPE,
             exec_compatible_with = constraints(platform),
         )
+
+def declare_tools_toolchains(name, repo_prefix = None):
+    """Declares one tools toolchain per platform of the tools release.
+
+    The tools run on the exec platform and place no constraint on the target
+    platform. The `_impl` targets are manual, as the tsgo ones are.
+
+    Args:
+        name: Base name prefix for the generated targets.
+        repo_prefix: Prefix of the per-platform external repositories.
+                     Defaults to name.
+    """
+    if repo_prefix == None:
+        repo_prefix = name
+    for platform in TSGO_PLATFORMS:
+        toolchain_name = "{}_{}".format(name, platform)
+        repo = "@{}_{}".format(repo_prefix, platform)
+        tools_toolchain(
+            name = "{}_impl".format(toolchain_name),
+            tsaction = repo + "//:tsaction",
+            lcov_merger = repo + "//:lcov_merger",
+            copy_to_workspace = repo + "//:copy_to_workspace",
+            tags = ["manual"],
+        )
+        native.toolchain(
+            name = toolchain_name,
+            toolchain = ":{}_impl".format(toolchain_name),
+            toolchain_type = TOOLS_TOOLCHAIN_TYPE,
+            exec_compatible_with = constraints(platform),
+        )
+
+def declare_launcher_toolchains(name, repo_prefix = None):
+    """Declares one launcher toolchain per platform of the tools release.
+
+    The launcher runs where the program runs, so each is constrained on the
+    target platform; a target platform outside the four resolves none.
+
+    Args:
+        name: Base name prefix for the generated targets.
+        repo_prefix: Prefix of the per-platform external repositories.
+                     Defaults to name.
+    """
+    if repo_prefix == None:
+        repo_prefix = name
+    for platform in TSGO_PLATFORMS:
+        toolchain_name = "{}_{}".format(name, platform)
+        launcher_toolchain(
+            name = "{}_impl".format(toolchain_name),
+            launcher = "@{}_{}//:ts_launcher".format(repo_prefix, platform),
+            tags = ["manual"],
+        )
+        native.toolchain(
+            name = toolchain_name,
+            toolchain = ":{}_impl".format(toolchain_name),
+            toolchain_type = LAUNCHER_TOOLCHAIN_TYPE,
+            target_compatible_with = constraints(platform),
+        )
+
+TOOLS_BINARIES = ["tsaction", "ts_launcher", "lcov_merger", "copy_to_workspace"]
+
+def _tools_toolchain_repo_impl(repository_ctx):
+    url = repository_ctx.attr.url
+    repository_ctx.download_and_extract(
+        url = url,
+        integrity = repository_ctx.attr.integrity,
+        stripPrefix = repository_ctx.attr.strip_prefix,
+    )
+    for binary in TOOLS_BINARIES:
+        if not repository_ctx.path(binary).exists:
+            fail(("tools_toolchain_repo: the tools release at {} has no " +
+                  "{}/{}; the assets of a tools-v<N> release carry {}.").format(
+                url,
+                repository_ctx.attr.strip_prefix,
+                binary,
+                ", ".join(TOOLS_BINARIES),
+            ))
+    repository_ctx.file("BUILD.bazel", (
+        "exports_files({}, visibility = [\"//visibility:public\"])\n"
+    ).format(repr(TOOLS_BINARIES)))
+
+tools_toolchain_repo = repository_rule(
+    implementation = _tools_toolchain_repo_impl,
+    attrs = {
+        "url": attr.string(
+            doc = "The release asset: a tarball of the four binaries under " +
+                  "`strip_prefix`.",
+            mandatory = True,
+        ),
+        "integrity": attr.string(
+            doc = "The asset's SRI integrity from ts/private/tools_lock.bzl.",
+            mandatory = True,
+        ),
+        "strip_prefix": attr.string(
+            doc = "The one directory the tarball holds.",
+            mandatory = True,
+        ),
+    },
+    doc = """Downloads the Go tools of one platform from a tools release.
+
+One repository per platform, so that a build fetches only the tools it runs.
+""",
+)
 
 def _auth_for_fetch(repository_ctx, url):
     npmrc = repository_ctx.attr.npmrc

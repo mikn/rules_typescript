@@ -454,7 +454,8 @@ Bazel's `collect_coverage.sh` runs the test with `COVERAGE_DIR` set; the
 launcher runs vitest with the lcov reporter and writes the report, its paths
 resolved against vitest's root, the config's package, and made
 workspace-relative, as `vitest.dat` in that directory. Bazel then runs the
-rule's merger, `@rules_typescript//tools/lcov_merger`, over the directory, and
+rule's merger, the tools toolchain's `lcov_merger` through
+`@rules_typescript//ts/toolchain:lcov_merger_resolved`, over the directory, and
 it keeps the records the coverage manifest selects. The merger is the rule's
 rather than Bazel's own because the manifest names the `.ts` a target declared
 and the report names the `.js` compiled from it, and Bazel's merger keeps a

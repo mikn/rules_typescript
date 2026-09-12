@@ -48,7 +48,7 @@ bazel build //... --output_groups=+_validation
 ## Paths
 
 Every source and the config reach the linter as **execroot-absolute** paths,
-substituted into the command line by the `tsaction` helper. An `npm_bin` wrapper
+substituted into the command line by `tsaction`, the tools toolchain's runner. An `npm_bin` wrapper
 `cd`s to `RUNFILES_DIR` before running the package's own binary, which
 invalidates every execroot-relative path it was given. A linter reporting
 `ENOENT` on a file that exists is this.

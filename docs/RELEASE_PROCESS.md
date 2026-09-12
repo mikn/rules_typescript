@@ -2,8 +2,9 @@
 
 Cutting a tag through to a Bazel Central Registry submission.
 
-Nothing has been released yet: there are no git tags and no GitHub releases, so
-every version number below (`0.2.0`, `0.2.1`, …) shows the shape a release takes.
+No module release has been cut: there is no `v*` tag, so every version number
+below (`0.2.0`, `0.2.1`, …) shows the shape a release takes. The tools release
+`tools-v1` exists; [Tools](#tools) is its process.
 `MODULE.bazel` reads `0.2.0` and every install snippet on the site names it, so
 that is the version a first release cuts. See
 [BCR Submission](BCR_SUBMISSION.md) for current status.
@@ -160,6 +161,39 @@ Common issues:
 - **Missing metadata**: Add required fields to metadata.json
 - **Non-deterministic build**: rerun the determinism check in Prerequisites and fix what differs
 - **Licensing**: Ensure LICENSE file is included in tarball
+
+## Tools
+
+A consumer's build compiles no Go: `tsaction`, `ts_launcher`, `lcov_merger`
+and `copy_to_workspace` are the assets of the `tools-v<N>` release
+`ts/private/tools_lock.bzl` names, one tarball per platform of
+`TSGO_PLATFORMS`, downloaded by the `@tools_<platform>` repository the `ts`
+extension declares and verified against the table's SRI. The ruleset's own
+workspace and the nested integration workspaces register the source-built
+instances (`//ts/tools/tsaction:source_toolchain`, `//tools/launcher:all`)
+ahead of `//ts/toolchain:all`, so a tool change is red there before it is
+released; `e2e/basic`, `examples/*` and the BCR presubmit download the
+release.
+
+A PR that changes any of `ts/tools`, `tools/launcher`, `tools/lcov_merger`,
+`tools/copy_to_workspace` or `tools/toolpack`:
+
+1. Bumps `TOOLS_VERSION` in `ts/private/tools_lock.bzl`.
+2. Pastes the `TOOLS_INTEGRITY` table `tools/ci/check_tools_lock.sh` prints
+   (the CI `tools` job prints it too; its SRIs are the ones the release job
+   will assert).
+3. Before merging, the owner pushes the tag from the PR head:
+   ```bash
+   bazel run //tools/release -- tools <N> --push
+   ```
+   The `tools` job of `.github/workflows/release.yml` builds the four assets
+   with `bazel build --platforms=//platforms:<key>`, packs each with
+   `//tools/toolpack`, fails unless every SRI equals the table's, attaches the
+   tarballs to the `tools-v<N>` release and attests them.
+
+Until the tag exists, the `tools` job of `ci.yml`, `e2e/basic` and the BCR
+presubmit are red on that PR: `check_tools_sources.sh` finds no tag, and the
+consumers' download finds no asset.
 
 ## Rollback and Fixes
 

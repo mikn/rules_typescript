@@ -193,22 +193,28 @@ the member.
 
 ## Toolchain Contract
 
-`@rules_typescript//ts/toolchain:defs.bzl` exports eleven names: four toolchain
-type labels, three providers, and four accessors.
+`@rules_typescript//ts/toolchain:defs.bzl` exports seventeen names: six
+toolchain type labels, five providers, and six accessors.
 
 ```python
 load(
     "@rules_typescript//ts/toolchain:defs.bzl",
     "JS_RUNTIME_TOOLCHAIN_TYPE",
     "JS_TOOL_TOOLCHAIN_TYPE",
+    "LAUNCHER_TOOLCHAIN_TYPE",
     "OXC_TOOLCHAIN_TYPE",
+    "TOOLS_TOOLCHAIN_TYPE",
     "TSGO_TOOLCHAIN_TYPE",
     "JsRuntimeInfo",
+    "LauncherInfo",
     "OxcToolchainInfo",
+    "ToolsInfo",
     "TsgoToolchainInfo",
     "get_js_runtime",
     "get_js_tool",
+    "get_launcher_toolchain",
     "get_oxc_toolchain",
+    "get_tools_toolchain",
     "get_tsgo_toolchain",
 )
 ```
@@ -217,6 +223,8 @@ load(
 |---|---|---|---|---|
 | `OXC_TOOLCHAIN_TYPE` | `//ts/toolchain:oxc_toolchain_type` | the exec platform | `get_oxc_toolchain(ctx)` | `OxcToolchainInfo` |
 | `TSGO_TOOLCHAIN_TYPE` | `//ts/toolchain:tsgo_toolchain_type` | the exec platform | `get_tsgo_toolchain(ctx)` | `TsgoToolchainInfo` |
+| `TOOLS_TOOLCHAIN_TYPE` | `//ts/toolchain:tools_toolchain_type` | the exec platform | `get_tools_toolchain(ctx)` | `ToolsInfo` |
+| `LAUNCHER_TOOLCHAIN_TYPE` | `//ts/toolchain:launcher_toolchain_type` | the target platform | `get_launcher_toolchain(ctx)` | `LauncherInfo`, or `None` when no toolchain resolved |
 | `JS_RUNTIME_TOOLCHAIN_TYPE` | `//ts/toolchain:js_runtime_type` | the target platform | `get_js_runtime(ctx)` | `JsRuntimeInfo`, or `None` when no toolchain resolved |
 | `JS_TOOL_TOOLCHAIN_TYPE` | `//ts/toolchain:js_tool_type` | the exec platform | `get_js_tool(ctx)` | `JsRuntimeInfo`, or `None` when no toolchain resolved |
 
@@ -234,6 +242,10 @@ build and differ the moment `--platforms` does.
 |---|---|---|---|
 | `OxcToolchainInfo` | `oxc_binary` | `File` | The oxc-bazel CLI binary |
 | `TsgoToolchainInfo` | `tsgo_binary` | `File` | The tsgo CLI binary |
+| `ToolsInfo` | `tsaction` | `File` | The runner behind the TsConfig, TsEmit, tsgo, TsLint, TsTestPaths, TsManifest and NpmStore actions |
+| | `lcov_merger` | `File` | `ts_test`'s coverage merger, run through `//ts/toolchain:lcov_merger_resolved` |
+| | `copy_to_workspace` | `File` | The copier `ts_refresh_tsconfig` writes the source tree with |
+| `LauncherInfo` | `launcher` | `File` | The launcher a `ts_test`, `ts_binary`, `ts_dev_server` or `npm_bin` executable is a symlink of |
 | `JsRuntimeInfo` | `runtime_binary` | `File` | The runtime executable: node, or a Deno, Bun or wrapper a consumer registers |
 | | `runtime_name` | `string` | The name diagnostics use; `"node"` for the shipped toolchains |
 | | `args_prefix` | `list of string` | Arguments placed before the entry script |
@@ -263,18 +275,24 @@ my_rule = rule(
 )
 ```
 
-`get_oxc_toolchain` and `get_tsgo_toolchain` index `ctx.toolchains` directly, so
-a rule listing either type as mandatory fails toolchain resolution when nothing
-registers one. `get_js_runtime` and `get_js_tool` return `None` for a type
-declared with `mandatory = False` that nothing registered; `ts_compile` declares
-tsgo and the JS tool that way, and oxc as mandatory.
+`get_oxc_toolchain`, `get_tsgo_toolchain` and `get_tools_toolchain` index
+`ctx.toolchains` directly, so a rule listing any of the three types as mandatory
+fails toolchain resolution when nothing registers one. `get_js_runtime`,
+`get_js_tool` and `get_launcher_toolchain` return `None` for a type declared
+with `mandatory = False` that nothing registered; `ts_compile` declares tsgo and
+the JS tool that way, and oxc and the tools as mandatory; the four rules that
+run a launcher declare it that way and fail analysis naming the target platform
+when none resolved.
 
 `register_toolchains("@rules_typescript//ts/toolchain:all")` registers every
 instance: one oxc toolchain, built from source by rules_rust for whichever exec
 platform runs the build; one tsgo toolchain per platform in `TSGO_PLATFORMS`,
-constrained on the exec platform; one Node runtime toolchain per platform in
-`NODE_PLATFORMS`, constrained on the target platform; and one Node tool
-toolchain per platform, constrained on the exec platform.
+constrained on the exec platform; one tools toolchain and one launcher
+toolchain per platform in `TSGO_PLATFORMS` over the binaries of the tools
+release `ts/private/tools_lock.bzl` names, the tools constrained on the exec
+platform and the launcher on the target platform; one Node runtime toolchain
+per platform in `NODE_PLATFORMS`, constrained on the target platform; and one
+Node tool toolchain per platform, constrained on the exec platform.
 
 Which compiler the tsgo toolchains hold is the `ts` extension's to say, and it
 reads a pnpm lockfile: the root importer's `typescript` entry names the version,

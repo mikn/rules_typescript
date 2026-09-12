@@ -35,7 +35,7 @@ release, production users and Windows support. This has none of the three.
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
 | **pnpm** | System install required | Hermetic, always downloaded ([hermetic pnpm](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
-| **BCR** | Published, stable | Not published; no tag or release either, so consumers pin a commit |
+| **BCR** | Published, stable | Not published; no module release either (the `tools-v1` tag releases the Go tools alone), so consumers pin a commit |
 | **Production users** | Many companies | None yet |
 | **Windows** | Supported | Not supported |
 
@@ -109,9 +109,11 @@ There is no `rules_js`: the ruleset reads `pnpm-lock.yaml` itself, declares
 one Bazel repository per package behind a `@npm` alias hub, and builds pnpm's
 virtual store from them as Bazel artifacts.
 That is fewer moving parts in the JS layer and a larger dependency chain overall.
-Oxc is Rust, so `rules_rust` and a Rust toolchain come along; Gazelle is Go, so
-`rules_go`, `gazelle` and a Go SDK do too. The first build pays for both
-toolchains. `rules_ts` needs neither.
+Oxc is Rust, so `rules_rust` and a Rust toolchain come along, and the first
+build pays for it. The ruleset's Go tools arrive as the binaries of its tools
+release; Gazelle is the one Go a consumer compiles, under `bazel run
+//:gazelle` alone, which is when `rules_go`'s SDK is fetched. `rules_ts` needs
+neither toolchain.
 
 ### Gazelle
 
@@ -120,7 +122,8 @@ from tsgo's own listing of the program, and no directive of its own. `rules_ts` 
 
 ### System Prerequisites
 
-Bazelisk is the only one. Node.js, Go and Rust are downloaded hermetically. pnpm
+Bazelisk is the only one. Node.js, Rust, the Go tools and, for Gazelle, a Go
+SDK are downloaded hermetically. pnpm
 can be too, in [two lines of setup](../guides/npm.md#hermetic-pnpm), and is
 needed only to edit the lockfile, never to build or test. The first lockfile is
 the exception: the extension reads `pnpm-lock.yaml` while `MODULE.bazel` is

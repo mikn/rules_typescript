@@ -133,7 +133,12 @@ Usage:
     #   ibazel run //app:dev
 """
 
-load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
+load(
+    "//tools/launcher:launcher.bzl",
+    "LAUNCHER_TOOLCHAINS",
+    "declare_launcher",
+    "rlocation_path",
+)
 load("//ts/private:node_modules.bzl", "runfiles_dir")
 load("//ts/private:providers.bzl", "DevServerInfo", "NodeModulesInfo", "TsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
@@ -673,10 +678,11 @@ def _ts_dev_server_impl(ctx):
 ts_dev_server = rule(
     implementation = _ts_dev_server_impl,
     executable = True,
-    toolchains = [
+    fragments = ["platform"],
+    toolchains = LAUNCHER_TOOLCHAINS + [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    attrs = LAUNCHER_ATTRS | {
+    attrs = {
         "entry_point": attr.label(
             doc = "The ts_compile target that is the application entry point.",
             providers = [TsInfo],

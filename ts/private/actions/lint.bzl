@@ -6,6 +6,8 @@ names, and compile_program runs TsLint over the program's sources when it
 names a binary. docs/guides/lint.md is the reference.
 """
 
+load("//ts/private:toolchain.bzl", "get_tools_toolchain")
+
 LintConfigInfo = provider(
     doc = "What //ts:lint resolves to: the linter every compile runs.",
     fields = {
@@ -107,7 +109,7 @@ def lint_action(ctx, lint, srcs):
         inputs = inputs,
         tools = [lint.binary],
         outputs = [stamp],
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["stamp", args],
         env = {"PATH": "/bin:/usr/bin"},
         mnemonic = "TsLint",

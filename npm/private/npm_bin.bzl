@@ -17,7 +17,12 @@ Users can then:
     bazel run @npm//:vitest_bin -- --version
 """
 
-load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
+load(
+    "//tools/launcher:launcher.bzl",
+    "LAUNCHER_TOOLCHAINS",
+    "declare_launcher",
+    "rlocation_path",
+)
 load("//ts/private:providers.bzl", "NpmPackageInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 
@@ -117,7 +122,8 @@ def _npm_bin_impl(ctx):
 npm_bin = rule(
     implementation = _npm_bin_impl,
     executable = True,
-    attrs = LAUNCHER_ATTRS | {
+    fragments = ["platform"],
+    attrs = {
         "package_files": attr.label_list(
             doc = "All files in the npm package directory (from the ts_npm_package target).",
             allow_files = True,
@@ -141,7 +147,7 @@ npm_bin = rule(
             cfg = "exec",
         ),
     },
-    toolchains = [
+    toolchains = LAUNCHER_TOOLCHAINS + [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
     doc = """Exposes an npm package's bin script as an executable Bazel target.

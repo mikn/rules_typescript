@@ -10,7 +10,12 @@ after `--`. `TS_LAUNCHER_DUMP_CONFIG=1 bazel run //target` prints what it
 would exec.
 """
 
-load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
+load(
+    "//tools/launcher:launcher.bzl",
+    "LAUNCHER_TOOLCHAINS",
+    "declare_launcher",
+    "rlocation_path",
+)
 load("//ts/private:bundle_action.bzl", "create_bundle_action")
 load("//ts/private:node_modules.bzl", "runfiles_dir")
 load(
@@ -202,10 +207,11 @@ def _ts_binary_impl(ctx):
 ts_binary = rule(
     implementation = _ts_binary_impl,
     executable = True,
-    toolchains = [
+    fragments = ["platform"],
+    toolchains = LAUNCHER_TOOLCHAINS + [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    attrs = LAUNCHER_ATTRS | {
+    attrs = {
         "entry_point": attr.label(
             doc = "The ts_compile target whose output is the binary entry point, or a single .js/.mjs/.cjs source file to run as-is.",
             allow_files = True,

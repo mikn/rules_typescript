@@ -64,6 +64,7 @@ bzl_library(
         ":node_modules",
         ":providers",
         ":runtime",
+        ":toolchain",
     ],
 )
 
@@ -74,6 +75,7 @@ bzl_library(
         ":node_modules",
         ":providers",
         ":runtime",
+        ":toolchain",
     ],
 )
 
@@ -131,6 +133,12 @@ bzl_library(
     srcs = ["tsconfig_aspect.bzl"],
     deps = [
         ":providers",
+        ":toolchain",
         "@bazel_skylib//rules:diff_test",
     ],
+)
+
+bzl_library(
+    name = "tools_lock",
+    srcs = ["tools_lock.bzl"],
 )

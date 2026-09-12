@@ -31,8 +31,9 @@ toolchains for every tool but no CI coverage.
 ### musl
 
 Only glibc linux is supported. `NODE_PLATFORMS` (`ts/private/runtime.bzl`),
-`TSGO_PLATFORMS` (`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS`
-(`ts/private/pnpm.bzl`) enumerate the platform vocabulary, all glibc, and
+`TSGO_PLATFORMS` (`ts/private/toolchain.bzl`: the compiler packages and the
+tools release) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`) enumerate the
+platform vocabulary, all glibc, and
 `//platforms` has no musl key. Node.js publishes no official musl tarball, so
 there is nothing to register.
 
@@ -54,7 +55,9 @@ which Windows grants only with the symlink privilege the dev server's anchor
 already requires.
 
 Support would take a Windows entry in `TSGO_PLATFORMS`
-(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`).
+(`ts/private/toolchain.bzl`), a Windows asset in the tools release
+(`tools/ci/check_tools_lock.sh` builds one per entry) and a Windows entry in
+`_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`).
 oxc needs no entry: `oxc-bazel` is built from source by
 rules_rust for whichever exec platform the build runs on, so one toolchain
 covers every platform. None of this has been run on Windows, so any estimate of
@@ -115,8 +118,9 @@ The one place a generated config is known to be version-sensitive:
 ## Versioning Policy
 
 This project follows [Semantic Versioning 2.0.0](https://semver.org/) from 1.0
-onward. Nothing has shipped yet: `MODULE.bazel` reads 0.2.0, but there is no
-tag, no release and no Bazel Central Registry entry, and consumers pin a commit.
+onward. No module release has shipped: `MODULE.bazel` reads 0.2.0, but there
+is no `v*` tag and no Bazel Central Registry entry, and consumers pin a commit;
+the `tools-v1` tag releases the Go tools' binaries alone.
 
 **Pre-1.0 (current):** any commit may break the API, with no deprecation
 window and no compatibility shim. Breaks are listed in
@@ -147,8 +151,9 @@ Breaks get a changelog entry with the required edit.
   label surface (`@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`)
 - The `ts` module extension (`ts.tsgo`, `ts.lint`) and the `//ts:lint` label
   flag it sets
-- `//ts/toolchain:all` as the registration target, and the four toolchain types
-  it registers (`oxc_toolchain_type`, `tsgo_toolchain_type`, `js_runtime_type`,
+- `//ts/toolchain:all` as the registration target, and the six toolchain types
+  it registers (`oxc_toolchain_type`, `tsgo_toolchain_type`,
+  `tools_toolchain_type`, `launcher_toolchain_type`, `js_runtime_type`,
   `js_tool_type`)
 - Gazelle `ts_compile`, `ts_test` and `ts_config` generation. The extension
   declares no directive of its own; `# keep`, `# gazelle:exclude` and

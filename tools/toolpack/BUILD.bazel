@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "toolpack",
+    srcs = ["pack.go"],
+    importpath = "github.com/mikn/rules_typescript/tools/toolpack",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "toolpack_test",
+    size = "small",
+    srcs = ["pack_test.go"],
+    embed = [":toolpack"],
+)

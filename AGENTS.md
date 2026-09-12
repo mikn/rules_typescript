@@ -119,7 +119,11 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/private/tsgo_lock.bzl` — which compiler a pnpm lockfile pins, the reader behind `ts.tsgo(pnpm_lock = ...)`; `ts/private/tsgo/pnpm-lock.yaml` is the default
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
-- `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
+- `ts/toolchain/BUILD.bazel` — the six toolchain types and their instances;
+  `//ts/toolchain:all`; `ts/private/tools_lock.bzl` names the tools release the
+  tools and launcher instances download, and `//ts/tools/tsaction:
+  source_toolchain` and `//tools/launcher:all` are the source-built instances
+  this workspace registers first
 - `ts/private/rules/ts_test.bzl` — the `ts_test` rule over `TS_COMPILE_ATTRS`
   and the test attributes; `ts/private/rules/runners.bzl` — the two runner
   targets under `//ts/runners`, `vitest` and `node_test`, each providing

@@ -1,9 +1,10 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
-
-# //tests/api_surface:ts_test_attrs_test reads LAUNCHER_ATTRS out of it.
-exports_files(
-    ["launcher.bzl"],
-    visibility = ["//tests/api_surface:__pkg__"],
+load("//platforms:platforms.bzl", "constraints")
+load(
+    "//ts/private:toolchain.bzl",
+    "LAUNCHER_TOOLCHAIN_TYPE",
+    "TSGO_PLATFORMS",
+    "launcher_toolchain",
 )
 
 go_library(
@@ -47,3 +48,21 @@ go_test(
     embed = [":launcher"],
     deps = ["@rules_go//go/runfiles"],
 )
+
+# The launcher built from this tree, one toolchain per platform the release
+# covers; this workspace registers them as //tools/launcher:all.
+launcher_toolchain(
+    name = "source_launcher",
+    launcher = ":ts_launcher",
+)
+
+[
+    toolchain(
+        name = "source_toolchain_" + platform,
+        target_compatible_with = constraints(platform),
+        toolchain = ":source_launcher",
+        toolchain_type = LAUNCHER_TOOLCHAIN_TYPE,
+        visibility = ["//visibility:public"],
+    )
+    for platform in TSGO_PLATFORMS
+]

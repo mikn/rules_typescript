@@ -1,9 +1,5 @@
-// Command release cuts a rules_typescript release: bump the module version,
-// commit, tag, and (optionally) push.
-//
-// Everything downstream of the tag — tarball, GitHub release, BCR PR — is
-// .github/workflows/release.yml. Building a tarball here would produce a
-// different archive than the published one, and so a wrong integrity hash.
+// Command release tags a module release (v<version>, after bumping
+// MODULE.bazel) or a tools release (tools-v<N>); release.yml does the rest.
 package main
 
 import (
@@ -18,10 +14,13 @@ import (
 )
 
 var (
-	semver     = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._]+)?$`)
-	moduleName = regexp.MustCompile(`(?m)^\s*name = "rules_typescript",`)
-	versionKV  = regexp.MustCompile(`^(\s*version = ")([^"]*)(",?)$`)
+	semver       = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._]+)?$`)
+	moduleName   = regexp.MustCompile(`(?m)^\s*name = "rules_typescript",`)
+	versionKV    = regexp.MustCompile(`^(\s*version = ")([^"]*)(",?)$`)
+	toolsVersion = regexp.MustCompile(`(?m)^TOOLS_VERSION = "([0-9]+)"$`)
 )
+
+const toolsLock = "ts/private/tools_lock.bzl"
 
 type repo struct {
 	dir    string
@@ -43,14 +42,21 @@ func run(args []string) error {
 	remote := fs.String("remote", "origin", "remote to push the tag to")
 	fs.Usage = func() {
 		fmt.Println(`bazel run //tools/release -- <version> [flags]
+bazel run //tools/release -- tools <N> [flags]
 
 Bumps module(version) in MODULE.bazel, commits it, and creates the annotated
 tag v<version>. Pushing that tag runs .github/workflows/release.yml, which
 builds the tarball with git archive, publishes the GitHub release, and opens
 the PR that fills in .bcr/source.json.
 
+"tools <N>" creates the annotated tag tools-v<N> on HEAD, the N that
+ts/private/tools_lock.bzl names; pushing it runs the workflow's tools job,
+which builds the four assets, asserts their SRIs against the table and
+attaches them to the tools-v<N> release.
+
   bazel run //tools/release -- 0.2.0 --dry-run
   bazel run //tools/release -- 0.2.0 --push
+  bazel run //tools/release -- tools 1 --push
 
 Flags:`)
 		fs.PrintDefaults()
@@ -71,9 +77,13 @@ Flags:`)
 		positional = append(positional, fs.Arg(0))
 		rest = fs.Args()[1:]
 	}
+	if len(positional) == 2 && positional[0] == "tools" {
+		return runTools(positional[1], *dryRun, *push, *remote)
+	}
 	if len(positional) != 1 {
 		fs.Usage()
-		return errors.New("expected exactly one version argument, e.g. 0.2.0")
+		return errors.New("expected exactly one version argument, e.g. 0.2.0, " +
+			"or `tools <N>`")
 	}
 
 	version := positional[0]
@@ -98,10 +108,8 @@ Flags:`)
 	} else if strings.TrimSpace(out) != "" {
 		return fmt.Errorf("tag %s already exists.\nDid you mean the next patch version? Check `git tag --list`", tag)
 	}
-	if out, err := r.git("status", "--porcelain", "--untracked-files=no"); err != nil {
+	if err := r.requireClean(); err != nil {
 		return err
-	} else if strings.TrimSpace(out) != "" {
-		return fmt.Errorf("working tree has uncommitted changes:\n%s\nCommit or stash them first", out)
 	}
 
 	modulePath := filepath.Join(root, "MODULE.bazel")
@@ -142,11 +150,7 @@ Flags:`)
 
 	fmt.Println()
 	if *push {
-		if err := r.gitWrite("push", *remote, tag); err != nil {
-			return err
-		}
-		fmt.Printf("Pushed %s. Watch the release: gh run list --workflow=release.yml\n", tag)
-		return nil
+		return r.pushTag(*remote, tag)
 	}
 	fmt.Printf(`Nothing has been pushed. To publish:
 
@@ -156,6 +160,71 @@ That starts .github/workflows/release.yml: tarball, GitHub release, and the
 .bcr/source.json PR. To undo instead: git tag -d %s && git reset --hard HEAD~1
 `, *remote, tag, tag)
 	return nil
+}
+
+func runTools(n string, dryRun, push bool, remote string) error {
+	if !toolsVersion.MatchString(`TOOLS_VERSION = "` + n + `"`) {
+		return fmt.Errorf("invalid tools version %q: the N of tools-v<N> is "+
+			"digits, e.g. 1", n)
+	}
+	tag := "tools-v" + n
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	r := &repo{dir: root, dryRun: dryRun}
+	lock, err := os.ReadFile(filepath.Join(root, toolsLock))
+	if err != nil {
+		return err
+	}
+	locked, err := lockedToolsVersion(string(lock))
+	if err != nil {
+		return err
+	}
+	if locked != n {
+		return fmt.Errorf("%s names TOOLS_VERSION %s, not %s: the tag names "+
+			"the table's release", toolsLock, locked, n)
+	}
+	fmt.Printf("Repository: %s\nRelease:    %s\n", root, tag)
+	if dryRun {
+		fmt.Println("Mode:       dry run (nothing is written)")
+	}
+	fmt.Println()
+	if out, err := r.git("tag", "--list", tag); err != nil {
+		return err
+	} else if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("tag %s already exists; a tool change bumps "+
+			"TOOLS_VERSION in %s", tag, toolsLock)
+	}
+	if err := r.requireClean(); err != nil {
+		return err
+	}
+	fmt.Printf("[1/1] tag %s\n", tag)
+	message := "rules_typescript tools " + n
+	if err := r.gitWrite("tag", "-a", tag, "-m", message); err != nil {
+		return err
+	}
+	fmt.Println()
+	if push {
+		return r.pushTag(remote, tag)
+	}
+	fmt.Printf(`Nothing has been pushed. To publish:
+
+  git push %s %s
+
+That starts the tools job of .github/workflows/release.yml: the four assets,
+their SRIs against %s, the tools-v%s release. To undo instead: git tag -d %s
+`, remote, tag, toolsLock, n, tag)
+	return nil
+}
+
+// lockedToolsVersion reads TOOLS_VERSION out of ts/private/tools_lock.bzl.
+func lockedToolsVersion(src string) (string, error) {
+	m := toolsVersion.FindStringSubmatch(src)
+	if m == nil {
+		return "", errors.New(toolsLock + " has no TOOLS_VERSION = \"<N>\" line")
+	}
+	return m[1], nil
 }
 
 // setModuleVersion rewrites the version inside the module() call only. A
@@ -212,6 +281,27 @@ func repoRoot() (string, error) {
 		}
 		dir = parent
 	}
+}
+
+func (r *repo) requireClean() error {
+	out, err := r.git("status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("working tree has uncommitted changes:\n%s\n"+
+			"Commit or stash them first", out)
+	}
+	return nil
+}
+
+func (r *repo) pushTag(remote, tag string) error {
+	if err := r.gitWrite("push", remote, tag); err != nil {
+		return err
+	}
+	fmt.Printf("Pushed %s. Watch the release: "+
+		"gh run list --workflow=release.yml\n", tag)
+	return nil
 }
 
 func (r *repo) git(args ...string) (string, error) {

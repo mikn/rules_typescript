@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//ts/private:toolchain.bzl", "TOOLS_TOOLCHAIN_TYPE", "tools_toolchain")
 
 # gazelle:ignore
 # gazelle:exclude testdata
@@ -41,4 +42,20 @@ go_test(
     ],
     data = glob(["testdata/**"]),
     embed = [":tsaction_lib"],
+)
+
+# The tools built from this tree, registered ahead of //ts/toolchain:all by
+# this workspace and the nested integration workspaces.
+tools_toolchain(
+    name = "source_tools",
+    copy_to_workspace = "//tools/copy_to_workspace",
+    lcov_merger = "//tools/lcov_merger",
+    tsaction = ":tsaction",
+)
+
+toolchain(
+    name = "source_toolchain",
+    toolchain = ":source_tools",
+    toolchain_type = TOOLS_TOOLCHAIN_TYPE,
+    visibility = ["//visibility:public"],
 )

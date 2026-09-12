@@ -16,6 +16,10 @@ look.
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//ts/private:providers.bzl", "TsConfigInfo")
+load(
+    "//ts/private:toolchain.bzl",
+    "TOOLS_TOOLCHAIN_TYPE",
+)
 
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
@@ -576,14 +580,19 @@ def _refresh_workspace_files_impl(ctx):
     manifest = ctx.actions.declare_file(ctx.label.name + ".manifest.json")
     ctx.actions.write(manifest, json.encode(entries))
 
+    tools = ctx.toolchains[TOOLS_TOOLCHAIN_TYPE]
     launcher = ctx.actions.declare_file(ctx.label.name)
-    ctx.actions.symlink(output = launcher, target_file = ctx.executable._copier, is_executable = True)
+    ctx.actions.symlink(
+        output = launcher,
+        target_file = tools.tools_info.copy_to_workspace,
+        is_executable = True,
+    )
 
     return [
         DefaultInfo(
             executable = launcher,
             runfiles = ctx.runfiles(files = inputs + [manifest]).merge(
-                ctx.attr._copier[DefaultInfo].default_runfiles,
+                tools.default.default_runfiles,
             ),
         ),
         RunEnvironmentInfo(environment = {"COPY_TO_WORKSPACE_MANIFEST": _rlocation(ctx, manifest)}),
@@ -601,12 +610,8 @@ each to the destination that provider carries.""",
             allow_empty = False,
             allow_files = True,
         ),
-        "_copier": attr.label(
-            default = "//tools/copy_to_workspace",
-            executable = True,
-            cfg = "exec",
-        ),
     },
+    toolchains = [TOOLS_TOOLCHAIN_TYPE],
     doc = """Copies build outputs into the source tree under `bazel run`.
 
 The copy is all it does: what to write is decided at analysis time, by the rules

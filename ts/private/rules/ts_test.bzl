@@ -11,7 +11,7 @@ launcher config. docs/rules/ts-test.md is the reference.
 
 load(
     "//tools/launcher:launcher.bzl",
-    "LAUNCHER_ATTRS",
+    "LAUNCHER_TOOLCHAINS",
     "declare_launcher",
     "rlocation_path",
 )
@@ -205,16 +205,17 @@ ts_test = rule(
     implementation = _ts_test_impl,
     test = True,
     attrs = dict(
-        TS_COMPILE_ATTRS | _TEST_ATTRS | WORKERS_POOL_ATTRS | LAUNCHER_ATTRS,
-        # The report names the compiled .js and Bazel's manifest the .ts, so
-        # the merger is the rule's; docs/rules/ts-test.md § Coverage.
+        TS_COMPILE_ATTRS | _TEST_ATTRS | WORKERS_POOL_ATTRS,
+        # Bazel reads a test's coverage merger from this attribute; the target
+        # runs the tools toolchain's, docs/rules/ts-test.md § Coverage.
         _lcov_merger = attr.label(
             cfg = "exec",
-            default = Label("//tools/lcov_merger"),
+            default = Label("//ts/toolchain:lcov_merger_resolved"),
             executable = True,
         ),
     ),
-    toolchains = TS_COMPILE_TOOLCHAINS + [
+    fragments = ["platform"],
+    toolchains = TS_COMPILE_TOOLCHAINS + LAUNCHER_TOOLCHAINS + [
         config_common.toolchain_type(
             JS_RUNTIME_TOOLCHAIN_TYPE,
             mandatory = False,

@@ -163,26 +163,62 @@ jobs:
       # Two builds cannot be one action, so this is the one check that stays a
       # sequence of invocations instead of a target. `info bazel-bin` is asked
       # for the output path rather than guessing at the bazel-out layout.
-      - name: Build //tests/smoke:hello twice, from two empty output bases
+      - name: Build //tests/smoke:hello and the four tools twice, from two
+          empty output bases
         run: |
           for base in a b; do
             bazelisk --output_base=/mnt/rules_ts_det/$base \
               build --config=determinism //tests/smoke:hello
             bazelisk --output_base=/mnt/rules_ts_det/$base \
+              build --config=determinism --platforms=//platforms:linux_amd64 \
+              //ts/tools/tsaction //tools/launcher:ts_launcher \
+              //tools/lcov_merger //tools/copy_to_workspace
+            bazelisk --output_base=/mnt/rules_ts_det/$base \
               info bazel-bin > /mnt/rules_ts_det/$base.binpath
           done
 
-      - name: Compare the two outputs byte for byte
+      - name: Compare the outputs byte for byte
         run: |
-          a="$(cat /mnt/rules_ts_det/a.binpath)/tests/smoke/hello.js"
-          b="$(cat /mnt/rules_ts_det/b.binpath)/tests/smoke/hello.js"
-          ls -l -- "$a" "$b"
-          cmp -- "$a" "$b"
-          sha256sum -- "$a"
+          for rel in tests/smoke/hello.js ts/tools/tsaction/tsaction_/tsaction \
+              tools/launcher/ts_launcher_/ts_launcher \
+              tools/lcov_merger/lcov_merger_/lcov_merger \
+              tools/copy_to_workspace/copy_to_workspace_/copy_to_workspace; do
+            a="$(cat /mnt/rules_ts_det/a.binpath)/$rel"
+            b="$(cat /mnt/rules_ts_det/b.binpath)/$rel"
+            ls -l -- "$a" "$b"
+            cmp -- "$a" "$b"
+            sha256sum -- "$a"
+          done
           echo "Build is bit-for-bit reproducible."
 
+  # The tools release's assets, built from this tree with release.yml's
+  # command line: the SRIs must be the table's, and the table's tag must be
+  # the tree's sources. Both stay red on a PR that changes a tool until the
+  # owner pushes tools-v<N> from its head (docs/RELEASE_PROCESS.md § Tools).
+  tools:
+    name: Tools Release Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.18.0
+        id: setup
+        with:
+          bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
+
+      - name: The tools' sources are the tagged release's
+        run: tools/ci/check_tools_sources.sh
+
+      - name: The four assets reproduce ts/private/tools_lock.bzl
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: BAZEL=bazelisk tools/ci/check_tools_lock.sh
+
   integration-tests:
-    # 13 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
+    # 14 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
     # once, so this was never serial -- but one runner only has so many cores,
     # which is what kept the lane on the critical path. These legs spread it
     # over two runners.

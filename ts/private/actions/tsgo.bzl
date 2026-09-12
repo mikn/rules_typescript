@@ -18,6 +18,7 @@ its outputs, so it runs when a dependent's compile reads them.
 """
 
 load("//ts/private:providers.bzl", "label_text")
+load("//ts/private:toolchain.bzl", "get_tools_toolchain")
 
 def npm_hub_label(npm_info, package = ""):
     """The hub label a deps list writes for an npm package: the root's
@@ -163,7 +164,7 @@ def tsgo_check(
             [ownership],
         ),
         outputs = [stamp],
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["tsgo", run_args],
         mnemonic = "TsgoCheck",
         progress_message = "TsgoCheck %{label}",
@@ -223,7 +224,7 @@ def tsgo_declare(
             [],
         ),
         outputs = outputs,
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["tsgo", run_args],
         mnemonic = "TsgoDeclare",
         progress_message = "TsgoDeclare %{label}",

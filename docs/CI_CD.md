@@ -323,6 +323,11 @@ input.
   names, and is not a blanket property of every rule.
 - **A release tarball** is `git archive` over a tag, so it is a function of the
   commit.
+- **A tools release asset** is the four Go tools built at the `tools-v<N>` tag
+  with `bazel build --platforms=//platforms:<key>` and packed by
+  `//tools/toolpack`, so it is a function of the commit;
+  `tools/ci/check_tools_lock.sh` rebuilds the four and compares their SRIs with
+  `ts/private/tools_lock.bzl` on every PR and on the tag.
 - **Sandbox isolation** is the sandbox's, with no default shell env; see
   [Environment Variable Leaks](#6-environment-variable-leaks).
 
@@ -352,6 +357,32 @@ one would differ from the published one and carry the wrong integrity hash.
 
 Full walkthrough: [Release Process](RELEASE_PROCESS.md).
 
+### Cutting a Tools Release
+
+```bash
+bazel run //tools/release -- tools 1 --push
+```
+
+Tags `tools-v<N>` on `HEAD`, the `N` `ts/private/tools_lock.bzl` names; the
+`tools` job of `release.yml` builds the four assets, asserts their SRIs are the
+table's, attaches them to the `tools-v<N>` release and attests them. The
+consumers' `@tools_<platform>` repositories download those assets.
+[Release Process § Tools](RELEASE_PROCESS.md#tools) has the PR flow.
+
+## Tools
+
+Three checks hold the tools release to the tree. The `tools` job of `ci.yml`
+runs `tools/ci/check_tools_sources.sh`, `git diff --quiet tools-v<N> HEAD`
+over `ts/tools`, `tools/launcher`, `tools/lcov_merger`,
+`tools/copy_to_workspace` and `tools/toolpack`, so the binaries a consumer
+downloads were built from the sources in the tree it consumes; then
+`tools/ci/check_tools_lock.sh`, the four assets rebuilt with the release job's
+command line and their SRIs compared with the table, its output the lines a PR
+that changes a tool pastes into `ts/private/tools_lock.bzl` after bumping
+`TOOLS_VERSION`. The `determinism` job builds the four binaries from two empty
+output bases and compares them byte for byte. Both `tools` steps are red on
+such a PR until the owner pushes the new tag from its head.
+
 ## BCR (Bazel Central Registry) Publishing
 
 A BCR submission carries three files: `.bcr/metadata.json` (module-level, one
@@ -372,7 +403,8 @@ print a warning and carry on, neither fails the job), prints the manual
 submission checklist, and uploads the three files as a 30-day artifact. Neither
 job opens the pull request against the registry; that is done by hand.
 
-Only `release.yml` runs from a tag push. `publish-to-bcr.yml` triggers on
+Only `release.yml` runs from a tag push: a `v*` tag for a module release, a
+`tools-v*` tag for a tools release. `publish-to-bcr.yml` triggers on
 `workflow_dispatch` and on `release: [published]`, and the release that
 `release.yml` creates does not fire it: GitHub starts no workflow run from an
 event created with the default `GITHUB_TOKEN`, which is what
@@ -528,9 +560,11 @@ The toolchain binaries an executor runs:
 |------|--------|-----------|
 | `oxc-bazel` | Built from Rust source via rules_rust | whichever exec platform the build runs on |
 | `tsgo` | Downloaded npm package | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
+| `tsaction`, `lcov_merger`, `copy_to_workspace` | Downloaded tools release asset; static Go, exec platform | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
+| `ts_launcher` | Downloaded tools release asset; static Go, target platform | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | Node.js | JS runtime toolchain | linux and macOS on x86_64/arm64, Windows on x86_64 |
 
-`oxc-bazel` is compiled on the executor itself, so it matches whatever the worker runs. `tsgo` and Node.js are self-contained downloads. None of the three needs a library the worker does not already have.
+`oxc-bazel` is compiled on the executor itself, so it matches whatever the worker runs. `tsgo`, the tools and Node.js are self-contained downloads. None of them needs a library the worker does not already have.
 
 ### BuildBuddy RBE Setup
 

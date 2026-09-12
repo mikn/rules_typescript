@@ -7,6 +7,7 @@ vitest Config.
 
 load("//tools/launcher:launcher.bzl", "rlocation_path")
 load("//ts/private:providers.bzl", "TsConfigInfo")
+load("//ts/private:toolchain.bzl", "get_tools_toolchain")
 
 _SNAPSHOT_HELPERS = """\
 const snapshotBase = (testPath) => {
@@ -468,7 +469,7 @@ def tsconfig_paths_action(ctx):
     ctx.actions.run(
         inputs = chain,
         outputs = [tsconfig_paths],
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = [
             "paths",
             "-tsconfig=" + ctx.file.tsconfig.path,
