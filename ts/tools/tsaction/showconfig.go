@@ -1,5 +1,5 @@
-// The tsconfig step writes the action's tsconfig from the baseline, the user's
-// file and what `tsgo --showConfig` says they mean; the emit step reads that.
+// The tsconfig step writes the program's tsconfig from the baseline, the user's
+// file and `tsgo --showConfig`; each tsgo run's command line names its emit.
 
 package main
 
@@ -80,17 +80,14 @@ func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 	return &config.CompilerOptions, config.Files, nil
 }
 
-// actionConfig is what the rule knows about one tsgo action and the user's
-// tsconfig cannot: where the sandbox puts things and what this build emits.
+// actionConfig is what the rule knows about one program and the user's
+// tsconfig cannot: where the sandbox puts things and which tool declares it.
 type actionConfig struct {
 	tsgo, project, baseline, out, options string
 	binDir                                string
 	jsx, module                           string
 	typesDeps                             stringList
 	srcs                                  []string
-	emit                                  bool
-	outDir, rootDir                       string
-	declarationMap                        bool
 	isolatedDeclarations                  bool
 	libCheck                              bool
 }
@@ -125,10 +122,6 @@ func writeTsconfig(args []string) error {
 	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written "+
 		"to types when the user's chain sets neither types nor typeRoots "+
 		"(repeatable)")
-	flags.BoolVar(&a.emit, "emit", false, "tsgo emits this target's declarations")
-	flags.StringVar(&a.outDir, "out_dir", "", "where the declarations land, with -emit")
-	flags.StringVar(&a.rootDir, "root_dir", "", "the source root the declarations mirror, with -emit")
-	flags.BoolVar(&a.declarationMap, "declaration_map", false, "emit a .d.ts.map beside every declaration")
 	flags.BoolVar(&a.isolatedDeclarations, "isolated_declarations", false, "oxc emits the declarations, so every export must be annotated")
 	flags.BoolVar(&a.libCheck, "lib_check", false, "check the program's .d.ts closure too")
 	if err := flags.Parse(args); err != nil {
@@ -264,12 +257,16 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	// typeRoots stays unset: a custom one stops tsgo's node_modules walk, and
 	// that walk is where a `types` entry naming a package outside @types resolves.
 	opts := map[string]any{
-		"rootDirs":            []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
-		"declaration":         true,
-		"emitDeclarationOnly": true,
-		"declarationMap":      a.declarationMap,
-		"composite":           false,
-		"incremental":         false,
+		"rootDirs":    []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
+		"rootDir":     relativePath(dir, ""),
+		"composite":   false,
+		"incremental": false,
+		// Off: a chain sets these under the composite turned off above, and the
+		// declare turns them on from its command line (TS5069; null unsets a path).
+		"declaration":         a.isolatedDeclarations,
+		"declarationMap":      false,
+		"emitDeclarationOnly": false,
+		"declarationDir":      nil,
 	}
 	if types != nil {
 		opts["types"] = types
@@ -281,14 +278,6 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		if paths := a.paths(chain, dir); paths != nil {
 			opts["paths"] = paths
 		}
-	}
-	if a.emit {
-		opts["noEmit"] = false
-		opts["noEmitOnError"] = true
-		opts["outDir"] = relativePath(dir, a.outDir)
-		opts["rootDir"] = relativePath(dir, a.rootDir)
-	} else {
-		opts["rootDir"] = relativePath(dir, "")
 	}
 	if a.isolatedDeclarations {
 		opts["isolatedDeclarations"] = true

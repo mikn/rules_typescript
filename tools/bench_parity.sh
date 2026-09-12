@@ -29,6 +29,7 @@ REDO="${REDO:-3}"
 SYSTEM_PROCS="${SYSTEM_PROCS:-}"
 TCK="$(getconf CLK_TCK)"
 TSGO="--@rules_typescript//ts:declarations=tsgo"
+NO_LINT="--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint"
 TYPECHECK=.github/scripts/typecheck.sh
 TYPECHECK_OUTPUTS='packages/agent-sdk/dist web/shared/i18n/compiled
 web/node_modules/.cache/paraglide'
@@ -239,7 +240,7 @@ checkout_cell() {
 
 bazel_cell() {
   local name="$1" run="$2" note="$3" ob="$4" dc="$5" verb="$6"; shift 6
-  local -a flags=("$TSGO" "--disk_cache=$dc" --norun_validations)
+  local -a flags=("$TSGO" "--disk_cache=$dc" "$NO_LINT")
   [ "$verb" = test ] && flags+=(--test_output=errors)
   [ -n "${LOCAL_TEST_JOBS:-}" ] &&
     flags+=("--local_test_jobs=$LOCAL_TEST_JOBS")

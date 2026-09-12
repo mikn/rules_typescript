@@ -169,7 +169,7 @@ are two keys and fail the same way. See
 ## imports files no direct dep provides
 
 ```
-ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
+ERROR: .../src/app/BUILD.bazel:3:11: TsgoCheck //src/app:app failed: (Exit 1)
 tsaction: //src/app:app imports files no direct dep provides:
   src/app/main.ts imports "zod"
     resolved to node_modules/zod/index.d.ts
@@ -312,18 +312,18 @@ Add the annotation Oxc names, or build under the default
 
 ## Type Errors Are Not Failing the Build
 
-Under the default `--//ts:declarations=tsgo` they always do: the `.d.ts` are
-outputs of the type-checking action, so a target with a type error produces
-nothing.
-
-Under `--//ts:declarations=oxc`, type-checking moves into the `_validation` output
-group, off the critical path. Bazel runs those actions during `bazel build` on
-its own, unless `--norun_validations` turns them off; the `.bazelrc` line the
-quickstart writes requests the group explicitly:
+`TsgoCheck` is a validation action on every target, in both
+`--//ts:declarations` modes: Bazel runs it during `bazel build` on its own and
+fails the build on a type error, unless `--norun_validations` turns
+validations off; the `.bazelrc` line the quickstart writes requests the group
+explicitly:
 
 ```
 build --output_groups=+_validation
 ```
+
+Under the default `--//ts:declarations=tsgo` a dependent's build fails a
+second time in `TsgoDeclare`, whose `noEmitOnError` leaves no `.d.ts` behind.
 
 ## Gazelle Generating Wrong Deps
 

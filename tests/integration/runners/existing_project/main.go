@@ -25,8 +25,8 @@ func main() {
 		}
 		it.Pass("src/lib/BUILD.bazel has no declarations attribute (tsgo default)")
 
-		it.MustBazel("build", "//src/lib:all")
-		it.Pass("bazel build //src/lib:all")
+		it.MustBazel("build", "//src/lib:all", "--output_groups=+declarations")
+		it.Pass("bazel build //src/lib:all --output_groups=+declarations")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -46,8 +46,7 @@ func main() {
 			"math.d.ts widened an export to 'unknown' or '{}'")
 		it.Pass("math.d.ts contains no widened exports")
 
-		// Note the absence of --output_groups=+_validation: because the .d.ts are
-		// real outputs of the tsgo action, a type error is a build failure.
+		// TsgoCheck is a validation: Bazel runs it with the build it belongs to.
 		broken, err := it.BazelLog("broken.log", "build", "//src/broken:all")
 		if err == nil {
 			broken.Dump()
@@ -161,8 +160,9 @@ ts_compile(
 )
 `)
 
-	it.MustBazel("build", "//holder:holder", "//chooses:chooses", "//canonical:canonical", "//:toplevel")
-	it.Pass("bazel build //holder //chooses //canonical //:toplevel")
+	it.MustBazel("build", "//holder:holder", "//chooses:chooses",
+		"//canonical:canonical", "//:toplevel", "--output_groups=+declarations")
+	it.Pass("bazel build //holder //chooses //canonical //:toplevel, declarations")
 
 	for _, rel := range []string{
 		"holder/a.d.ts",

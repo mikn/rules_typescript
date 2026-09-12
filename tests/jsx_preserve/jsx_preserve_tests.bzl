@@ -15,9 +15,18 @@ def _declared_outputs_impl(ctx):
     ])
     asserts.equals(
         env,
-        ["view.d.ts", "view.jsx", "view.jsx.map"],
+        ["view.jsx", "view.jsx.map"],
         got,
-        "declared outputs",
+        "the default outputs",
+    )
+    asserts.equals(
+        env,
+        ["view.d.ts"],
+        [
+            f.path[f.path.find(_PKG) + len(_PKG):]
+            for f in target[OutputGroupInfo].declarations.to_list()
+        ],
+        "the declarations output group",
     )
 
     config = [

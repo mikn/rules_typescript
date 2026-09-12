@@ -20,7 +20,9 @@ ts.lint(
 
 Only the root module's call takes effect, and it makes one; a module graph
 with no call lints nothing. The config file is read from another repository,
-so its package exports it: `exports_files(["oxlint.json"])`.
+so its package exports it: `exports_files(["oxlint.json"])`. One build without
+the linter: `--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint`, a
+`lint_config` naming no binary.
 
 ## What Runs
 

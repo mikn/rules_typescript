@@ -59,12 +59,19 @@ ts_compile(
     deps = [":tree"],
 )
 
+filegroup(
+    name = "consumer_declarations",
+    srcs = [":consumer"],
+    output_group = "declarations",
+)
+
 go_test(
     name = "tree_output_test",
     size = "small",
     srcs = ["codegen_tree_test.go"],
     data = [
         ":consumer",
+        ":consumer_declarations",
         ":tree",
     ],
     deps = ["//tests/verify"],

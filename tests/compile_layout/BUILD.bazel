@@ -65,13 +65,27 @@ ts_compile(
     deps = [":with_data"],
 )
 
+filegroup(
+    name = "siblings_declarations",
+    srcs = [":siblings_with_declaration_map"],
+    output_group = "declarations",
+)
+
+filegroup(
+    name = "with_data_declarations",
+    srcs = [":with_data"],
+    output_group = "declarations",
+)
+
 go_test(
     name = "layout_test",
     size = "small",
     srcs = ["layout_test.go"],
     data = [
+        ":siblings_declarations",
         ":siblings_with_declaration_map",
         ":with_data",
+        ":with_data_declarations",
     ],
     deps = ["//tests/verify"],
 )

@@ -16,13 +16,15 @@ and `checkJs` in the tsconfig type-checks them.
 srcs may span a whole subtree. Every output keeps its package-relative path, so
 one target can hold `index.ts` and `nested/helper.ts` together.
 
-The .d.ts output is the compilation boundary artifact: downstream targets
-depend only on .d.ts files, so Bazel's content-based caching means that if a
-dep's .d.ts doesn't change (e.g. because an internal implementation detail
-changed but the public API did not), dependents are not recompiled.
+The .d.ts are the compilation boundary: a dependent's program reads them and
+nothing else of the target, so a change that leaves them byte-identical
+recompiles no dependent. They are TsInfo.declarations and the `declarations`
+output group, never a default output: TsgoDeclare emits them when a dependent
+reads them or the group is requested, and a leaf runs the check alone.
 
-tsgo checks the program -- and emits its declarations under declarations =
-"tsgo" -- against the importer chain `node_modules` names: a direct npm dep is
+tsgo checks every program under --noEmit, TsgoCheck, a validation in the
+_validation output group, against the importer chain `node_modules` names: a
+direct npm dep is
 the link of the nearest importer that declares it, its closure the store trees
 and edge links that link reaches, a `@types/<name>` twin the chain links comes
 with it, a member link target brings the member's tree, and every first-party
@@ -34,13 +36,14 @@ directory, and the outputs of every first-party dep at or above the target's
 package laid over that package's sources -- its declarations, and its
 package.json as built at the package's path -- so the tsconfig's own include
 names the srcs and every import resolves as it does over a pnpm install, the
-package's own name through the nearest manifest included. Under
---//ts:declarations=oxc the check is a
-validation
-action in the _validation output group: it runs during `bazel build` and does
-not block downstream compilation. The linter the root module's ts.lint() names
-runs over the same sources as a second validation action, TsLint. The emit
-reads the same program root when tsgo emits the JavaScript.
+package's own name through the nearest manifest included. The check runs
+during `bazel build` and blocks no dependent; a type error fails the build.
+Under --//ts:declarations=tsgo a second run of the same program, TsgoDeclare,
+emits the .d.ts with the declaration shape on its command line, so the
+written tsconfig carries none and the check runs no declaration transformer.
+The linter the root module's ts.lint() names runs over the same sources as a
+second validation action, TsLint. The emit reads the same program root when
+tsgo emits the JavaScript.
 
 The rule has four attributes: srcs, deps, tsconfig and node_modules. Every
 compiler option is the tsconfig's; the emit knobs are the build flags
@@ -81,7 +84,8 @@ load(
     "npm_hub_entry",
     "npm_hub_label",
     "ownership_manifest",
-    "tsgo_action",
+    "tsgo_check",
+    "tsgo_declare",
 )
 
 _TS_EXTENSIONS = ["ts", "tsx"]
@@ -512,8 +516,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
 
     as_built = [manifest] if manifest else []
     all_outputs = (
-        js_outputs + js_map_outputs + dts_outputs + dts_map_outputs +
-        js_passthrough + data_staged + as_built
+        js_outputs + js_map_outputs + js_passthrough + data_staged + as_built
     )
 
     owners = depset(
@@ -553,7 +556,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     if program_srcs:
         tsgo = tsgo_toolchain_info.tsgo_info
 
-        emit = None
+        declare_root = None
         if tsgo_emits_dts:
             roots = {}
             for src in program_srcs:
@@ -573,7 +576,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                     "it, or build with --//ts:declarations=oxc, which emits " +
                     "nothing from tsgo.",
                 )
-            emit = struct(out_dir = out_base, root_dir = root_list[0])
+            declare_root = root_list[0]
 
         written = tsconfig_action(
             ctx,
@@ -589,8 +592,6 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 for info in direct_npm_infos
                 if info.package_name.startswith("@types/")
             ]),
-            emit = emit,
-            declaration_map = declaration_map,
             isolated_declarations = oxc_emits_dts,
             lib_check = ctx.attr._lib_check[BuildSettingInfo].value,
         )
@@ -646,9 +647,6 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 emit_dts = False,
                 es_modules = True,
             )
-        declaration_outputs = (
-            dts_outputs + dts_map_outputs if tsgo_emits_dts else []
-        )
         ownership = ownership_manifest(
             ctx,
             own = check_srcs + json_srcs,
@@ -660,7 +658,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             ],
             npm_reachable = npm_reachable,
         )
-        stamp = tsgo_action(
+        validation_outputs.append(tsgo_check(
             ctx,
             tsgo = tsgo,
             tsconfig = tsconfig,
@@ -672,10 +670,24 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             dep_dts = dep_dts_depset,
             npm_files = npm_files,
             ownership = ownership,
-            emit_outputs = declaration_outputs,
-        )
-        if stamp:
-            validation_outputs.append(stamp)
+        ))
+        if tsgo_emits_dts:
+            tsgo_declare(
+                ctx,
+                tsgo = tsgo,
+                tsconfig = tsconfig,
+                importers = importers,
+                overlays = sorted(overlays.keys()),
+                manifests = dep_manifests,
+                srcs = program_inputs,
+                chain = tsconfig_chain,
+                dep_dts = dep_dts_depset,
+                npm_files = npm_files,
+                outputs = dts_outputs + dts_map_outputs,
+                out_dir = out_base,
+                root_dir = declare_root,
+                declaration_map = declaration_map,
+            )
 
     lint = ctx.attr._lint[LintConfigInfo]
     if lint.binary and check_srcs:
@@ -731,7 +743,9 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         owners = owners,
     )
 
-    output_groups = {}
+    output_groups = {
+        "declarations": depset(dts_map_outputs, transitive = [direct_dts]),
+    }
 
     # The tsconfig the compiler read, for a test comparing the build's
     # resolution with the editor's; a target with no program generates none.
@@ -766,14 +780,12 @@ def _ts_compile_impl(ctx):
     program = compile_program(ctx, es_twins = True)
 
     # This target's own outputs; a dep's reach a consumer through TsInfo.
-    providers = [
+    return [
         DefaultInfo(files = depset(program.outputs)),
         program.info,
         program.instrumented,
+        OutputGroupInfo(**program.output_groups),
     ]
-    if program.output_groups:
-        providers.append(OutputGroupInfo(**program.output_groups))
-    return providers
 
 TS_COMPILE_ATTRS = {
     "srcs": attr.label_list(
@@ -913,16 +925,19 @@ names them -- and stages every other src -- JavaScript, JSON, anything -- into
 the output tree as-is. Output paths stay relative to the target's package, so
 srcs may span a subtree.
 
-The .d.ts outputs are the compilation boundary: downstream ts_compile targets
-only depend on the .d.ts files, enabling fine-grained Bazel caching.
+The .d.ts are the compilation boundary: a dependent's program reads them and
+nothing else of the target. They are TsInfo.declarations and the
+`declarations` output group, not a default output: a leaf's `bazel build`
+runs the check alone, and the declarations are emitted when a dependent reads
+them or `--output_groups=declarations` asks.
 
---//ts:declarations decides who emits the .d.ts. Under "tsgo" (the default)
-tsgo emits them from the full program and a type error fails the build; under
-"oxc" oxc emits them syntactically, which requires an explicit type on every
-export, and tsgo's check is a validation action in the _validation output group
-that runs concurrently with downstream compilation. --//ts:declaration_map adds
-a .d.ts.map beside each declaration under the tsgo emit; --//ts:lib_check
-checks the program's .d.ts closure too.
+tsgo's check is a validation action in the _validation output group on every
+target: it runs during `bazel build`, fails it on a type error and blocks no
+dependent. --//ts:declarations decides who emits the .d.ts. Under "tsgo" (the
+default) a second tsgo run emits them from the full program; under "oxc" oxc
+emits them syntactically, which requires an explicit type on every export.
+--//ts:declaration_map adds a .d.ts.map beside each declaration under the
+tsgo emit; --//ts:lib_check checks the program's .d.ts closure too.
 
 Compiler options come from the ruleset's baseline and from `tsconfig`, read
 through `tsgo --showConfig`. npm packages reach tsgo through the importer

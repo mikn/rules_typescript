@@ -35,12 +35,18 @@ def _one_declaration_per_module_impl(ctx):
             len(found) == 1 and found[0].is_source,
             "{} is the checked-in file, not tsgo's emit for the JavaScript".format(name),
         )
+    groups = analysistest.target_under_test(env)[OutputGroupInfo]
     generated = [
         f.short_path
-        for f in analysistest.target_under_test(env)[DefaultInfo].files.to_list()
+        for f in groups.declarations.to_list()
         if not f.is_source and f.basename in _CHECKED_IN
     ]
-    asserts.equals(env, [], generated, "no generated twin of a checked-in declaration in the default outputs")
+    asserts.equals(
+        env,
+        [],
+        generated,
+        "no generated twin of a checked-in declaration in the output group",
+    )
     return analysistest.end(env)
 
 one_declaration_per_module_test = analysistest.make(_one_declaration_per_module_impl)

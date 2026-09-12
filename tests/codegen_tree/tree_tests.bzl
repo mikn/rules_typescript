@@ -19,9 +19,9 @@ def _tree_reaches_compile_impl(ctx):
     tsgo = [
         a
         for a in analysistest.target_actions(env)
-        if a.mnemonic in ("TsgoDeclare", "TsgoCheck")
+        if a.mnemonic == "TsgoCheck"
     ]
-    asserts.equals(env, 1, len(tsgo), "one tsgo action")
+    asserts.equals(env, 1, len(tsgo), "one TsgoCheck action")
     if len(trees) != 1 or len(tsgo) != 1:
         return analysistest.end(env)
     tree = trees[0]

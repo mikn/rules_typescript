@@ -260,7 +260,7 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-declaration_map", "-types_dep=node"))
+	mustWriteTsconfig(t, e.tsconfigArgs("-types_dep=node"))
 
 	if got, want := recordedArgs(t, e.argv), []string{"--showConfig", "-p", binDir + "/pkg/pkg.tsconfig.json"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("tsgo ran with %q, want %q", got, want)
@@ -269,9 +269,10 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
   "extends": ["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"],
   "compilerOptions": {
     "composite": false,
-    "declaration": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": true,
+    "declaration": false,
+    "declarationDir": null,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
     "incremental": false,
     "paths": {
       "#lib": ["../../../../base/lib/index.ts", "../base/lib/index.ts"],
@@ -461,23 +462,43 @@ func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	}
 }
 
-func TestTsconfigStep_EmitShape(t *testing.T) {
+// The config turns the declaration emit off and carries no emit shape; the oxc
+// mode's check keeps declaration on, which isolatedDeclarations needs (TS5069).
+func TestTsconfigStep_WritesNoEmitShape(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
+	off := map[string]any{
+		"declaration": false, "declarationMap": false,
+		"emitDeclarationOnly": false, "declarationDir": nil,
+	}
+	unset := []string{"noEmit", "noEmitOnError", "outDir"}
+
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	opts := config["compilerOptions"].(map[string]any)
+	for key, want := range off {
+		if got, ok := opts[key]; !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("compilerOptions.%s = %v (set: %v), want %v", key, got, ok, want)
+		}
+	}
+	for _, key := range unset {
+		if got, ok := opts[key]; ok {
+			t.Errorf("compilerOptions.%s = %v, want unset", key, got)
+		}
+	}
+	if got, want := opts["rootDir"], "../../../.."; got != want {
+		t.Errorf("compilerOptions.rootDir = %v, want the exec root %q", got, want)
+	}
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-jsx=preserve", "-module=nodenext", "-emit", "-out_dir="+binDir+"/pkg",
-		"-root_dir=pkg",
-		"-isolated_declarations", "-lib_check",
+		"-jsx=preserve", "-module=nodenext", "-isolated_declarations", "-lib_check",
 	))
-	opts := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)
+	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	opts = config["compilerOptions"].(map[string]any)
 	for key, want := range map[string]any{
-		"noEmit":               false,
-		"noEmitOnError":        true,
-		"outDir":               ".",
-		"rootDir":              "../../../../pkg",
-		"declarationMap":       false,
+		"declaration":          true,
 		"isolatedDeclarations": true,
 		"skipLibCheck":         false,
+		"emitDeclarationOnly":  false,
 	} {
 		if got := opts[key]; !reflect.DeepEqual(got, want) {
 			t.Errorf("compilerOptions.%s = %v, want %v", key, got, want)

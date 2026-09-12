@@ -53,6 +53,44 @@ def _emit_command_line_impl(ctx):
 
 emit_command_line_test = analysistest.make(_emit_command_line_impl)
 
+def _declare_command_line_impl(ctx):
+    env = analysistest.begin(ctx)
+    declares = [
+        action
+        for action in analysistest.target_actions(env)
+        if action.mnemonic == "TsgoDeclare"
+    ]
+    asserts.equals(env, 1, len(declares), "TsgoDeclare actions")
+    if len(declares) != 1:
+        return analysistest.end(env)
+
+    # The source root, not srcs[0]'s directory; the exec root is "", so "." to
+    # tsgo and never the false a boolean read would make of it.
+    argv = declares[0].argv
+    asserts.equals(
+        env,
+        ctx.attr.root_dir,
+        argv[argv.index("--rootDir") + 1],
+        "--rootDir",
+    )
+    out_dir = argv[argv.index("--outDir") + 1]
+    asserts.true(
+        env,
+        out_dir.endswith("/tests/compiler_options/analysis"),
+        "--outDir is the package's bin directory: " + out_dir,
+    )
+    return analysistest.end(env)
+
+declare_command_line_test = analysistest.make(
+    _declare_command_line_impl,
+    attrs = {
+        "root_dir": attr.string(
+            mandatory = True,
+            doc = "The --rootDir TsgoDeclare passes: the one source root.",
+        ),
+    },
+)
+
 # Restated, not imported: a change to _BASELINE_OPTIONS has to be made here too.
 _BASELINE_KEYS = {
     "strict": True,

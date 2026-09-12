@@ -32,12 +32,12 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 		t.Errorf("allowJs = %v, want true: a JavaScript src is in the program",
 			opts["allowJs"])
 	}
-	if opts["outDir"] != "." {
-		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
+	if got, ok := opts["outDir"]; ok {
+		t.Errorf("outDir = %v, want unset: the declare's --outDir carries it", got)
 	}
 	rootDir, _ := opts["rootDir"].(string)
-	if !strings.HasSuffix(rootDir, "/tests/compiler_options/analysis") {
-		t.Errorf("rootDir = %q, want the package, not a src's directory", rootDir)
+	if !strings.HasPrefix(rootDir, "../") || strings.HasSuffix(rootDir, "/bin") {
+		t.Errorf("rootDir = %q, want the exec root", rootDir)
 	}
 	if _, ok := opts["checkJs"]; ok {
 		t.Errorf("checkJs = %v in the written config; the tsconfig's options stay in the chain", opts["checkJs"])
@@ -58,16 +58,16 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	}
 }
 
-// The exec root is a source root. Read as a boolean it is "no root dir", and
-// rootDir then points at the bin directory, under which no source sits.
+// The written config's rootDir is the exec root, under which every input sits,
+// and it carries no outDir: the declare's --outDir and --rootDir are its own.
 func TestWrittenConfigForASourceFromTheExecRoot(t *testing.T) {
 	opts := readConfig(t, "from_exec_root").CompilerOptions
 	rootDir, _ := opts["rootDir"].(string)
 	if !strings.HasPrefix(rootDir, "../") || strings.HasSuffix(rootDir, "/bin") {
 		t.Errorf("rootDir = %q, want it to climb out to the exec root", rootDir)
 	}
-	if opts["outDir"] != "." {
-		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
+	if got, ok := opts["outDir"]; ok {
+		t.Errorf("outDir = %v, want unset", got)
 	}
 }
 

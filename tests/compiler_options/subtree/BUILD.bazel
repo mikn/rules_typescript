@@ -25,15 +25,27 @@ ts_compile(
     ],
 )
 
+filegroup(
+    name = "tree_declarations",
+    srcs = [":tree"],
+    output_group = "declarations",
+)
+
 go_test(
     name = "subtree_test",
     size = "small",
     srcs = ["subtree_test.go"],
-    data = [":tree"],
+    data = [
+        ":tree",
+        ":tree_declarations",
+    ],
     deps = ["//tests/verify"],
 )
 
-# //tests/compiler_options/analysis:from_exec_root compiles this file from
-# another package, which is how a src whose source root is the exec root gets
-# into a test target here.
-exports_files(["root.ts"])
+# //tests/compiler_options/analysis:from_exec_root compiles these from another
+# package: srcs whose source root is the exec root.
+exports_files([
+    "nested/deep/leaf.ts",
+    "nested/helper.ts",
+    "root.ts",
+])

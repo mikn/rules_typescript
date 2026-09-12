@@ -18,8 +18,8 @@ def _action(env, mnemonic):
 
 def _chain_impl(ctx):
     env = analysistest.begin(ctx)
-    tsgo = _action(env, "TsgoDeclare") or _action(env, "TsgoCheck")
-    asserts.true(env, tsgo != None, "ts_compile runs no tsgo action")
+    tsgo = _action(env, "TsgoCheck")
+    asserts.true(env, tsgo != None, "ts_compile runs no TsgoCheck")
     if tsgo == None:
         return analysistest.end(env)
     asserts.equals(

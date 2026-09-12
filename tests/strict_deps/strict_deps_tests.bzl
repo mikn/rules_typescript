@@ -13,9 +13,9 @@ def _tsgo_action(env):
     tsgo = [
         a
         for a in analysistest.target_actions(env)
-        if a.mnemonic in ("TsgoDeclare", "TsgoCheck")
+        if a.mnemonic == "TsgoCheck"
     ]
-    asserts.equals(env, 1, len(tsgo), "one tsgo action")
+    asserts.equals(env, 1, len(tsgo), "one TsgoCheck action")
     return tsgo[0] if len(tsgo) == 1 else None
 
 def _manifest_lines(env, tsgo):

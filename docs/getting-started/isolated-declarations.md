@@ -23,20 +23,15 @@ Both modes cache the same way: change `math.ts` without changing its exported
 types and the emitted `.d.ts` is byte-identical, so Bazel skips every downstream
 target.
 
-The mode buys pipelining. Oxc emits a `.d.ts` without a type program,
-so declaration emit never waits for an upstream type-check, and type-checking
-becomes a validation action that nothing blocks on. On a deep dependency chain
-that shortens the critical path substantially:
-
-| Mode | Rebuild wall | Critical path |
-|------|--------------|---------------|
-| `--//ts:declarations=tsgo` (default) | 6.3s | 4.89s |
-| `--//ts:declarations=oxc` | 3.8s | 2.15s |
-
-One machine, `tools/bench_declarations.sh 20 50 3`: 1,000 annotated files across
-20 packages in one linear chain, medians of three interleaved runs. Shallower
-graphs narrow the gap, deeper ones widen it. The script is committed; run it on
-your own graph.
+The mode buys pipelining. Oxc emits a `.d.ts` without a type program, so a
+dependent waits for a per-file transform rather than for `TsgoDeclare`, tsgo's
+declaration emit over the whole upstream program; the type check is a
+validation action nothing blocks on in either mode. On a deep dependency chain
+that shortens the critical path substantially; shallower graphs narrow the gap,
+deeper ones widen it. `tools/bench_declarations.sh 20 50 3` measures it on
+1,000 annotated files across 20 packages in one linear chain
+([Cost of Each Mode](../rules/ts-compile.md#cost-of-each-mode)); run it on your
+own graph.
 
 ## The Requirement
 

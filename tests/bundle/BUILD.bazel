@@ -28,6 +28,15 @@ ts_binary(
     format = "esm",
 )
 
+filegroup(
+    name = "declarations",
+    srcs = [
+        ":app",
+        ":lib",
+    ],
+    output_group = "declarations",
+)
+
 go_test(
     name = "bundle_output_test",
     size = "small",
@@ -35,6 +44,7 @@ go_test(
     data = [
         ":app",
         ":bundle",
+        ":declarations",
         ":lib",
     ],
     deps = ["//tests/verify"],

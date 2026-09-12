@@ -39,7 +39,7 @@ reads the transitive field.
 |---|---|---|
 | `js` | `depset of File` | The `.js` files this target produces: compiled output, plus any JavaScript src staged as-is |
 | `js_maps` | `depset of File` | The `.js.map` beside them |
-| `declarations` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
+| `declarations` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. Emitted when a consumer's compile reads them or `--output_groups=declarations` asks, never as a default output ([Which Tool Emits the Declarations](ts-compile.md#which-tool-emits-the-declarations)). A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
 | `data` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
 | `manifest` | `File or None` | The `package.json` at the package's root as built, every source-file target rewritten to the emitted file, `<name>.package.json`; a dependent's program root lays it at the package's path and the member's store tree copies it there. The src as written is in `data` |
 | `sources` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |

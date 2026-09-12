@@ -48,8 +48,8 @@ func main() {
 			it.Pass("%s/BUILD.bazel generated", dir)
 		}
 
-		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.MustBazel("build", "//...", "--output_groups=+declarations")
+		it.Pass("bazel build //... --output_groups=+declarations")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)

@@ -16,8 +16,8 @@ import (
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
-// runTsgo lays the program root out, runs the command from it and removes it:
-// no directory above a source is an output, so the node_modules walk needs one.
+// runTsgo lays the program root out, runs the command from it (checked against
+// -check when given) and removes it: the node_modules walk needs a root.
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
@@ -35,20 +35,24 @@ func runTsgo(args []string) error {
 		"such a dep's package.json as built, laid at its package's "+
 			"package.json over the src (repeatable)")
 	check := flags.String("check", "",
-		"the ownership manifest the --explainFiles listing is checked against")
+		"the ownership manifest the --explainFiles listing is checked against; "+
+			"without it the run's output is relayed and nothing is parsed")
 	stamp := flags.String("stamp", "", "file to create when tsgo exits 0")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	cmdline := flags.Args()
-	if *root == "" || *check == "" || len(cmdline) == 0 {
-		return errors.New("tsgo needs -root=DIR, -check=FILE and a command after --")
+	if *root == "" || len(cmdline) == 0 {
+		return errors.New("tsgo needs -root=DIR and a command after --")
 	}
-	own, err := readOwnership(*check)
-	if err != nil {
-		return err
+	var own *ownership
+	if *check != "" {
+		var err error
+		if own, err = readOwnership(*check); err != nil {
+			return err
+		}
 	}
-	err = layOutProgramRoot(*root, sources, importers, overlays, manifests)
+	err := layOutProgramRoot(*root, sources, importers, overlays, manifests)
 	if err != nil {
 		return err
 	}
@@ -59,7 +63,12 @@ func runTsgo(args []string) error {
 		return err
 	}
 	cmdline = append([]string{tool}, cmdline[1:]...)
-	if err := checkedRun(*root, cmdline, own); err != nil {
+	if own == nil {
+		err = runToolIn(*root, os.Stdout, cmdline)
+	} else {
+		err = checkedRun(*root, cmdline, own)
+	}
+	if err != nil {
 		return err
 	}
 	if *stamp == "" {

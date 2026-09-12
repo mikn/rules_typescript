@@ -156,8 +156,8 @@ func main() {
 		}
 		it.Pass("test target set unchanged across a delete-and-regenerate: %d", len(after))
 
-		it.MustBazel("test", "//...")
-		it.Pass("bazel test //... on Gazelle's own output")
+		it.MustBazel("test", "//...", "--output_groups=+declarations")
+		it.Pass("bazel test //... with declarations on Gazelle's own output")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)

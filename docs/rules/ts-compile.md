@@ -1,6 +1,7 @@
 # ts_compile
 
-Compiles TypeScript with Oxc and checks it with tsgo, which emits the `.d.ts`.
+Compiles TypeScript with Oxc and checks it with tsgo, which emits the `.d.ts`
+a dependent reads.
 
 ## Usage
 
@@ -132,13 +133,15 @@ For each source file `foo.ts`:
 |--------|-------------|
 | `foo.js` | Compiled JavaScript ([The Module Format](#the-module-format)) |
 | `foo.js.map` | Source map, under `--//ts:source_map` ([Source and Declaration Maps](#source-and-declaration-maps)) |
-| `foo.d.ts` | Declaration file, the compilation boundary |
+| `foo.d.ts` | Declaration file, the compilation boundary: `TsInfo.declarations` and the `declarations` output group, not a default output ([Which Tool Emits the Declarations](#which-tool-emits-the-declarations)) |
 
 For a `foo.tsx` under `jsx: "preserve"` the first two are `foo.jsx` and
 `foo.jsx.map`, as tsc names them ([below](#a-tsx-under-jsx-preserve)). A
 program tsgo emits has one more, `<name>.es/foo.js`: the ES module a vitest
 test runs in place of `foo.js` ([The Module Format](#the-module-format)),
-in no default output. Every other src is staged at its package-relative path,
+in no default output. `bazel build //pkg:lib` writes the `.js` and runs the
+check; the `.d.ts` is written when a dependent's compile reads it, or with
+`bazel build //pkg:lib --output_groups=declarations`. Every other src is staged at its package-relative path,
 unchanged; a `package.json` at the package's root also gets
 `<name>.package.json`, the manifest as built ([Sources](#sources)).
 
@@ -167,11 +170,15 @@ that pass too. Lowest precedence first:
    against the directory they were written for. Everything it says wins over
    layer 1, so tsgo checks the code under the options `tsc` would.
 3. **The keys Bazel owns**, written last: `rootDirs` bridging the source and
-   output trees, `declaration`, `emitDeclarationOnly`,
-   `declarationMap`, `composite`, `incremental`, `rootDir`; under the tsgo emit
-   `noEmit: false`, `noEmitOnError` and `outDir`; `allowJs`
-   when a src is JavaScript; `isolatedDeclarations` under
-   `--//ts:declarations=oxc`; `skipLibCheck: false` under `--//ts:lib_check`.
+   output trees, `rootDir` (the exec root, which every input is under),
+   `composite` and `incremental` off, and the declaration emit off --
+   `declaration`, `declarationMap`, `emitDeclarationOnly` false,
+   `declarationDir` null -- since a chain sets those under a `composite` this
+   file turns off; `allowJs` when a src is JavaScript; `isolatedDeclarations`
+   under `--//ts:declarations=oxc`, with the `declaration` that option
+   requires; `skipLibCheck: false` under `--//ts:lib_check`. No emit shape:
+   each tsgo run says on its command line what it emits
+   ([Architecture](#architecture)).
    The roots are the tsconfig's own: `files`, `include` and `exclude` are the
    chain's specs, each rewritten from the directory of the chain file that
    set it, a chain naming neither `files` nor `include` getting tsc's default
@@ -270,8 +277,10 @@ error; the type check stays the tsgo action's, in either mode.
 The emit's inputs are the check's for every program -- the srcs, the chain's
 links and store files, the tsconfig chain, the deps' declarations -- since
 which tool emits is decided when the action runs, so an oxc emit waits for
-the store and re-runs when a linked package changes. A CommonJS-shaped program builds the tsgo program twice: once
-for the emit under `--noCheck`, once for the check.
+the store and re-runs when a linked package changes. A CommonJS-shaped program
+builds the tsgo program for the emit under `--noCheck` and again for the
+check, and under the tsgo emit a third time in `TsgoDeclare` when a dependent
+reads its declarations.
 
 A CommonJS program's compiled code has `require`, `exports`, `__dirname` and
 `__filename`, and a named import from a CommonJS dependency is that
@@ -377,9 +386,9 @@ compiled, and is not judged.
 
 ## Deps Have to Be Direct
 
-A source may import only what a **direct** dep provides. The one tsgo action a
-target runs -- `TsgoDeclare`, or `TsgoCheck` under `--//ts:declarations=oxc`
--- runs with `--explainFiles`, and tsaction reads the listing it prints, every
+A source may import only what a **direct** dep provides. `TsgoCheck`, the
+validation every program runs, runs with `--explainFiles`, and tsaction reads
+the listing it prints, every
 file in the program with the edge that brought it in, against an ownership
 manifest the rule writes beside it: the target's own srcs, each first-party
 target in the closure with the files it stages (`TsInfo.owners`), and the
@@ -389,7 +398,7 @@ of the target's own files into a file whose owner is not in `deps` fails the
 action, naming the label:
 
 ```
-ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
+ERROR: .../src/app/BUILD.bazel:3:11: TsgoCheck //src/app:app failed: (Exit 1)
 tsaction: //src/app:app imports files no direct dep provides:
   src/app/main.ts imports "./hidden"
     resolved to bazel-out/k8-fastbuild/bin/src/app/hidden.d.ts
@@ -762,57 +771,59 @@ nor `typeRoots`), or the owning target's file named in `types`.
 
 ## Which Tool Emits the Declarations
 
-The program's `module` decides which tool emits the JavaScript ([The Module
-Format](#the-module-format)); `--//ts:declarations` decides which tool produces
-the `.d.ts`, for every target in the build.
+Every program is checked by `TsgoCheck`, a `--noEmit` run in the `_validation`
+output group: it runs with `bazel build`, fails it on a type error, and no
+dependent waits for it. The `.d.ts` a dependent's compile reads are
+`TsInfo.declarations` and the `declarations` output group, never a default
+output. The program's `module` decides which tool emits the JavaScript ([The
+Module Format](#the-module-format)); `--//ts:declarations` decides which tool
+emits the `.d.ts`, for every target in the build.
 
 ### `--//ts:declarations=tsgo` (default)
 
-tsgo emits declarations from the complete type program: the target's sources,
-every first-party dep's `.d.ts` and the store files the chain reaches.
+`TsgoDeclare` emits declarations from the complete type program -- the
+target's sources, every first-party dep's `.d.ts` and the store files the
+chain reaches -- with `--declaration --emitDeclarationOnly --noEmitOnError` on
+its command line. It runs when a dependent's compile reads the target's
+declarations, or on `bazel build //pkg:lib --output_groups=declarations`; a
+leaf's `bazel build` runs the check alone.
 
 - **No source annotations required.** Inferred export types are fine.
 - **Declarations are exactly what `tsc` would emit**, including inferred object
   shapes, literal unions and `RegExp`.
-- **Type errors fail `bazel build`.** The `.d.ts` are real outputs of the tsgo
-  action, so a target with a type error produces nothing. No
-  `--output_groups=+_validation` needed.
-- **Type-checking is on the critical path.** A consumer waits for its
-  dependency's declarations.
+- **A type error fails the build** in the check, and again in the declare,
+  whose `noEmitOnError` leaves no `.d.ts` behind.
+- **A dependent waits for the declaration emit**, the declaration transformer
+  over the whole program, and never for the check. The written tsconfig turns
+  `declaration` off, so the check runs no transformer, and declaration
+  diagnostics (`TS4xxx`) surface in the declare, where the declarations are
+  emitted.
 
 ### `--//ts:declarations=oxc`
 
-Oxc emits declarations syntactically, per file, with no type program -- tsgo's
-isolated-declarations emit does the same for a CommonJS-shaped program. This
-requires [isolated declarations](../getting-started/isolated-declarations.md):
-every export needs an explicit type, and the emitter **errors** when one does
-not have one. Type-checking moves into the `_validation` output group, off the
-critical path, so downstream targets compile while checking runs concurrently.
+Oxc emits declarations syntactically, per file, with no type program, beside
+the `.js` in `TsEmit` -- tsgo's isolated-declarations emit does the same for a
+CommonJS-shaped program. This requires
+[isolated declarations](../getting-started/isolated-declarations.md): every
+export needs an explicit type, and the emitter **errors** when one does not
+have one. The check keeps `isolatedDeclarations`, with the `declaration` that
+option requires, so tsgo reports the same rule and the declaration diagnostics
+in the check. A dependent waits for Oxc's per-file transform alone.
 
 Set it in `.bazelrc` once every package's exports are annotated.
 
 ## Cost of Each Mode
 
-Measured with:
+`tools/bench_declarations.sh 20 50 3` rebuilds 1,000 annotated files across
+20 packages in one linear dependency chain under each mode, three interleaved
+runs, and prints the wall and Bazel's critical path per run.
 
-```bash
-tools/bench_declarations.sh 20 50 3
-```
-
-1,000 annotated files across 20 packages in one linear dependency chain,
-medians of three interleaved runs:
-
-| Mode | Rebuild wall | Critical path |
-|------|--------------|---------------|
-| `--//ts:declarations=tsgo` | 6.3s | 4.89s |
-| `--//ts:declarations=oxc` | 3.8s | 2.15s |
-
-The benchmark's programs are ES modules, so tsgo runs once per target in
-both modes and the gap is serialisation. Under `oxc`
-the check is a validation action nothing waits for, and the critical path is
-Oxc's per-file transform; under `tsgo` each of the 20 links waits for its
-dependency's declarations. The gap shrinks on shallower graphs and widens on
-deeper ones.
+The benchmark's programs are ES modules, so Oxc emits the JavaScript and
+`TsgoCheck` validates every package in both modes; the gap is the declaration
+emit on the critical path. Under `tsgo` each of the 20 links waits for its
+dependency's `TsgoDeclare`, the declaration transformer over the whole
+program; under `oxc` it waits for Oxc's per-file transform. The gap shrinks on
+shallower graphs and widens on deeper ones.
 
 ## Providers
 
@@ -825,19 +836,23 @@ The fields, and the load path, are in
   the transitive `.js` set; `ts_test`, `ts_binary` and `ts_dev_server` stage
   `transitive_data` beside the `.js`; a downstream `ts_compile` type-checks
   against `transitive_declarations` and stages `npm_files`
+- **`OutputGroupInfo(declarations=...)`**: `TsInfo.declarations` as an output
+  group, with the `.d.ts.map` under `--//ts:declaration_map`: what
+  `bazel build --output_groups=declarations` and a
+  `filegroup(output_group = "declarations")` request
 - **`OutputGroupInfo(tsconfig=...)`**: the tsconfig this target handed the
   compiler, on any target with a program
-- **`OutputGroupInfo(_validation=...)`**: the tsgo check stamp, written only
-  under `--//ts:declarations=oxc` (under the default the declarations are the
-  tsgo action's own outputs), and the `TsLint` stamp when the root module's
-  `ts.lint()` names a linter ([Lint](../guides/lint.md)).
+- **`OutputGroupInfo(_validation=...)`**: the `TsgoCheck` stamp on every target
+  with a program, and the `TsLint` stamp when the root module's `ts.lint()`
+  names a linter ([Lint](../guides/lint.md)).
 
 ## Architecture
 
 Three actions per target, each a function in `ts/private/actions/` --
-`tsconfig.bzl`, `emit.bzl`, `tsgo.bzl` -- and a fourth, `lint.bzl`'s
-`TsLint`, when the root module's
-`ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule in
+`tsconfig.bzl`'s `TsConfig`, `emit.bzl`'s `TsEmit`, `tsgo.bzl`'s `TsgoCheck`
+-- a fourth from `tsgo.bzl` under `--//ts:declarations=tsgo`, `TsgoDeclare`,
+and a fifth, `lint.bzl`'s `TsLint`, when the root module's `ts.lint()` names a
+linter ([Lint](../guides/lint.md)); the rule in
 `ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
 order and builds the providers.
 
@@ -857,15 +872,16 @@ For a CommonJS-shaped program it runs `tsgo --noCheck` from the program root
 below, with the emit shape on the command line, and moves the outputs into
 place, each map's `sources` resolved to exec-root paths.
 
-tsgo runs from the program root, with `--project` on the written tsconfig and
-`--explainFiles`; tsaction reads the listing against the ownership manifest
-([Deps Have to Be Direct](#deps-have-to-be-direct)).
-Under `--//ts:declarations=tsgo` that tsconfig sets `declaration`,
-`emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
-beside the `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`
-and writes only a stamp (mnemonic `TsgoCheck`); `rootDir` is the exec root
-there, which every input is under, since tsgo checks the program against it
-even when nothing is emitted (`TS6059`).
+tsgo runs from the program root, with `--project` on the written tsconfig.
+`TsgoCheck` adds `--noEmit` and `--explainFiles`; tsaction reads the listing
+against the ownership manifest
+([Deps Have to Be Direct](#deps-have-to-be-direct)) and writes a stamp for
+`_validation`. `rootDir` in that tsconfig is the exec root, which every input
+is under, since tsgo checks the program against it even when nothing is
+emitted (`TS6059`). Under `--//ts:declarations=tsgo` `TsgoDeclare` runs the
+same program with `--declaration --emitDeclarationOnly --noEmit false
+--noEmitOnError --outDir --rootDir` on its command line, its outputs the
+`.d.ts` beside the `.js`, and it runs when those are requested.
 
 ## Output Paths
 

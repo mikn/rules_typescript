@@ -27,7 +27,7 @@ ts_compile(
 )
 
 # The same chain under --//ts:declarations=oxc, where the Bazel-owned options
-# are isolatedDeclarations and composite instead of outDir / rootDir / noEmit.
+# add isolatedDeclarations and the declaration it requires.
 ts_compile(
     name = "loose_check_only",
     srcs = ["loose_check_only.ts"],
@@ -84,8 +84,8 @@ build_test(
     ],
 )
 
-# An option the tsconfig turns on has to survive the extends chain: the ruleset
-# owns emitDeclarationOnly, which is the other half of what TS5097 needs.
+# An option the tsconfig turns on has to survive the extends chain: TS5097 needs
+# noEmit or emitDeclarationOnly beside it, the check's and the declare's flags.
 ts_config(
     name = "ts_extensions_tsconfig",
     src = "ts_extensions.tsconfig.json",

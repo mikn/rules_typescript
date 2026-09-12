@@ -75,6 +75,12 @@ member_view_test(
                         "node_modules/preserve-view",
 )
 
+filegroup(
+    name = "view_declarations",
+    srcs = [":view"],
+    output_group = "declarations",
+)
+
 go_test(
     name = "jsx_preserve_output_test",
     size = "small",
@@ -82,6 +88,7 @@ go_test(
     data = [
         ":uses_view",
         ":view",
+        ":view_declarations",
     ],
     deps = ["//tests/verify"],
 )

@@ -27,6 +27,7 @@ load(
     ":analysis_tests.bzl",
     "baseline_file_test",
     "declaration_map_without_tsgo_test",
+    "declare_command_line_test",
     "emit_command_line_test",
     "jsx_source_test",
     "mixed_source_roots_test",
@@ -48,6 +49,12 @@ ts_compile(
 
 emit_command_line_test(
     name = "emit_command_line_test",
+    target_under_test = ":everything",
+)
+
+declare_command_line_test(
+    name = "declare_command_line_test",
+    root_dir = "tests/compiler_options/analysis",
     target_under_test = ":everything",
 )
 
@@ -91,12 +98,22 @@ build_test(
     targets = [":derived_resolution"],
 )
 
-# A src from another package hangs off the exec root, which is the shape a
+# Srcs from another package hang off the exec root, which is the shape a
 # ts_compile in the top-level package has for all of its srcs.
 ts_compile(
     name = "from_exec_root",
-    srcs = ["//tests/compiler_options/subtree:root.ts"],
+    srcs = [
+        "//tests/compiler_options/subtree:nested/deep/leaf.ts",
+        "//tests/compiler_options/subtree:nested/helper.ts",
+        "//tests/compiler_options/subtree:root.ts",
+    ],
     tags = ["manual"],
+)
+
+declare_command_line_test(
+    name = "declare_from_exec_root_test",
+    root_dir = ".",
+    target_under_test = ":from_exec_root",
 )
 
 # The tsconfig tsaction writes for each, read back after the action ran.

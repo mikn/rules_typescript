@@ -331,16 +331,33 @@ func TestTsgoStep_AFailingTsgoWithNoDiagnosticRelaysItsOutput(t *testing.T) {
 	}
 }
 
-func TestTsgoStep_NeedsTheManifest(t *testing.T) {
-	_, argv := newTsgoExecroot(t, "echo ran\n")
+// Without -check the tool runs from the same root with its output relayed and
+// nothing parsed: the declare's run, which lists no edges and writes no stamp.
+func TestTsgoStep_WithoutCheckRunsTheToolAlone(t *testing.T) {
+	_, argv := newTsgoExecroot(t, "pwd >> \"$0.argv\"\necho declared\n")
+	stdout := captureStdout(t)
 
 	err := runTsgo([]string{"-root=" + programRoot, "-source=pkg/a.ts",
-		"-node_modules=" + rootImporter, "--", "external/tsgo/tsc"})
-	if err == nil || !strings.Contains(err.Error(), "-check=FILE") {
-		t.Errorf("runTsgo without -check = %v, want an error", err)
+		"-node_modules=" + rootImporter, "--", "external/tsgo/tsc",
+		"--project", binDir + "/pkg/app.tsconfig.json", "--emitDeclarationOnly"})
+	if err != nil {
+		t.Fatalf("runTsgo without -check: %v", err)
 	}
-	if _, err := os.Stat(argv); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("tsgo ran without a manifest: stat = %v", err)
+	got := recordedArgs(t, argv)
+	want := []string{
+		"--project", binDir + "/pkg/app.tsconfig.json", "--emitDeclarationOnly",
+	}
+	if !reflect.DeepEqual(got[:3], want) {
+		t.Errorf("tsgo ran with %q, want %q", got[:3], want)
+	}
+	if !strings.HasSuffix(got[3], programRoot) {
+		t.Errorf("tsgo ran in %s, want the program root", got[3])
+	}
+	if out := stdout(); !strings.Contains(out, "declared") {
+		t.Errorf("the tool's output is not relayed:\n%s", out)
+	}
+	if _, err := os.Stat(programRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the program root outlived the action: stat = %v", err)
 	}
 }
 

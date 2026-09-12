@@ -31,12 +31,22 @@ ts_compile(
     ],
 )
 
+filegroup(
+    name = "declarations",
+    srcs = [
+        ":app",
+        ":flavours",
+    ],
+    output_group = "declarations",
+)
+
 go_test(
     name = "js_sources_test",
     size = "small",
     srcs = ["js_sources_test.go"],
     data = [
         ":app",
+        ":declarations",
         ":flavours",
     ],
     deps = ["//tests/verify"],

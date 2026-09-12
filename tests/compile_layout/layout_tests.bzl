@@ -11,33 +11,45 @@ load("//ts:defs.bzl", "TsInfo")
 
 _PKG = "tests/compile_layout"
 
+def _package_relative(f):
+    marker = _PKG + "/"
+    return f.path[f.path.find(marker) + len(marker):]
+
 def _declared_outputs_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
 
-    marker = _PKG + "/"
-    got = sorted([
-        f.path[f.path.find(marker) + len(marker):]
-        for f in target[DefaultInfo].files.to_list()
-    ])
+    asserts.equals(
+        env,
+        [
+            "alpha/one.js",
+            "alpha/one.js.map",
+            "alpha/three.js",
+            "alpha/three.js.map",
+            "beta/deep/two.js",
+            "beta/deep/two.js.map",
+        ],
+        sorted([
+            _package_relative(f)
+            for f in target[DefaultInfo].files.to_list()
+        ]),
+        "the default outputs",
+    )
     asserts.equals(
         env,
         [
             "alpha/one.d.ts",
             "alpha/one.d.ts.map",
-            "alpha/one.js",
-            "alpha/one.js.map",
             "alpha/three.d.ts",
             "alpha/three.d.ts.map",
-            "alpha/three.js",
-            "alpha/three.js.map",
             "beta/deep/two.d.ts",
             "beta/deep/two.d.ts.map",
-            "beta/deep/two.js",
-            "beta/deep/two.js.map",
         ],
-        got,
-        "declared outputs",
+        sorted([
+            _package_relative(f)
+            for f in target[OutputGroupInfo].declarations.to_list()
+        ]),
+        "the declarations output group",
     )
     return analysistest.end(env)
 
@@ -76,10 +88,6 @@ def _emit_root_impl(ctx):
 
 emit_root_test = analysistest.make(_emit_root_impl)
 
-def _package_relative(f):
-    marker = _PKG + "/"
-    return f.path[f.path.find(marker) + len(marker):]
-
 def _action(env, mnemonic):
     for action in analysistest.target_actions(env):
         if action.mnemonic == mnemonic:
@@ -104,7 +112,6 @@ def _data_srcs_impl(ctx):
         [
             "gamma/README.md",
             "gamma/data.json",
-            "gamma/index.d.ts",
             "gamma/index.js",
             "gamma/index.js.map",
             "gamma/logo.svg",
@@ -140,8 +147,8 @@ def _data_srcs_impl(ctx):
 
     # The JSON srcs are tsgo inputs -- an import resolves to data.json, and the
     # manifest decides the module format -- and nothing else among the data is.
-    tsgo = _action(env, "TsgoDeclare") or _action(env, "TsgoCheck")
-    asserts.true(env, tsgo != None, "ts_compile runs no tsgo action")
+    tsgo = _action(env, "TsgoCheck")
+    asserts.true(env, tsgo != None, "ts_compile runs no TsgoCheck")
     if tsgo != None:
         asserts.equals(
             env,
@@ -195,8 +202,8 @@ def _dep_json_inputs_impl(ctx):
 
     # An import of a dep's .json is typed from the file, so it is an input of
     # the consumer's program beside the dep's declarations; other data is not.
-    tsgo = _action(env, "TsgoDeclare") or _action(env, "TsgoCheck")
-    asserts.true(env, tsgo != None, "ts_compile runs no tsgo action")
+    tsgo = _action(env, "TsgoCheck")
+    asserts.true(env, tsgo != None, "ts_compile runs no TsgoCheck")
     if tsgo != None:
         asserts.equals(
             env,
