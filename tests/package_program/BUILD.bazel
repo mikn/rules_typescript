@@ -15,6 +15,7 @@ package(default_visibility = ["//:__pkg__"])
 # gazelle:exclude tsconfig.lib.json
 # gazelle:exclude tsconfig.other.json
 
+# keep
 ts_config(
     name = "tsconfig",
     src = "tsconfig.lib.json",
