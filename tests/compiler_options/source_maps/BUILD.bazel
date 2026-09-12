@@ -48,12 +48,19 @@ ts_under_flags(
     target = ":unmapped",
 )
 
+filegroup(
+    name = "mapped_declarations",
+    srcs = [":mapped_with_declaration_map"],
+    output_group = "declarations",
+)
+
 go_test(
     name = "source_maps_test",
     size = "small",
     srcs = ["source_maps_test.go"],
     data = [
         ":commonjs",
+        ":mapped_declarations",
         ":mapped_with_declaration_map",
         ":unmapped_without_source_map",
     ],

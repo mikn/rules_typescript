@@ -35,6 +35,7 @@ def _vitest_launch(ctx, test):
     written = vitest_config_action(
         ctx,
         test_entry_points = test.entry_points,
+        entry_extensions = test.entry_extensions,
         tsconfig_paths = tsconfig_paths,
         inline_members = test.inline_members,
         overlays = pool.symlinks | twins,

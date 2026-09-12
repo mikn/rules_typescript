@@ -1,14 +1,20 @@
-"""The tsgo action: TsgoDeclare emits the declarations, TsgoCheck a stamp.
+"""The tsgo actions: TsgoCheck validates every program, TsgoDeclare emits.
 
-tsaction runs tsgo from a program root that mirrors the exec root with each
-importer's node_modules at the importer's directory and the outputs of each
+tsaction runs tsgo from a program root holding the action's source inputs at
+their paths and the output tree whole, with each importer's node_modules at
+the importer's directory and the declarations, manifest and data of each
 first-party dep at or above the target's package laid over that package's
-sources, the dep's package.json as built at the package's path, so every bare
-specifier resolves as over pnpm's install, the package's own name included, and
-checks the --explainFiles listing against
-the ownership manifest written here: an edge from one of the target's files
-into a file a label outside deps owns fails the action naming that label
-(docs/rules/ts-compile.md § Deps Have to Be Direct).
+sources -- never the dep's JavaScript, which a program reads through the
+declarations -- the dep's package.json as built at the package's path, so the
+tsconfig's include names the target's srcs and the deps' declarations and
+every bare specifier resolves as over pnpm's install, the package's own name
+included. TsgoCheck runs --noEmit over the written tsconfig, which
+carries no emit shape, and checks the --explainFiles listing against the
+ownership manifest written here: an edge from one of the target's files into
+a file a label outside deps owns fails the action naming that label
+(docs/rules/ts-compile.md § Deps Have to Be Direct). TsgoDeclare runs the
+same program with the declaration emit on its command line and the .d.ts as
+its outputs, so it runs when a dependent's compile reads them.
 """
 
 load("//ts/private:providers.bzl", "label_text")
@@ -39,6 +45,11 @@ def npm_hub_entry(npm_info):
         label = npm_hub_label(npm_info),
         key = npm_info.store.key,
     )
+
+def source_path(file):
+    """A File's path when it is in the source tree, else None: the program
+    root links these one by one and the output tree whole."""
+    return file.path if file.is_source else None
 
 def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
     """Writes <name>.ownership: what an edge may resolve to, by owner.
@@ -72,7 +83,36 @@ def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
     ctx.actions.write(output = manifest, content = lines)
     return manifest
 
-def tsgo_action(
+def _program_args(
+        ctx,
+        root,
+        srcs,
+        chain,
+        dep_dts,
+        importers,
+        overlays,
+        manifests):
+    args = ctx.actions.args()
+    args.use_param_file("@%s", use_always = False)
+    args.set_param_file_format("multiline")
+    args.add("-root={}".format(root))
+    args.add_all(
+        depset(srcs + chain, transitive = [dep_dts]),
+        map_each = source_path,
+        format_each = "-source=%s",
+    )
+    args.add_all(importers, format_each = "-node_modules=%s")
+    args.add_all(overlays, format_each = "-overlay=%s")
+    args.add_all(manifests, format_each = "-manifest=%s")
+    return args
+
+def _program_inputs(tsgo, tsconfig, srcs, chain, dep_dts, npm_files, extra):
+    return depset(
+        srcs + [tsconfig, tsgo.tsgo_binary] + chain + extra,
+        transitive = [dep_dts, npm_files],
+    )
+
+def tsgo_check(
         ctx,
         tsgo,
         tsconfig,
@@ -83,50 +123,108 @@ def tsgo_action(
         chain,
         dep_dts,
         npm_files,
-        ownership,
-        emit_outputs):
-    """Registers the one tsgo run a target makes.
+        ownership):
+    """Registers TsgoCheck, the validation every program runs.
 
     `importers` are the chain's node_modules directories nearest first,
     `overlays` the output directories of the first-party deps at or above the
     target's package, `manifests` those deps' package.json as built, each laid
-    at its package's path, and `npm_files` the store files the program
-    reaches. With `emit_outputs` it
-    is TsgoDeclare and they are its outputs, so a type error fails the build
-    and no stale declaration survives; without, it is TsgoCheck under
-    --noEmit, and the stamp returned is its output, for the _validation
-    group. `ownership` is the manifest the listing is checked against.
+    at its package's path, `npm_files` the store files the program reaches
+    and `ownership` the manifest the listing is checked against. Returns the
+    stamp written when tsgo and the check pass, for the _validation group.
     """
-    stamp = None
-    if not emit_outputs:
-        stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
-    run_args = ctx.actions.args()
-    run_args.add(
-        "-root={}/{}.program".format(tsconfig.dirname, ctx.label.name),
+    stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
+    run_args = _program_args(
+        ctx,
+        "{}/{}.program".format(tsconfig.dirname, ctx.label.name),
+        srcs,
+        chain,
+        dep_dts,
+        importers,
+        overlays,
+        manifests,
     )
-    run_args.add_all(importers, format_each = "-node_modules=%s")
-    run_args.add_all(overlays, format_each = "-overlay=%s")
-    run_args.add_all(manifests, format_each = "-manifest=%s")
     run_args.add(ownership, format = "-check=%s")
-    if stamp:
-        run_args.add(stamp, format = "-stamp=%s")
+    run_args.add(stamp, format = "-stamp=%s")
     run_args.add("--")
     run_args.add(tsgo.tsgo_binary)
     run_args.add("--project", tsconfig)
-    if stamp:
-        run_args.add("--noEmit")
+    run_args.add("--noEmit")
     run_args.add("--explainFiles")
     run_args.add("--pretty", "false")
-    mnemonic = "TsgoCheck" if stamp else "TsgoDeclare"
     ctx.actions.run(
-        inputs = depset(
-            srcs + [tsconfig, ownership, tsgo.tsgo_binary] + chain,
-            transitive = [dep_dts, npm_files],
+        inputs = _program_inputs(
+            tsgo,
+            tsconfig,
+            srcs,
+            chain,
+            dep_dts,
+            npm_files,
+            [ownership],
         ),
-        outputs = [stamp] if stamp else emit_outputs,
+        outputs = [stamp],
         executable = ctx.executable._tsaction,
         arguments = ["tsgo", run_args],
-        mnemonic = mnemonic,
-        progress_message = mnemonic + " %{label}",
+        mnemonic = "TsgoCheck",
+        progress_message = "TsgoCheck %{label}",
     )
     return stamp
+
+def tsgo_declare(
+        ctx,
+        tsgo,
+        tsconfig,
+        importers,
+        overlays,
+        manifests,
+        srcs,
+        chain,
+        dep_dts,
+        npm_files,
+        outputs,
+        out_dir,
+        root_dir,
+        declaration_map):
+    """Registers TsgoDeclare: the same program, the declaration emit on the
+    command line, `outputs` the .d.ts (+ .d.ts.map under `declaration_map`)
+    under `out_dir`, mirroring `root_dir`. noEmitOnError leaves nothing behind
+    a type error, so no stale declaration survives one.
+    """
+    run_args = _program_args(
+        ctx,
+        "{}/{}.declare".format(tsconfig.dirname, ctx.label.name),
+        srcs,
+        chain,
+        dep_dts,
+        importers,
+        overlays,
+        manifests,
+    )
+    run_args.add("--")
+    run_args.add(tsgo.tsgo_binary)
+    run_args.add("--project", tsconfig)
+    run_args.add("--declaration")
+    run_args.add("--emitDeclarationOnly")
+    run_args.add("--noEmit", "false")
+    run_args.add("--noEmitOnError")
+    if declaration_map:
+        run_args.add("--declarationMap")
+    run_args.add("--outDir", out_dir)
+    run_args.add("--rootDir", root_dir or ".")
+    run_args.add("--pretty", "false")
+    ctx.actions.run(
+        inputs = _program_inputs(
+            tsgo,
+            tsconfig,
+            srcs,
+            chain,
+            dep_dts,
+            npm_files,
+            [],
+        ),
+        outputs = outputs,
+        executable = ctx.executable._tsaction,
+        arguments = ["tsgo", run_args],
+        mnemonic = "TsgoDeclare",
+        progress_message = "TsgoDeclare %{label}",
+    )

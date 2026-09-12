@@ -13,6 +13,7 @@ type actionConfig struct {
 	Extends         []string       `json:"extends"`
 	CompilerOptions map[string]any `json:"compilerOptions"`
 	Include         []string       `json:"include"`
+	Files           []string       `json:"files"`
 }
 
 func readConfig(t *testing.T, target string) actionConfig {
@@ -28,14 +29,15 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	opts := config.CompilerOptions
 
 	if opts["allowJs"] != true {
-		t.Errorf("allowJs = %v, want true: a JavaScript src is in `include`", opts["allowJs"])
+		t.Errorf("allowJs = %v, want true: a JavaScript src is in the program",
+			opts["allowJs"])
 	}
-	if opts["outDir"] != "." {
-		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
+	if got, ok := opts["outDir"]; ok {
+		t.Errorf("outDir = %v, want unset: the declare's --outDir carries it", got)
 	}
 	rootDir, _ := opts["rootDir"].(string)
-	if !strings.HasSuffix(rootDir, "/tests/compiler_options/analysis") {
-		t.Errorf("rootDir = %q, want the package, not a src's directory", rootDir)
+	if !strings.HasPrefix(rootDir, "../") || strings.HasSuffix(rootDir, "/bin") {
+		t.Errorf("rootDir = %q, want the exec root", rootDir)
 	}
 	if _, ok := opts["checkJs"]; ok {
 		t.Errorf("checkJs = %v in the written config; the tsconfig's options stay in the chain", opts["checkJs"])
@@ -44,30 +46,28 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 		t.Errorf("extends = %v, want the baseline then the target's tsconfig", config.Extends)
 	}
 
-	nested := 0
-	for _, entry := range config.Include {
-		if !strings.HasPrefix(entry, "../") {
-			t.Errorf("include entry %q is not relative", entry)
-		}
-		if strings.HasSuffix(entry, "/nested/leaf.ts") {
-			nested++
-		}
+	// The tsconfig names no include, so the roots are tsc's default pattern
+	// over its directory, which every src of the target is under.
+	pattern := "/tests/compiler_options/analysis/**/*"
+	if len(config.Include) != 1 || !strings.HasPrefix(config.Include[0], "../") ||
+		!strings.HasSuffix(config.Include[0], pattern) {
+		t.Errorf("include = %v, want the package's **/* alone", config.Include)
 	}
-	if nested != 1 {
-		t.Errorf("include = %v, want one entry for the nested source", config.Include)
+	if len(config.Files) != 0 {
+		t.Errorf("files = %v, want []: the pattern names every src", config.Files)
 	}
 }
 
-// The exec root is a source root. Read as a boolean it is "no root dir", and
-// rootDir then points at the bin directory, under which no source sits.
+// The written config's rootDir is the exec root, under which every input sits,
+// and it carries no outDir: the declare's --outDir and --rootDir are its own.
 func TestWrittenConfigForASourceFromTheExecRoot(t *testing.T) {
 	opts := readConfig(t, "from_exec_root").CompilerOptions
 	rootDir, _ := opts["rootDir"].(string)
 	if !strings.HasPrefix(rootDir, "../") || strings.HasSuffix(rootDir, "/bin") {
 		t.Errorf("rootDir = %q, want it to climb out to the exec root", rootDir)
 	}
-	if opts["outDir"] != "." {
-		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
+	if got, ok := opts["outDir"]; ok {
+		t.Errorf("outDir = %v, want unset", got)
 	}
 }
 

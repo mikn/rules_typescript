@@ -185,9 +185,11 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and
-`.d.ts` per source file: `bazel-bin/src/lib/math.js`, `math.js.map` and
-`math.d.ts` for the file above.
+Each `ts_compile` target Gazelle generates writes `.js` and `.js.map` per
+source file and runs `TsgoCheck`, the type check, as a validation of the
+build: `bazel-bin/src/lib/math.js` and `math.js.map` for the file above.
+`math.d.ts` is written when another package's compile imports `src/lib`, or
+for every target under `bazel build //... --output_groups=+declarations`.
 
 **Step 8.** Run tests, once there is one. With no `*.test.ts` there is no test
 target, and Bazel treats that as an error:
@@ -312,9 +314,9 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-Type errors fail the build, because the `.d.ts` are outputs of the
-type-checker. "Missing return type" errors apply only under
-`--//ts:declarations=oxc`.
+Type errors fail the build: `TsgoCheck` is a validation Bazel runs with the
+build. "Missing return type" errors apply under `--//ts:declarations=oxc`,
+and under a `tsconfig.json` that sets `isolatedDeclarations`.
 
 A `baseUrl` in your `tsconfig.json` fails here. Gazelle wires the file onto
 every target as `tsconfig = "//:tsconfig"`, and tsgo rejects the key wherever

@@ -24,8 +24,8 @@ func main() {
 		it.RequireContains(build, "@npm//:zod", "src/models/BUILD.bazel does not reference @npm//:zod")
 		it.Pass("src/models/BUILD.bazel references @npm//:zod")
 
-		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.MustBazel("build", "//...", "--output_groups=+declarations")
+		it.Pass("bazel build //... --output_groups=+declarations")
 
 		for _, rel := range []string{"src/models/user.js", "src/models/user.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)

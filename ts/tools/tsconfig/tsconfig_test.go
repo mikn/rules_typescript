@@ -213,9 +213,45 @@ func TestResolve_InputsComeFromAnyFileInTheChain(t *testing.T) {
 	write(t, filepath.Join(repo, "none.json"), `{"extends": "./options.json"}`)
 
 	for name, want := range map[string]bool{"from-base.json": true, "empty-files.json": true, "none.json": false} {
-		if got := mustResolve(t, filepath.Join(repo, name)).Inputs; got != want {
+		if got := mustResolve(t, filepath.Join(repo, name)).Inputs(); got != want {
 			t.Errorf("%s: Inputs = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// files, include and exclude each come from the nearest file that sets them,
+// with that file's directory: tsc rebases an inherited spec to its writer.
+func TestResolve_RootSpecsKeepTheirWritersDirectories(t *testing.T) {
+	repo := t.TempDir()
+	base, pkg := filepath.Join(repo, "base"), filepath.Join(repo, "pkg")
+	write(t, filepath.Join(base, "tsconfig.base.json"),
+		`{"include": ["../pkg/src"], "exclude": ["**/*.test.ts"],`+
+			` "files": ["../pkg/globals.d.ts"]}`)
+	write(t, filepath.Join(pkg, "tsconfig.json"),
+		`{"extends": "../base/tsconfig.base.json", "include": ["src/**/*"]}`)
+
+	got := mustResolve(t, filepath.Join(pkg, "tsconfig.json"))
+	for _, c := range []struct {
+		key     string
+		got     *[]string
+		gotDir  string
+		want    []string
+		wantDir string
+	}{
+		{"Include", got.Include, got.IncludeDir, []string{"src/**/*"}, pkg},
+		{"Exclude", got.Exclude, got.ExcludeDir, []string{"**/*.test.ts"}, base},
+		{"Files", got.Files, got.FilesDir, []string{"../pkg/globals.d.ts"}, base},
+	} {
+		if c.got == nil || !reflect.DeepEqual(*c.got, c.want) ||
+			c.gotDir != c.wantDir {
+			t.Errorf("%s = %v from %q; want %v from %q",
+				c.key, c.got, c.gotDir, c.want, c.wantDir)
+		}
+	}
+	none := mustResolve(t, filepath.Join(base, "tsconfig.base.json"))
+	if none.Include == nil || none.IncludeDir != base {
+		t.Errorf("the base alone: Include = %v from %q; want its own",
+			none.Include, none.IncludeDir)
 	}
 }
 

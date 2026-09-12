@@ -1,0 +1,73 @@
+"""A ts_test and the compile under its tsconfig are one program: the test
+checks the compile's sources beside its own files and never waits for the
+compile's declarations; a test under another tsconfig reads them."""
+
+load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
+load(
+    ":package_program_tests.bzl",
+    "checks_the_sources_test",
+    "reads_the_declarations_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+# Compiler options, not data: named by the tsconfig attrs.
+# gazelle:exclude tsconfig.lib.json
+# gazelle:exclude tsconfig.other.json
+
+# keep
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.lib.json",
+)
+
+ts_config(
+    name = "tsconfig_other",
+    src = "tsconfig.other.json",
+    deps = [":tsconfig"],
+)
+
+ts_compile(
+    name = "lib",
+    srcs = [
+        "greet.mjs",
+        "lib.ts",
+    ],
+    tsconfig = ":tsconfig",
+)
+
+ts_test(
+    name = "lib_test",
+    srcs = ["lib.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = ":tsconfig",
+    deps = [
+        ":lib",
+        "@npm//:vitest",
+    ],
+)
+
+ts_test(
+    name = "other_test",
+    srcs = ["other.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = ":tsconfig_other",
+    deps = [
+        ":lib",
+        "@npm//:vitest",
+    ],
+)
+
+checks_the_sources_test(
+    name = "checks_the_sources_test",
+    dep = ":lib",
+    target_under_test = ":lib_test",
+    tsconfig = ":tsconfig",
+)
+
+reads_the_declarations_test(
+    name = "reads_the_declarations_test",
+    dep = ":lib",
+    target_under_test = ":other_test",
+    tsconfig = ":tsconfig_other",
+)

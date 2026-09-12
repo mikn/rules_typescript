@@ -1,8 +1,8 @@
 """An array-form vitest config, and the Bazel layer reaching each of its projects.
 
-The `test.include` naming the compiled test lives in the config ts_test
-generates; a `test.projects` entry only sees it because ts_test merges that
-layer into every entry, so the test runs at all only under the merge.
+The `test.include` over the compiled tests is set by the config ts_test
+generates; a `test.projects` entry only gets it because ts_test applies that
+step to every entry, so the test runs at all only under it.
 """
 
 load("//ts:defs.bzl", "ts_test")

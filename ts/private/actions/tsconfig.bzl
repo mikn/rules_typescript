@@ -1,8 +1,10 @@
 """The TsConfig action: tsaction writes the tsconfig the compile actions read.
 
 It extends the baseline written here, then the target's own chain, and sets
-the keys Bazel owns; the emit reads target, jsx and module from the same file.
-The ts_config's jsx and module declarations are checked against the chain.
+the keys Bazel owns, none of them an emit shape: each tsgo run says on its
+command line what it emits. The emit reads target, jsx and module from the
+same file. The ts_config's jsx and module declarations are checked against
+the chain.
 """
 
 # The file the action config extends FIRST, so every key the user's chain sets
@@ -45,14 +47,11 @@ def tsconfig_action(
         declared_jsx,
         declared_module,
         types_deps,
-        emit,
-        declaration_map,
         isolated_declarations,
         lib_check):
     """Writes <name>.tsconfig.json and <name>.options.json from the chain.
 
-    `emit` is struct(out_dir, root_dir) under the tsgo declaration emit and
-    None for a check-only program. Returns struct(tsconfig, options).
+    Returns struct(tsconfig, options).
     """
     tsconfig = ctx.actions.declare_file(
         "{}.tsconfig.json".format(ctx.label.name),
@@ -75,12 +74,6 @@ def tsconfig_action(
     if declared_module:
         config_args.add(declared_module, format = "-module=%s")
     config_args.add_all(types_deps, format_each = "-types_dep=%s")
-    if emit:
-        config_args.add("-emit")
-        config_args.add(emit.out_dir, format = "-out_dir=%s")
-        config_args.add(emit.root_dir, format = "-root_dir=%s")
-    if declaration_map:
-        config_args.add("-declaration_map")
     if isolated_declarations:
         config_args.add("-isolated_declarations")
     if lib_check:

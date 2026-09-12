@@ -38,6 +38,7 @@ func newEmitRoot(t *testing.T, module string) *emitRoot {
 for a in "$@"; do
   if [ "$prev" = "--outDir" ]; then out="$a"; fi; prev="$a"
 done
+readlink pkg/src/a.ts > "$0.root"
 mkdir -p "$out/src"
 for f in src/a.js src/a.d.ts src/view.jsx src/view.d.ts; do
   echo "$f" > "$out/$f"
@@ -63,6 +64,8 @@ func (e *emitRoot) args(extra ...string) []string {
 	args := []string{
 		"-options=" + binDir + "/pkg/pkg.options.json",
 		"-tsconfig=" + binDir + "/pkg/pkg.tsconfig.json",
+		"-source=pkg/src/a.ts",
+		"-source=pkg/src/view.tsx",
 		"-node_modules=" + binDir + "/pkg/pkg/node_modules",
 		"-scratch=" + binDir + "/pkg/pkg.emit",
 		"-out_dir=" + binDir + "/pkg",
@@ -96,14 +99,22 @@ func TestEmitStep_ESModulesGoToOxcPerRoot(t *testing.T) {
 	}
 }
 
-// commonjs is tsgo's: --noCheck from the program root, the emit shape on the
-// command line, and each src's outputs moved from the scratch outDir.
+// commonjs is tsgo's: --noCheck from the program root of the -source files,
+// the emit shape on the command line, each src's outputs moved from scratch.
 func TestEmitStep_CommonJSGoesToTsgo(t *testing.T) {
 	e := newEmitRoot(t, "commonjs")
 	err := runEmit(e.args("-root=pkg", "-source_map", "-declarations",
 		"pkg/src/a.ts", "pkg/src/view.tsx"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	execroot, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := recordedArgs(t, e.tsgo+".root")
+	if want := filepath.Join(execroot, "pkg/src/a.ts"); got[0] != want {
+		t.Errorf("pkg/src/a.ts in the program root -> %q, want %s", got, want)
 	}
 	want := []string{
 		"--project", binDir + "/pkg/pkg.tsconfig.json", "--noCheck",

@@ -4,11 +4,21 @@ load("@rules_go//go:def.bzl", "go_test")
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
 
+filegroup(
+    name = "declarations",
+    srcs = [
+        "//tests/multi/app",
+        "//tests/multi/lib",
+    ],
+    output_group = "declarations",
+)
+
 go_test(
     name = "multi_boundary_test",
     size = "small",
     srcs = ["multi_boundary_test.go"],
     data = [
+        ":declarations",
         "//tests/multi/app",
         "//tests/multi/lib",
     ],

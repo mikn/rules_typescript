@@ -15,7 +15,7 @@ func programNamesInputs(tsConfigPath string) (inputs, ok bool) {
 		log.Printf("typescript: %v", err)
 		return false, false
 	}
-	return resolved.Inputs, true
+	return resolved.Inputs(), true
 }
 
 // Whether the chain's effective jsx is preserve, the one value that names a

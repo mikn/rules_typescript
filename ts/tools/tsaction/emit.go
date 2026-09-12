@@ -20,8 +20,8 @@ import (
 type emitConfig struct {
 	options, tsconfig, scratch, outDir string
 	oxc, tsgo                          string
-	roots, importers, overlays         stringList
-	manifests                          stringList
+	roots, sources, importers          stringList
+	overlays, manifests                stringList
 	sourceMap, declarations, esModules bool
 	srcs                               []string
 }
@@ -33,11 +33,15 @@ func runEmit(args []string) error {
 		"the options file the tsconfig step wrote")
 	flags.StringVar(&e.tsconfig, "tsconfig", "",
 		"the tsconfig the tsconfig step wrote")
+	flags.Var(&e.sources, "source",
+		"an input of the action in the source tree, linked at its path under "+
+			"the program root (repeatable); the output tree is linked whole")
 	flags.Var(&e.importers, "node_modules",
 		"an importer's node_modules directory, nearest first (repeatable)")
 	flags.Var(&e.overlays, "overlay",
 		"the output directory of a dep whose package is at or above this "+
-			"one's, laid over that package's sources (repeatable)")
+			"one's; its declarations, manifest and data are laid over that "+
+			"package's sources, never its JavaScript (repeatable)")
 	flags.Var(&e.manifests, "manifest",
 		"such a dep's package.json as built, laid at its package's "+
 			"package.json over the src (repeatable)")
@@ -165,7 +169,7 @@ func (e *emitConfig) tsgoEmit(groups map[string][]string, o oxcOptions) error {
 	programRoot := filepath.Join(e.scratch, "root")
 	scratchOut := filepath.Join(e.scratch, "out")
 	err := layOutProgramRoot(
-		programRoot, e.importers, e.overlays, e.manifests,
+		programRoot, e.sources, e.importers, e.overlays, e.manifests,
 	)
 	if err != nil {
 		return err

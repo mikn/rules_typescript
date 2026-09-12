@@ -31,16 +31,27 @@ store; a workspace member's hub view forwards the member's.
                     "program root lays it at the package's path and the " +
                     "member's store tree copies it there; the src as written " +
                     "is in `data`.",
-        "sources": "depset of File: the TypeScript srcs -- .ts, .tsx and " +
-                   "declarations. A ts_test in the same package stages them " +
-                   "at their source paths.",
+        "sources": "depset of File: the srcs the program reads as its own " +
+                   "-- .ts, .tsx, JavaScript and declarations. A ts_test in " +
+                   "the same package stages them at their source paths; one " +
+                   "under the same tsconfig checks them as its own program's.",
+        "tsconfig": "File or None: the tsconfig.json the program's options " +
+                    "come from, the `tsconfig` attribute's file. A ts_test " +
+                    "under the same file checks this target's sources as " +
+                    "its own program's.",
         "transitive_js": "depset of File: the .js of this target and its " +
                          "first-party deps.",
         "transitive_js_maps": "depset of File: their .js.map.",
-        "transitive_declarations": "depset of File: the .d.ts of this " +
-                                   "target and its first-party deps. An npm " +
-                                   "package's reach a consumer through " +
-                                   "`npm_files`, not through this depset.",
+        "deps_declarations": "depset of File: the .d.ts this target's " +
+                             "program read, its first-party deps' " +
+                             "transitive_declarations. A ts_test that checks " +
+                             "this target's sources reads these in place of " +
+                             "`declarations`.",
+        "transitive_declarations": "depset of File: `declarations` with " +
+                                   "`deps_declarations`, this target's and " +
+                                   "its first-party deps'. An npm package's " +
+                                   "reach a consumer through `npm_files`, " +
+                                   "not through this depset.",
         "transitive_data": "depset of File: the data files of this target " +
                            "and its first-party deps, what a compiled module " +
                            "reaches beside itself at run time.",
@@ -86,6 +97,8 @@ def ts_info(
         data = _EMPTY,
         manifest = None,
         sources = _EMPTY,
+        tsconfig = None,
+        deps_declarations = _EMPTY,
         transitive_js = None,
         transitive_js_maps = None,
         transitive_declarations = None,
@@ -100,7 +113,7 @@ def ts_info(
     if label:
         owners = depset([struct(
             label = label_text(label),
-            files = depset(transitive = [declarations, data]),
+            files = depset(transitive = [sources, declarations, data]),
         )])
     return TsInfo(
         js = js,
@@ -109,11 +122,13 @@ def ts_info(
         data = data,
         manifest = manifest,
         sources = sources,
+        tsconfig = tsconfig,
+        deps_declarations = deps_declarations,
         transitive_js = _or_direct(transitive_js, js),
         transitive_js_maps = _or_direct(transitive_js_maps, js_maps),
         transitive_declarations = _or_direct(
             transitive_declarations,
-            declarations,
+            depset(transitive = [declarations, deps_declarations]),
         ),
         transitive_data = _or_direct(transitive_data, data),
         transitive_es_twins = transitive_es_twins,
@@ -146,9 +161,10 @@ into the launcher's config and the runfiles of one test.
                       "package's format.",
         "launch": "function(ctx, test) -> struct: the runner's half of one " +
                   "test's analysis. `test` is the struct ts_test builds from " +
-                  "the compile (entry_points, test_files_list, chain, " +
-                  "transitive_js, es_twins, runtime_data_sets, " +
-                  "package_sources, inline_members, runner); `chain` is " +
+                  "the compile (entry_points, entry_extensions, " +
+                  "test_files_list, chain, transitive_js, es_twins, " +
+                  "runtime_data_sets, package_sources, inline_members, " +
+                  "runner); `chain` is " +
                   "struct(dirs, rlocations, npm_files): the chain's " +
                   "node_modules directories nearest first, as bin-dir paths " +
                   "and as runfiles paths, and the store files the test " +

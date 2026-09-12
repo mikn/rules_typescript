@@ -19,6 +19,7 @@ import (
 type File struct {
 	Extends         Extends         `json:"extends"`
 	Include         *[]string       `json:"include"`
+	Exclude         *[]string       `json:"exclude"`
 	Files           *[]string       `json:"files"`
 	CompilerOptions CompilerOptions `json:"compilerOptions"`
 }
@@ -77,9 +78,16 @@ type Resolved struct {
 	Jsx             string
 	JsxImportSource string
 	Module          string
-	// Inputs reports whether a file in the chain sets include or files;
-	// without either, tsc enumerates the directory tree.
-	Inputs bool
+	// The root specs, each with its writer's directory: tsc rebases an
+	// inherited files, include or exclude to the file that set it.
+	Files, Include, Exclude          *[]string
+	FilesDir, IncludeDir, ExcludeDir string
+}
+
+// Inputs reports whether a file in the chain sets include or files; without
+// either, tsc enumerates the directory tree.
+func (r *Resolved) Inputs() bool {
+	return r.Include != nil || r.Files != nil
 }
 
 // Resolve reads path and, depth first, the configs it extends; the leaf wins.
@@ -125,7 +133,12 @@ func resolve(path string, ancestors map[string]bool) (*Resolved, error) {
 		Jsx:             f.CompilerOptions.Jsx,
 		JsxImportSource: f.CompilerOptions.JsxImportSource,
 		Module:          f.CompilerOptions.Module,
-		Inputs:          f.Include != nil || f.Files != nil,
+		Files:           f.Files,
+		FilesDir:        dir,
+		Include:         f.Include,
+		IncludeDir:      dir,
+		Exclude:         f.Exclude,
+		ExcludeDir:      dir,
 	})
 	return resolved, nil
 }
@@ -149,8 +162,14 @@ func (r *Resolved) override(other *Resolved) {
 	if other.Module != "" {
 		r.Module = other.Module
 	}
-	if other.Inputs {
-		r.Inputs = true
+	if other.Files != nil {
+		r.Files, r.FilesDir = other.Files, other.FilesDir
+	}
+	if other.Include != nil {
+		r.Include, r.IncludeDir = other.Include, other.IncludeDir
+	}
+	if other.Exclude != nil {
+		r.Exclude, r.ExcludeDir = other.Exclude, other.ExcludeDir
 	}
 }
 

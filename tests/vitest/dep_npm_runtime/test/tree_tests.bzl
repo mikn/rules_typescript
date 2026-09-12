@@ -24,10 +24,10 @@ def _runtime_is_the_chain_impl(ctx):
     env = unittest.begin(ctx)
     actions = ctx.attr.test[_ActionsInfo].actions
     trees = [a for a in actions if a.mnemonic == "NodeModulesTree"]
-    tsgo = [a for a in actions if a.mnemonic in ("TsgoDeclare", "TsgoCheck")]
+    tsgo = [a for a in actions if a.mnemonic == "TsgoCheck"]
     launchers = [a for a in actions if _only_output(a, "_test_launcher.json")]
     asserts.equals(env, [], trees, "no tree is built per target")
-    asserts.equals(env, 1, len(tsgo), "one tsgo action")
+    asserts.equals(env, 1, len(tsgo), "one TsgoCheck action")
     asserts.equals(env, 1, len(launchers), "one launcher config")
     if len(tsgo) == 1 and len(launchers) == 1:
         importer = ctx.bin_dir.path + "/tests/npm/node_modules"

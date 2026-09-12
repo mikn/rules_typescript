@@ -21,3 +21,12 @@ func TestTheConsumerTypeChecksAgainstTheTree(t *testing.T) {
 	tree.File("tests/codegen_tree/consumer.d.ts").
 		Contains("shout(count: number): string")
 }
+
+// A consumer with a JavaScript src has allowJs on and the tree's .js under its
+// pattern beside their .d.ts; the declare emits for the consumer's files alone.
+func TestAConsumerWithJavaScriptDeclaresItsOwnFilesAlone(t *testing.T) {
+	tree := verify.New(t)
+	tree.File("tests/codegen_tree/js_consumer.d.ts").
+		Contains("greet(count: number): string")
+	tree.File("tests/codegen_tree/helper.d.ts").Contains(`suffix = "!"`)
+}

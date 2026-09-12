@@ -37,8 +37,9 @@ doc="$(sed -n '/^TsTestRunnerInfo = provider($/,/^)$/p' "${PROVIDERS}" \
   | tr -d '\n')"
 [[ -n "${doc}" ]] || fail "no \"launch\" field in TsTestRunnerInfo"
 
-printf '%s\n' chain entry_points es_twins inline_members package_sources \
-  runner runtime_data_sets test_files_list transitive_js > "${want}"
+printf '%s\n' chain entry_extensions entry_points es_twins inline_members \
+  package_sources runner runtime_data_sets test_files_list transitive_js \
+  > "${want}"
 printf '%s\n' "${doc}" \
   | sed -n 's/.*builds from the compile (\([^)]*\)).*/\1/p' \
   | tr ', ' '\n\n' | awk 'NF' | LC_ALL=C sort > "${got}"
@@ -70,5 +71,5 @@ for launch in ${launches}; do
     | LC_ALL=C sort > "${got}"
   check "the result members ${launch} returns"
 done
-echo "TsTestRunnerInfo.launch: 9 test members and 7 result members," \
+echo "TsTestRunnerInfo.launch: 10 test members and 7 result members," \
   "named by the doc, returned by both runners, read by the core"

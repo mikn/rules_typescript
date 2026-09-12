@@ -27,7 +27,9 @@ func main() {
 
 		// --output_groups=+_validation is explicit, not in the .bazelrc: the next
 		// step deliberately builds WITHOUT it.
-		if err := it.Bazel("build", "//src/lib:all", "--output_groups=+_validation"); err != nil {
+		err := it.Bazel("build", "//src/lib:all",
+			"--output_groups=+_validation,+declarations")
+		if err != nil {
 			it.Fail("annotated target failed to build or type-check under --//ts:declarations=oxc")
 		}
 		it.Pass("annotated target builds and type-checks under --//ts:declarations=oxc")

@@ -40,6 +40,27 @@ const filesLeaf = `{
 }
 `
 
+const patternLeaf = `{
+  "extends": "../base/tsconfig.base.json",
+  "include": ["./src/**/*", "globals.d.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}
+`
+
+// A base in another directory sets the roots; the leaf sets none of its own.
+const rootsBase = `{
+  "extends": "./tsconfig.base.json",
+  "include": ["../pkg/src"],
+  "exclude": ["**/*.test.ts"]
+}
+`
+
+const inheritedRootsLeaf = `{
+  "extends": "../base/tsconfig.roots.json",
+  "compilerOptions": { "types": ["./globals.d.ts", "./generated.d.ts"] }
+}
+`
+
 const noTypesLeaf = `{
   "extends": "../base/tsconfig.base.json",
   "compilerOptions": { "target": "esnext", "jsx": "preserve", "module": "nodenext" }
@@ -50,6 +71,20 @@ const noRootsLeaf = `{
   "compilerOptions": {
     "target": "esnext", "jsx": "preserve", "module": "nodenext"
   }
+}
+`
+
+// The shape of a package annotated for isolated declarations: the chain sets
+// declaration, isolatedDeclarations and declarationMap itself.
+const isolatedLeaf = `{
+  "extends": "../base/tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "declarationMap": true
+  },
+  "include": ["src"]
 }
 `
 
@@ -107,6 +142,7 @@ func newExecroot(t *testing.T, leaf, showConfig string) *execroot {
 	root := t.TempDir()
 	files := map[string]string{
 		"base/tsconfig.base.json":                           baseConfig,
+		"base/tsconfig.roots.json":                          rootsBase,
 		"pkg/tsconfig.json":                                 leaf,
 		"pkg/src/a.ts":                                      "export const a = 1;\n",
 		"pkg/globals.d.ts":                                  "declare const G: number;\n",
@@ -232,13 +268,13 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 	}
 }
 
-// The written config extends the baseline then the user's file, rewrites paths,
-// roots each path-shaped types entry, names no npm package, leaves typeRoots.
+// The written config extends the baseline then the user's file, rewrites paths
+// and the chain's include, roots an unmatched src and a path-shaped types entry
 func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-declaration_map", "-types_dep=node"))
+	mustWriteTsconfig(t, e.tsconfigArgs("-types_dep=node"))
 
 	if got, want := recordedArgs(t, e.argv), []string{"--showConfig", "-p", binDir + "/pkg/pkg.tsconfig.json"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("tsgo ran with %q, want %q", got, want)
@@ -247,9 +283,10 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
   "extends": ["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"],
   "compilerOptions": {
     "composite": false,
-    "declaration": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": true,
+    "declaration": false,
+    "declarationDir": null,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
     "incremental": false,
     "paths": {
       "#lib": ["../../../../base/lib/index.ts", "../base/lib/index.ts"],
@@ -259,8 +296,9 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
     "rootDirs": ["../../../..", ".."],
     "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["../../../../pkg/globals.d.ts", "./generated.d.ts"],
-  "files": ["../../../../pkg/src/a.ts"],
+  "include": ["../../../../pkg/src", "../../../../pkg/globals.d.ts",
+    "./generated.d.ts"],
+  "files": [],
   "exclude": [],
   "references": []
 }`)
@@ -269,16 +307,41 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 		  "module": "es6"}`)
 }
 
-// tsc's root order is the tsconfig's include order, which showConfig prints
-// as files; the first declaration of an ambient pattern wins, so it is kept.
-func TestTsconfigStep_RootsKeepTheTsconfigsOrder(t *testing.T) {
-	e := newExecroot(t, chainLeaf, readTestdata(t, "showconfig-roots.json"))
-
-	mustWriteTsconfig(t, append(e.tsconfigArgs(), "pkg/data.json"))
-	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
-	assertJSON(t, "files", config["files"],
-		`["../../../../pkg/globals.d.ts", "../../../../pkg/src/a.ts"]`)
-	assertJSON(t, "include", config["include"], `["../../../../pkg/data.json"]`)
+// The roots are the chain's own files, include and exclude, each spec from its
+// writer's directory; a src no root names joins include, a matched one nothing.
+func TestTsconfigStep_RootsAreTheChainsPatterns(t *testing.T) {
+	for name, tc := range map[string]struct {
+		leaf, capture, files, include, exclude string
+	}{
+		"leaf": {
+			patternLeaf, "showconfig-roots.json",
+			`[]`,
+			`["../../../../pkg/src/**/*", "../../../../pkg/globals.d.ts",
+			  "../../../../other/c.ts"]`,
+			`["../../../../pkg/src/**/*.test.ts"]`,
+		},
+		"inherited": {
+			inheritedRootsLeaf, "showconfig-chain.json",
+			`[]`,
+			`["../../../../pkg/src", "../../../../pkg/globals.d.ts",
+			  "../../../../other/c.ts", "./generated.d.ts"]`,
+			`["../../../../base/**/*.test.ts"]`,
+		},
+		"files": {
+			filesLeaf, "showconfig-roots.json",
+			`["../../../../pkg/src/a.ts", "../../../../pkg/globals.d.ts"]`,
+			`["../../../../other/c.ts"]`, `[]`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newExecroot(t, tc.leaf, readTestdata(t, tc.capture))
+			mustWriteTsconfig(t, append(e.tsconfigArgs(), "other/c.ts"))
+			config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+			assertJSON(t, "files", config["files"], tc.files)
+			assertJSON(t, "include", config["include"], tc.include)
+			assertJSON(t, "exclude", config["exclude"], tc.exclude)
+		})
+	}
 }
 
 // A path-shaped entry is a root file, so the lookup names the file itself.
@@ -297,15 +360,22 @@ func TestTypesEntryFile(t *testing.T) {
 	}
 }
 
-// The first pass hands --showConfig the chain alone; `files: []` is set only
-// when no file in it names inputs, so a chain's own `files` list is read.
-func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
+// The first pass hands --showConfig the chain's roots, tsc's default include
+// over the project when it names none, and allowJs for a JavaScript src.
+func TestTsconfigStep_FirstPassReadsTheChainsRoots(t *testing.T) {
 	extends := `"extends": ` +
 		`["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"]`
-	for name, tc := range map[string]struct{ leaf, want string }{
-		"files":   {filesLeaf, "{" + extends + "}"},
-		"include": {chainLeaf, "{" + extends + "}"},
-		"none":    {noTypesLeaf, "{" + extends + `, "files": []}`},
+	for name, tc := range map[string]struct {
+		leaf string
+		srcs []string
+		want string
+	}{
+		"files":   {filesLeaf, nil, "{" + extends + "}"},
+		"include": {chainLeaf, nil, "{" + extends + "}"},
+		"none": {noTypesLeaf, nil,
+			"{" + extends + `, "include": ["../../../../pkg/**/*"]}`},
+		"javascript": {chainLeaf, []string{"pkg/src/b.js"},
+			"{" + extends + `, "compilerOptions": {"allowJs": true}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newExecroot(t, tc.leaf, readTestdata(t, "showconfig-roots.json"))
@@ -317,7 +387,7 @@ func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
 			e.tsgo, e.argv = fakeTool(t, root, "tsgo",
 				"cp \"$3\" "+firstPass+"\ncat "+filepath.Join(root, "showconfig.json")+"\n")
 
-			mustWriteTsconfig(t, e.tsconfigArgs())
+			mustWriteTsconfig(t, append(e.tsconfigArgs(), tc.srcs...))
 			assertJSON(t, "first pass", readJSON(t, firstPass), tc.want)
 		})
 	}
@@ -364,7 +434,8 @@ func TestTsconfigStep_NoTypesUnderTypeRootsWritesNone(t *testing.T) {
 		  "module": "nodenext"}`)
 }
 
-// A target with no tsconfig extends the baseline alone: no chain, no paths.
+// A target with no tsconfig extends the baseline alone: no chain, no paths, no
+// pattern, so include names each src by its path.
 func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, `{"compilerOptions": {"target": "es2022", "jsx": "react-jsx"}}`)
 	args := []string{
@@ -385,10 +456,12 @@ func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 		t.Errorf("paths = %v, want none: no chain sets one", opts["paths"])
 	}
 	assertJSON(t, "types", opts["types"], `["node"]`)
+	assertJSON(t, "files", config["files"], `[]`)
+	assertJSON(t, "include", config["include"], `["../../../../pkg/src/a.ts"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"), `{"target": "es2022", "jsx": "react-jsx"}`)
 }
 
-// A JavaScript src is in include, and tsgo reads it only under allowJs.
+// A JavaScript src sets allowJs; without it tsgo reads no .js the roots name.
 func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 	writeFile(t, "pkg/src/b.js", "export const b = 1;\n")
@@ -405,27 +478,70 @@ func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	}
 }
 
-func TestTsconfigStep_EmitShape(t *testing.T) {
+// The config turns the declaration emit off and carries no emit shape; the oxc
+// mode's check keeps declaration on, which isolatedDeclarations needs (TS5069).
+func TestTsconfigStep_WritesNoEmitShape(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
+	off := map[string]any{
+		"declaration": false, "declarationMap": false,
+		"emitDeclarationOnly": false, "declarationDir": nil,
+	}
+	unset := []string{"noEmit", "noEmitOnError", "outDir"}
+
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	opts := config["compilerOptions"].(map[string]any)
+	for key, want := range off {
+		if got, ok := opts[key]; !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("compilerOptions.%s = %v (set: %v), want %v", key, got, ok, want)
+		}
+	}
+	for _, key := range unset {
+		if got, ok := opts[key]; ok {
+			t.Errorf("compilerOptions.%s = %v, want unset", key, got)
+		}
+	}
+	if got, want := opts["rootDir"], "../../../.."; got != want {
+		t.Errorf("compilerOptions.rootDir = %v, want the exec root %q", got, want)
+	}
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-jsx=preserve", "-module=nodenext", "-emit", "-out_dir="+binDir+"/pkg",
-		"-root_dir=pkg",
-		"-isolated_declarations", "-lib_check",
+		"-jsx=preserve", "-module=nodenext", "-isolated_declarations", "-lib_check",
 	))
-	opts := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)
+	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	opts = config["compilerOptions"].(map[string]any)
 	for key, want := range map[string]any{
-		"noEmit":               false,
-		"noEmitOnError":        true,
-		"outDir":               ".",
-		"rootDir":              "../../../../pkg",
-		"declarationMap":       false,
+		"declaration":          true,
 		"isolatedDeclarations": true,
 		"skipLibCheck":         false,
+		"emitDeclarationOnly":  false,
 	} {
 		if got := opts[key]; !reflect.DeepEqual(got, want) {
 			t.Errorf("compilerOptions.%s = %v, want %v", key, got, want)
 		}
+	}
+}
+
+// A chain that sets isolatedDeclarations keeps declaration on, which the
+// option requires (TS5069); the chain's own key stays in force via extends.
+func TestTsconfigStep_ChainIsolatedDeclarationsKeepsDeclaration(t *testing.T) {
+	capture := readTestdata(t, "showconfig-isolated.json")
+	e := newExecroot(t, isolatedLeaf, capture)
+
+	mustWriteTsconfig(t, e.tsconfigArgs())
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	opts := config["compilerOptions"].(map[string]any)
+	for key, want := range map[string]any{
+		"declaration": true, "declarationMap": false,
+		"emitDeclarationOnly": false, "declarationDir": nil,
+	} {
+		if got, ok := opts[key]; !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("compilerOptions.%s = %v (set: %v), want %v",
+				key, got, ok, want)
+		}
+	}
+	if got, ok := opts["isolatedDeclarations"]; ok {
+		t.Errorf("compilerOptions.isolatedDeclarations = %v, want unset", got)
 	}
 }
 

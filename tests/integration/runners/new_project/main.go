@@ -48,8 +48,8 @@ func main() {
 			it.Pass("%s/BUILD.bazel generated", dir)
 		}
 
-		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.MustBazel("build", "//...", "--output_groups=+declarations")
+		it.Pass("bazel build //... --output_groups=+declarations")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -61,7 +61,8 @@ func main() {
 		before := it.Read(it.Bin("src/lib/math.d.ts"))
 		it.Replace(it.Path("src/lib/math.ts"), "  return a + b;\n", "  const sum: number = a + b;\n  return sum;\n")
 
-		rebuild, err := it.BazelLog("rebuild.log", "build", "//...", "--subcommands")
+		rebuild, err := it.BazelLog("rebuild.log", "build", "//...", "--subcommands",
+			"--output_groups=+declarations")
 		if err != nil {
 			rebuild.Dump()
 			it.Fail("the incremental rebuild failed")
@@ -93,7 +94,8 @@ func main() {
 			"export function add(a: number, b: number): number {",
 			"export function add(a: number, b: number, c: number = 0): number {")
 
-		api, err := it.BazelLog("api_rebuild.log", "build", "//...", "--subcommands")
+		api, err := it.BazelLog("api_rebuild.log", "build", "//...", "--subcommands",
+			"--output_groups=+declarations")
 		if err != nil {
 			api.Dump()
 			it.Fail("the rebuild after the API change failed")

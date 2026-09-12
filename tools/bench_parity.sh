@@ -29,6 +29,7 @@ REDO="${REDO:-3}"
 SYSTEM_PROCS="${SYSTEM_PROCS:-}"
 TCK="$(getconf CLK_TCK)"
 TSGO="--@rules_typescript//ts:declarations=tsgo"
+NO_LINT="--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint"
 TYPECHECK=.github/scripts/typecheck.sh
 TYPECHECK_OUTPUTS='packages/agent-sdk/dist web/shared/i18n/compiled
 web/node_modules/.cache/paraglide'
@@ -79,8 +80,8 @@ publish-email-js.yml:50|npm-packages/email-js|pnpm run test"
 COLD='cold-check-checkout cold-check-bazel cold-test-checkout cold-test-bazel'
 WARM='warm-check-checkout warm-check-bazel warm-test-checkout warm-test-bazel'
 [ -n "$EXCL_LABELS" ] && WARM="$WARM excluded-build"
-EDIT='edit-web-check-checkout edit-web-check-bazel edit-web-test-checkout
-edit-web-test-bazel edit-leaf-checkout edit-leaf-bazel'
+EDIT='edit-web-check-checkout edit-web-target-bazel edit-web-check-bazel
+edit-web-test-checkout edit-web-test-bazel edit-leaf-checkout edit-leaf-bazel'
 CACHED='cached-check-bazel cached-test-bazel'
 ATTEMPT=1
 
@@ -239,7 +240,7 @@ checkout_cell() {
 
 bazel_cell() {
   local name="$1" run="$2" note="$3" ob="$4" dc="$5" verb="$6"; shift 6
-  local -a flags=("$TSGO" "--disk_cache=$dc" --norun_validations)
+  local -a flags=("$TSGO" "--disk_cache=$dc" "$NO_LINT")
   [ "$verb" = test ] && flags+=(--test_output=errors)
   [ -n "${LOCAL_TEST_JOBS:-}" ] &&
     flags+=("--local_test_jobs=$LOCAL_TEST_JOBS")
@@ -270,8 +271,7 @@ web_check_script() {
   step . "tsc -p web" "node_modules/.bin/tsc -p web --noEmit"
 }
 web_tests_script() {
-  step . "test.yml:1105 --changed" \
-    "pnpm --filter=web run test:run --changed"
+  step . "test.yml:1105" "pnpm --filter=web run test:run"
 }
 leaf_script() { step "$LEAF" "cf-workers-test.yml:40" "$CF_TEST"; }
 clear_vitest_caches() {
@@ -391,7 +391,10 @@ web_edit() {
   edit "$WEB_EDIT"
   checkout_cell edit-web-check-checkout "$n" "$note" no \
     "$(web_check_script)" || return 1
-  bazel_cell edit-web-check-bazel "$n" "$note" "$COB" "$CDC" \
+  bazel_cell edit-web-target-bazel "$n" "$note" "$COB" "$CDC" \
+    build //web:web || return 1
+  bazel_cell edit-web-check-bazel "$n" \
+    "$note; after edit-web-target-bazel on this output base" "$COB" "$CDC" \
     build //web/... || return 1
   checkout_cell edit-web-test-checkout "$n" "$note" ci \
     "$(web_tests_script)" || return 1

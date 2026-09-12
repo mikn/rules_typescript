@@ -9,9 +9,9 @@ imported as `shared` would be the alias label, which nothing can read.
 This rule is that alias with the name attached. It forwards the member's TsInfo
 unchanged and describes the member as an npm package: `NpmPackageInfo.store` is
 the member's store tree (`npm_store_member`, docs/rules/node-modules.md § The
-Store) and `all_files` the files that tree copies -- the member's `.js`,
-`.js.map` and `.d.ts`, its data srcs, and its package.json as built in place
-of the src.
+Store) and `all_files`, its default outputs too, the files that tree copies --
+the member's `.js`, `.js.map` and `.d.ts`, its data srcs, and its package.json
+as built in place of the src.
 
 Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
 
@@ -59,13 +59,14 @@ def _npm_package_info(ctx, member):
 
 def _npm_workspace_package_impl(ctx):
     member = ctx.attr.target
+    info = _npm_package_info(ctx, member)
 
     return [
         DefaultInfo(
-            files = member[DefaultInfo].files,
+            files = info.all_files,
             runfiles = member[DefaultInfo].default_runfiles,
         ),
-        _npm_package_info(ctx, member),
+        info,
         member[TsInfo],
     ]
 

@@ -39,13 +39,15 @@ reads the transitive field.
 |---|---|---|
 | `js` | `depset of File` | The `.js` files this target produces: compiled output, plus any JavaScript src staged as-is |
 | `js_maps` | `depset of File` | The `.js.map` beside them |
-| `declarations` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
+| `declarations` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. Emitted when a consumer's compile reads them or `--output_groups=declarations` asks, never as a default output ([Which Tool Emits the Declarations](ts-compile.md#which-tool-emits-the-declarations)). A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
 | `data` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
 | `manifest` | `File or None` | The `package.json` at the package's root as built, every source-file target rewritten to the emitted file, `<name>.package.json`; a dependent's program root lays it at the package's path and the member's store tree copies it there. The src as written is in `data` |
-| `sources` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |
+| `sources` | `depset of File` | The srcs the program reads as its own: `.ts`, `.tsx`, JavaScript and declarations. A `ts_test` in the same package stages them in its runfiles at their source paths; one under the same `tsconfig` checks them as its own program's ([The Test's Program](ts-test.md#the-tests-program)) |
+| `tsconfig` | `File or None` | The `tsconfig.json` the program's options come from, the `tsconfig` attribute's file: the identity a `ts_test` joins a dep's sources by |
 | `transitive_js` | `depset of File` | Every `.js` from this target and its first-party deps |
 | `transitive_js_maps` | `depset of File` | Their `.js.map` |
-| `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the importer chain its tsgo action resolves along, not through this depset |
+| `deps_declarations` | `depset of File` | The declarations this target's program read: its first-party deps' `transitive_declarations`, its own left out. A `ts_test` that checks this target's sources reads these in place of `declarations` |
+| `transitive_declarations` | `depset of File` | `declarations` with `deps_declarations`: every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the importer chain its tsgo action resolves along, not through this depset |
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
 | `transitive_es_twins` | `depset of (File, File)` | For a program tsgo emits, each `.js` of this target and its first-party deps paired with the ES module oxc emits from the same source; the vitest runner stages the second at the first's runfiles path ([The Module Format](ts-compile.md#the-module-format)) |
 | `npm_packages` | `depset of NpmPackageInfo` | The npm closure of this target's deps: what the ownership manifest names and a runner checks its packages against. A package itself arrives through its `NpmPackageInfo` |

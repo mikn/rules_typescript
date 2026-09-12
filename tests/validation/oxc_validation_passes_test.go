@@ -6,8 +6,7 @@ import (
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
-// Under --//ts:declarations=oxc the stamp is written only when tsgo exits 0;
-// under the tsgo default the .d.ts are the proof (declaration_types_test).
+// The stamp is written only when tsgo exits 0 and the listing checks out.
 func TestTsgoCheckStamp(t *testing.T) {
 	verify.New(t).File("tests/validation/annotated.tscheck").Exists()
 }

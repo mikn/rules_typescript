@@ -87,11 +87,12 @@ const compiledImports = {
     return null;
   },
 };
-const withCompiledSetup = (config) => {
-  if (!isPlainObject(config.test)) return config;
+// The run is the compiled tests under the root; a config's `include`, written
+// for the sources in the runfiles beside them, is not read.
+const withCompiledRun = (config) => {
   const root = resolve(config.root ?? '.');
   const rewrite = (entry) => compiledSibling(root, entry);
-  const test = { ...config.test };
+  const test = { ...config.test, include: INCLUDE };
   for (const key of ['setupFiles', 'globalSetup']) {
     if (Array.isArray(test[key])) test[key] = test[key].map(rewrite);
     else if (typeof test[key] === 'string') test[key] = rewrite(test[key]);
@@ -164,13 +165,12 @@ const SOURCE_ROOT = (() => {
   return null;
 })();
 const BIN_DIR = (() => {
-  for (const f of INCLUDE) {
-    try {
-      const real = realpathSync(resolve(ROOT, f));
-      const m = /^(.*?\\/bazel-out\\/[^/]+\\/bin)\\//.exec(real);
-      if (m) return m[1];
-    } catch {}
-  }
+  if (!BIN_PROBE) return null;
+  try {
+    const real = realpathSync(resolve(WORKSPACE_DIR, BIN_PROBE));
+    const m = /^(.*?\\/bazel-out\\/[^/]+\\/bin)\\//.exec(real);
+    if (m) return m[1];
+  } catch {}
   return null;
 })();
 const FS_ALLOW = BIN_DIR ? [WORKSPACE_DIR, BIN_DIR] : [WORKSPACE_DIR];
@@ -213,10 +213,9 @@ const moduleIds = {
 };
 """
 
-def _is_test_file(f):
-    """A compiled `<stem>.{test,spec}.<ext>`: vitest's default include."""
-    parts = f.basename.split(".")
-    return len(parts) >= 3 and parts[-2] in ("test", "spec")
+def _test_file_include(extensions):
+    """vitest's default include over the compiled extensions."""
+    return "**/*.{test,spec}.{" + ",".join(extensions) + "}"
 
 def _relative_dir(from_dir, to_dir):
     """Relative path from one workspace directory to another, "." when equal."""
@@ -287,7 +286,8 @@ def _vitest_config_content(
         coverage_provider,
         snapshot_bases = {},
         snapshot_root = "",
-        run_include = [],
+        entry_extensions = [],
+        bin_probe = "",
         tsconfig_paths_rf = None,
         root_rel = ".",
         workspace_rel = ".",
@@ -324,7 +324,10 @@ def _vitest_config_content(
         "const WORKSPACE = {};".format(_js(workspace_name)),
         "const OVERLAYS = {};".format(_js(overlays)),
         "const SOURCE_PROBE = {};".format(_js(source_probe)),
-        "const INCLUDE = {};".format(_js(run_include)),
+        "const BIN_PROBE = {};".format(_js(bin_probe)),
+        "const INCLUDE = {};".format(
+            _js([_test_file_include(entry_extensions)]),
+        ),
         "",
     ]
     if snapshot_bases:
@@ -353,9 +356,6 @@ def _vitest_config_content(
     else:
         lines.append("const pathsPlugins = [];")
 
-    # The run is the rule's srcs: a config's include, written for the sources,
-    # matches no compiled .js, and vitest would stop with "No test files found".
-    run_include_key = ["include: INCLUDE"] if run_include else []
     lines += [
         # A file under test is a build output, so its realpath lies outside the
         # vite root -- which the coverage default drops before instrumenting.
@@ -371,7 +371,7 @@ def _vitest_config_content(
         "  server: { fs: { allow: FS_ALLOW } },",
         # A workspace member's .js keeps its sources' extensionless relative
         # imports, which vite resolves and node's loader rejects: vite runs it.
-        "  test: {{ {} }},".format(", ".join(run_include_key + [
+        "  test: {{ {} }},".format(", ".join([
             "coverage: { allowExternal: true }",
             "server: {{ deps: {{ inline: [{}] }} }}".format(
                 ", ".join([_member_pattern(name) for name in inline_members]),
@@ -407,7 +407,7 @@ def _vitest_config_content(
     else:
         lines.append("  const user = {};")
     lines += [
-        "  const merged = withCompiledSetup(merge(" +
+        "  const merged = withCompiledRun(merge(" +
         "merge(merge(bazelLayer, user), providerLayer), snapshotLayer));",
         "  // Every project gets its own Vite server, so the Bazel layer " +
         "has to be",
@@ -418,7 +418,7 @@ def _vitest_config_content(
         "    merged.test = {",
         "      ...merged.test,",
         "      projects: projects.map((p) =>",
-        "        isPlainObject(p) ? withCompiledSetup(merge(bazelLayer, p))" +
+        "        isPlainObject(p) ? withCompiledRun(merge(bazelLayer, p))" +
         " : p,",
         "      ),",
         "    };",
@@ -497,12 +497,15 @@ def _package_path(ctx, name):
 def vitest_config_action(
         ctx,
         test_entry_points,
+        entry_extensions,
         tsconfig_paths,
         inline_members,
         overlays):
     """Writes the entry config for `ctx`'s test.
 
-    `tsconfig_paths` is the file tsconfig_paths_action wrote or None; `overlays`
+    `entry_extensions` are the extensions a compiled test file has, the
+    generated `test.include`'s; `tsconfig_paths` is the file
+    tsconfig_paths_action wrote or None; `overlays`
     the runfiles symlinks, runfiles path to File, whose build outputs are held
     under another name than their own. Returns struct(config, entry,
     stage, symlinks, root_rel): the generated file; the runfiles path the
@@ -545,9 +548,7 @@ def vitest_config_action(
     if ctx.file.config:
         root_dir = ctx.file.config.short_path.rpartition("/")[0]
         root_rel = _relative_dir(ctx.label.package, root_dir)
-    root_marker = "/".join(
-        [p for p in [ctx.workspace_name, root_dir, "_"] if p],
-    )
+    bin_probe = test_entry_points[0].short_path if test_entry_points else ""
 
     ctx.actions.write(
         output = vitest_config,
@@ -557,14 +558,8 @@ def vitest_config_action(
             coverage_provider = ctx.attr.coverage_provider,
             snapshot_bases = _snapshot_bases(ctx.files.srcs, test_entry_points),
             snapshot_root = ctx.workspace_name,
-            run_include = [
-                _relative_import(
-                    root_marker,
-                    rlocation_path(ctx, f),
-                ).removeprefix("./")
-                for f in test_entry_points
-                if _is_test_file(f)
-            ],
+            entry_extensions = entry_extensions,
+            bin_probe = bin_probe,
             tsconfig_paths_rf = paths_rf,
             root_rel = root_rel,
             workspace_rel = _relative_dir(ctx.label.package, ""),

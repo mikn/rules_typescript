@@ -169,7 +169,7 @@ are two keys and fail the same way. See
 ## imports files no direct dep provides
 
 ```
-ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
+ERROR: .../src/app/BUILD.bazel:3:11: TsgoCheck //src/app:app failed: (Exit 1)
 tsaction: //src/app:app imports files no direct dep provides:
   src/app/main.ts imports "zod"
     resolved to node_modules/zod/index.d.ts
@@ -298,32 +298,42 @@ package only the production code imports arrives through that dep. See
 
 ## Isolated Declarations Error: Missing Return Type
 
-Reachable only under `--//ts:declarations=oxc`, where Oxc derives `.d.ts` from
-syntax and so needs an explicit type on every export:
+Reported under `--//ts:declarations=oxc`, where Oxc derives `.d.ts` from
+syntax, and in either mode under a `tsconfig.json` chain that sets
+`isolatedDeclarations`: `TsgoCheck` keeps `declaration` on there, which the
+option requires, and reports an unannotated export as `tsc -p` does:
 
 ```
-× Isolated declarations error(s): TS9013: Expression type can't be inferred
-│ with --isolatedDeclarations.
+src/gate.ts(2,10): error TS9013: Expression type can't be inferred with --isolatedDeclarations.
 ```
 
-Add the annotation Oxc names, or build under the default
-`--//ts:declarations=tsgo`, where the compiler infers it. See
+Under `--//ts:declarations=oxc` the emit, `TsEmit`, reports it too, in Oxc's
+form:
+
+```
+× Isolated declarations error(s): TS9007: Function must have an explicit
+│ return type annotation with --isolatedDeclarations.
+```
+
+Add the annotation the error names, or take `isolatedDeclarations` out of the
+chain and build under the default `--//ts:declarations=tsgo`, where the
+compiler infers it. See
 [Isolated Declarations](../getting-started/isolated-declarations.md).
 
 ## Type Errors Are Not Failing the Build
 
-Under the default `--//ts:declarations=tsgo` they always do: the `.d.ts` are
-outputs of the type-checking action, so a target with a type error produces
-nothing.
-
-Under `--//ts:declarations=oxc`, type-checking moves into the `_validation` output
-group, off the critical path. Bazel runs those actions during `bazel build` on
-its own, unless `--norun_validations` turns them off; the `.bazelrc` line the
-quickstart writes requests the group explicitly:
+`TsgoCheck` is a validation action on every target, in both
+`--//ts:declarations` modes: Bazel runs it during `bazel build` on its own and
+fails the build on a type error, unless `--norun_validations` turns
+validations off; the `.bazelrc` line the quickstart writes requests the group
+explicitly:
 
 ```
 build --output_groups=+_validation
 ```
+
+Under the default `--//ts:declarations=tsgo` a dependent's build fails a
+second time in `TsgoDeclare`, whose `noEmitOnError` leaves no `.d.ts` behind.
 
 ## Gazelle Generating Wrong Deps
 

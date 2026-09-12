@@ -62,6 +62,10 @@
         "./tests/compiler_options/es_target/*",
         "./bazel-bin/tests/compiler_options/es_target/*"
       ],
+      "tests/compiler_options/isolated/*": [
+        "./tests/compiler_options/isolated/*",
+        "./bazel-bin/tests/compiler_options/isolated/*"
+      ],
       "tests/compiler_options/js_sources/*": [
         "./tests/compiler_options/js_sources/*",
         "./bazel-bin/tests/compiler_options/js_sources/*"
@@ -372,6 +376,8 @@
     "tests/compiler_options/baseline/loose.ts",
     "tests/compiler_options/baseline/loose_check_only.ts",
     "tests/compiler_options/es_target/legacy.ts",
+    "tests/compiler_options/isolated/annotated.ts",
+    "tests/compiler_options/isolated/consumer.ts",
     "tests/compiler_options/js_sources/esm.mjs",
     "tests/compiler_options/js_sources/legacy.cjs",
     "tests/compiler_options/js_sources/main.ts",

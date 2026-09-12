@@ -218,10 +218,13 @@ snapshots:
 		}
 		it.Pass("the wrong _authToken is sent as a Bearer header and rejected")
 
-		if err := it.Bazel("build", "--repo_env=ACME_TOKEN="+token, "//..."); err != nil {
-			it.Fail("bazel build //... exited non-zero (the private-registry fetch should succeed)")
+		if err := it.Bazel("build", "--repo_env=ACME_TOKEN="+token, "//...",
+			"--output_groups=+declarations"); err != nil {
+			it.Fail("bazel build //... --output_groups=+declarations exited " +
+				"non-zero (the private-registry fetch should succeed)")
 		}
-		it.Pass("bazel build //... through the private registry")
+		it.Pass("bazel build //... --output_groups=+declarations through " +
+			"the private registry")
 
 		if !served.saw("200 /" + tarballPath + " Bearer " + token) {
 			fmt.Fprintf(os.Stderr, "--- request log ---\n%s\n", served.log())

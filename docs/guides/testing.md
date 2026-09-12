@@ -217,8 +217,10 @@ describe('worker', () => {
 
 `tsconfig` names the worker's file on the worker target and on the test target:
 the `Request`/`Response` globals a Worker is written against are in `webworker`,
-which no set `target` implies, and the test files are a program of their own,
-checked against that `lib` only when their tsconfig names it too. The
+which no set `target` implies, and the tests are checked under their own
+tsconfig's `lib`; the same file on both makes the worker's sources and the
+tests one program ([the test's
+program](../rules/ts-test.md#the-tests-program)). The
 `ts_config` puts the file behind a label the test's package can name; a test in
 the worker's own package names the file directly, `tsconfig =
 "tsconfig.worker.json"`, as `//tests/workers` does
@@ -319,7 +321,7 @@ ibazel test //...
 
 ibazel watches the build graph, so only affected targets are rebuilt and
 re-tested. To see what the launcher resolved (node binary, vitest entry, the
-chain's `node_modules`, shard split):
+chain's `node_modules`):
 
 ```bash
 bazel run //path/to:my_test -- --dump-config

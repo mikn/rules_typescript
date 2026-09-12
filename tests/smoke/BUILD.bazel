@@ -20,12 +20,22 @@ ts_compile(
     ],
 )
 
+filegroup(
+    name = "declarations",
+    srcs = [
+        ":button",
+        ":hello",
+    ],
+    output_group = "declarations",
+)
+
 go_test(
     name = "smoke_output_test",
     size = "small",
     srcs = ["smoke_output_test.go"],
     data = [
         ":button",
+        ":declarations",
         ":hello",
     ],
     deps = ["//tests/verify"],
