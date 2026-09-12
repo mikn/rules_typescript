@@ -298,16 +298,26 @@ package only the production code imports arrives through that dep. See
 
 ## Isolated Declarations Error: Missing Return Type
 
-Reachable only under `--//ts:declarations=oxc`, where Oxc derives `.d.ts` from
-syntax and so needs an explicit type on every export:
+Reported under `--//ts:declarations=oxc`, where Oxc derives `.d.ts` from
+syntax, and in either mode under a `tsconfig.json` chain that sets
+`isolatedDeclarations`: `TsgoCheck` keeps `declaration` on there, which the
+option requires, and reports an unannotated export as `tsc -p` does:
 
 ```
-× Isolated declarations error(s): TS9013: Expression type can't be inferred
-│ with --isolatedDeclarations.
+src/gate.ts(2,10): error TS9013: Expression type can't be inferred with --isolatedDeclarations.
 ```
 
-Add the annotation Oxc names, or build under the default
-`--//ts:declarations=tsgo`, where the compiler infers it. See
+Under `--//ts:declarations=oxc` the emit, `TsEmit`, reports it too, in Oxc's
+form:
+
+```
+× Isolated declarations error(s): TS9007: Function must have an explicit
+│ return type annotation with --isolatedDeclarations.
+```
+
+Add the annotation the error names, or take `isolatedDeclarations` out of the
+chain and build under the default `--//ts:declarations=tsgo`, where the
+compiler infers it. See
 [Isolated Declarations](../getting-started/isolated-declarations.md).
 
 ## Type Errors Are Not Failing the Build

@@ -263,9 +263,8 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		"rootDir":     relativePath(dir, ""),
 		"composite":   false,
 		"incremental": false,
-		// Off under the composite turned off; null unsets a path (TS5069).
-		// declaration on where the chain or oxc sets isolatedDeclarations.
-		"declaration":         declaration,
+		"declaration": declaration,
+		// Off under the composite turned off; null unsets a path.
 		"declarationMap":      false,
 		"emitDeclarationOnly": false,
 		"declarationDir":      nil,

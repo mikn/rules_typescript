@@ -51,8 +51,8 @@ It applies to every exported function, arrow function, and variable. Oxc reports
 violations itself and fails the build:
 
 ```
-× Isolated declarations error(s): TS9013: Expression type can't be inferred
-│ with --isolatedDeclarations.
+× Isolated declarations error(s): TS9007: Function must have an explicit
+│ return type annotation with --isolatedDeclarations.
 ```
 
 The build fails because a syntactic emitter can only widen an un-annotated
