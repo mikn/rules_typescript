@@ -161,9 +161,10 @@ into the launcher's config and the runfiles of one test.
                       "package's format.",
         "launch": "function(ctx, test) -> struct: the runner's half of one " +
                   "test's analysis. `test` is the struct ts_test builds from " +
-                  "the compile (entry_points, test_files_list, chain, " +
-                  "transitive_js, es_twins, runtime_data_sets, " +
-                  "package_sources, inline_members, runner); `chain` is " +
+                  "the compile (entry_points, entry_extensions, " +
+                  "test_files_list, chain, transitive_js, es_twins, " +
+                  "runtime_data_sets, package_sources, inline_members, " +
+                  "runner); `chain` is " +
                   "struct(dirs, rlocations, npm_files): the chain's " +
                   "node_modules directories nearest first, as bin-dir paths " +
                   "and as runfiles paths, and the store files the test " +
