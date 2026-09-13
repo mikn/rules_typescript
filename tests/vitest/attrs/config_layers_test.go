@@ -36,9 +36,21 @@ func TestTheGeneratedConfigCollectsTheRunByOnePattern(t *testing.T) {
 	config.Contains(
 		`const INCLUDE = ["**/*.{test,spec}.{js,jsx,mjs,cjs}"];`,
 		`const BIN_PROBE = "tests/vitest/attrs/attrs.test.js";`,
-		`const test = { ...config.test, include: INCLUDE };`,
+		`include: INCLUDE,`,
 	)
 	config.Excludes(
-		`"attrs.test.js"]`, "include: INCLUDE,", "for (const f of INCLUDE)",
+		`"attrs.test.js"]`, "for (const f of INCLUDE)",
+	)
+}
+
+// vitest walks the root the launcher staged, not the runfiles tree: `dir` is
+// set beside `include`, after the merge, on the root and on every project.
+func TestTheGeneratedConfigWalksTheStagedRoot(t *testing.T) {
+	tree := verify.New(t)
+
+	config := tree.File("tests/vitest/attrs/_attrs_test.vitest/config.mjs")
+	config.Contains(
+		`const FILES_ROOT = process.env.TS_TEST_FILES_ROOT;`,
+		`dir: resolve(FILES_ROOT, relative(RUNFILES_ROOT, root)),`,
 	)
 }
