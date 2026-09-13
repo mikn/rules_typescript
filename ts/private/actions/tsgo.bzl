@@ -144,12 +144,15 @@ def tsgo_check(
         checkers):
     """Registers TsgoCheck, the validation every program runs.
 
-    `importers` are the chain's node_modules directories nearest first,
-    `overlays` the output directories of the first-party deps at or above the
-    target's package, `manifests` those deps' package.json as built, each laid
-    at its package's path, `npm_files` the store files the program reaches
-    and `ownership` the manifest the listing is checked against. Returns the
-    stamp written when tsgo and the check pass, for the _validation group.
+    `srcs`, `chain` and `dep_dts` are the program root's `-source` entries,
+    each source-tree file linked at its own path while the output tree is
+    linked whole; `importers` are the chain's node_modules directories
+    nearest first, `overlays` the output directories of the first-party deps
+    at or above the target's package, `manifests` those deps' package.json as
+    built, each laid at its package's path, `npm_files` the store files the
+    program reaches and `ownership` the manifest the listing is checked
+    against. Returns the stamp written when tsgo and the check pass, for the
+    _validation group.
     """
     stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
     run_args = _program_args(
