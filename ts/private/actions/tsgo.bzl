@@ -113,6 +113,21 @@ def _program_inputs(tsgo, tsconfig, srcs, chain, dep_dts, npm_files, extra):
         transitive = [dep_dts, npm_files],
     )
 
+def _run_tsgo(ctx, run_args, inputs, outputs, mnemonic, checkers):
+    requirements = {}
+    if checkers > 0:
+        run_args.add("--checkers", str(checkers))
+        requirements["cpu:{}".format(checkers)] = ""
+    ctx.actions.run(
+        inputs = inputs,
+        outputs = outputs,
+        executable = get_tools_toolchain(ctx).tsaction,
+        arguments = ["tsgo", run_args],
+        mnemonic = mnemonic,
+        progress_message = mnemonic + " %{label}",
+        execution_requirements = requirements,
+    )
+
 def tsgo_check(
         ctx,
         tsgo,
@@ -124,7 +139,8 @@ def tsgo_check(
         chain,
         dep_dts,
         npm_files,
-        ownership):
+        ownership,
+        checkers):
     """Registers TsgoCheck, the validation every program runs.
 
     `importers` are the chain's node_modules directories nearest first,
@@ -153,8 +169,10 @@ def tsgo_check(
     run_args.add("--noEmit")
     run_args.add("--explainFiles")
     run_args.add("--pretty", "false")
-    ctx.actions.run(
-        inputs = _program_inputs(
+    _run_tsgo(
+        ctx,
+        run_args,
+        _program_inputs(
             tsgo,
             tsconfig,
             srcs,
@@ -163,11 +181,9 @@ def tsgo_check(
             npm_files,
             [ownership],
         ),
-        outputs = [stamp],
-        executable = get_tools_toolchain(ctx).tsaction,
-        arguments = ["tsgo", run_args],
-        mnemonic = "TsgoCheck",
-        progress_message = "TsgoCheck %{label}",
+        [stamp],
+        "TsgoCheck",
+        checkers,
     )
     return stamp
 
@@ -185,7 +201,8 @@ def tsgo_declare(
         outputs,
         out_dir,
         root_dir,
-        declaration_map):
+        declaration_map,
+        checkers):
     """Registers TsgoDeclare: the same program, the declaration emit on the
     command line, `outputs` the .d.ts (+ .d.ts.map under `declaration_map`)
     under `out_dir`, mirroring `root_dir`. noEmitOnError leaves nothing behind
@@ -213,8 +230,10 @@ def tsgo_declare(
     run_args.add("--outDir", out_dir)
     run_args.add("--rootDir", root_dir or ".")
     run_args.add("--pretty", "false")
-    ctx.actions.run(
-        inputs = _program_inputs(
+    _run_tsgo(
+        ctx,
+        run_args,
+        _program_inputs(
             tsgo,
             tsconfig,
             srcs,
@@ -223,9 +242,7 @@ def tsgo_declare(
             npm_files,
             [],
         ),
-        outputs = outputs,
-        executable = get_tools_toolchain(ctx).tsaction,
-        arguments = ["tsgo", run_args],
-        mnemonic = "TsgoDeclare",
-        progress_message = "TsgoDeclare %{label}",
+        outputs,
+        "TsgoDeclare",
+        checkers,
     )

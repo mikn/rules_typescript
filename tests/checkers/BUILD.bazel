@@ -1,0 +1,26 @@
+"""--//ts:checkers=N reaches tsgo as --checkers N on TsgoCheck and TsgoDeclare;
+at 0 the command lines carry none."""
+
+load("//ts:defs.bzl", "ts_compile")
+load(
+    ":checkers_tests.bzl",
+    "checkers_default_test",
+    "checkers_sixteen_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "lib",
+    srcs = ["lib.ts"],
+)
+
+checkers_sixteen_test(
+    name = "checkers_sixteen_test",
+    target_under_test = ":lib",
+)
+
+checkers_default_test(
+    name = "checkers_default_test",
+    target_under_test = ":lib",
+)

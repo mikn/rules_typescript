@@ -455,6 +455,7 @@ def compile_program(
     tsgo_emits_dts = not oxc_emits_dts
     source_map = ctx.attr._source_map[BuildSettingInfo].value
     declaration_map = ctx.attr._declaration_map[BuildSettingInfo].value
+    checkers = ctx.attr._checkers[BuildSettingInfo].value
 
     if declaration_map and not tsgo_emits_dts:
         fail(
@@ -698,6 +699,7 @@ def compile_program(
             dep_dts = dep_dts_depset,
             npm_files = npm_files,
             ownership = ownership,
+            checkers = checkers,
         ))
         if tsgo_emits_dts:
             tsgo_declare(
@@ -715,6 +717,7 @@ def compile_program(
                 out_dir = out_base,
                 root_dir = declare_root,
                 declaration_map = declaration_map,
+                checkers = checkers,
             )
 
     lint = ctx.attr._lint[LintConfigInfo]
@@ -922,6 +925,7 @@ for all of them but Node16/NodeNext.""",
     "_source_map": attr.label(default = Label("//ts:source_map")),
     "_declaration_map": attr.label(default = Label("//ts:declaration_map")),
     "_lib_check": attr.label(default = Label("//ts:lib_check")),
+    "_checkers": attr.label(default = Label("//ts:checkers")),
 }
 
 TS_COMPILE_TOOLCHAINS = [
