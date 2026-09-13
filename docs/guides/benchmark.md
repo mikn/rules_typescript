@@ -85,6 +85,13 @@ have is empty.
 | One-line change in web, re-test | warm | 48.1 (47.4-64.3), exit 134 | 744.3 (743.9-752.9), exit 3 | 49.3 (43.3-55.5), exit 134 | 610.7 (608.7-639.9), exit 3 | 466.9 (458.8-469.6), exit 1 | 588.6 (582.3-600.8), exit 3 | 0.54 / 0.75 | 0.29 / 0.42 | 1.22 / 1.57 |
 | One-line change in a leaf worker, re-test | warm | 1.7 (1.5-2.1) | 9.2 (8.0-9.7) | 1.1 (1.1-1.1) | 5.5 (5.4-5.5) | 1.7 (1.6-1.8) | 6.1 (6.0-6.8) | 0.48 / 0.57 | 0.28 / 0.36 | 0.41 / 0.67 |
 
+A cold Bazel cell also builds the ruleset's tools -- the Go toolchain's
+builder and standard library (`GoToolchainBinaryBuild`, `GoStdlib`), the Go
+tools they compile and oxc's crates (`Compiling Rust`) -- work no checkout
+command does and the comparison leaves out, so the cold comparison of the
+build itself is the fresh-output-base rows, 73.1 s and 71.2 s, where those
+actions are disk cache hits like everything else.
+
 The checkout's way: `.github/scripts/typecheck.sh`; the CI `run:` lines that
 run TypeScript tests outside the excluded rows (11 at f9fd041, 12 at 613f2b2,
 12 at da0b73d) plus cf-workers-test.yml's step in the worker directories CI
