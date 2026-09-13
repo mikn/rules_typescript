@@ -190,7 +190,11 @@ that pass too. Lowest precedence first:
    path it is staged (below), one entry per path, so tsc's rules for a
    pattern's match -- `allowJs`, the higher-priority extension of a pair
    listed together -- reach a src named by path, as they reach nothing in
-   `files`. A chain that sets no `exclude` gets `[]`,
+   `files`. The chain's `exclude` is such a rule too: a src it names is in
+   the program only through an import, and one the program never read fails
+   `TsgoCheck` naming the src and the entry -- the program is the srcs, so
+   the file leaves `srcs` or the entry leaves `exclude`. A chain that sets
+   no `exclude` gets `[]`,
    not tsc's default list, whose `outDir` entry is the output directory such
    an entry sits in. `references` is `[]`. The roots are patterns rather than
    a `files` entry per src because `--explainFiles` finds a `files` root's

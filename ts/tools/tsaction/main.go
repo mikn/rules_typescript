@@ -32,7 +32,8 @@ const usage = `usage:
   tsaction paths -tsconfig=FILE -package=PKG [-bin_dir=DIR] -out=FILE
   tsaction manifest [-tsx=.js|.jsx] SRC OUT
   tsaction tsgo -root=DIR [-source=FILE]... -node_modules=DIR [-overlay=DIR]...
-      [-manifest=FILE]... [-check=FILE] [-stamp=FILE] -- TSGO [ARG...]
+      [-manifest=FILE]... [-check=FILE [-tsconfig=FILE]] [-stamp=FILE]
+      -- TSGO [ARG...]
   tsaction emit -options=FILE -tsconfig=FILE [-source=FILE]... -node_modules=DIR
       [-overlay=DIR]... [-manifest=FILE]... -scratch=DIR -out_dir=DIR -oxc=BIN
       -tsgo=BIN -root=DIR... [-source_map] [-declarations] SRC...

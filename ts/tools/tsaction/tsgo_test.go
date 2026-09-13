@@ -384,6 +384,45 @@ func TestTsgoStep_WithoutCheckRunsTheToolAlone(t *testing.T) {
 	}
 }
 
+// A src the chain's exclude names and no import brings in is outside the
+// program: the step fails naming the src and the entry, and writes no stamp.
+func TestTsgoStep_ASrcTheChainExcludesAndTheProgramLacksFails(t *testing.T) {
+	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\n")
+	writeFile(t, filepath.Join(root, "pkg/b.ts"), "export const b = 1;\n")
+	writeFile(t, filepath.Join(root, "pkg/tsconfig.json"),
+		`{"include": ["*.ts"], "exclude": ["b.ts"]}`+"\n")
+	writeFile(t, filepath.Join(root, manifest),
+		"label\t//pkg:app\nown\tpkg/a.ts\nown\tpkg/b.ts\n")
+	rootA := "pkg/a.ts\n   Matched by include pattern '../../../../pkg/*.ts'" +
+		" in '" + binDir + "/pkg/app.tsconfig.json'\n"
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"), rootA)
+	stamp := binDir + "/pkg/app.tscheck"
+	args := tsgoArgs("-tsconfig=pkg/tsconfig.json", "-source=pkg/b.ts",
+		"-stamp="+stamp, "--", "external/tsgo/tsc")
+
+	err := runTsgo(args)
+	for _, want := range []string{
+		"//pkg:app: srcs the program never read", "pkg/tsconfig.json",
+		"  pkg/b.ts\texcluded by \"b.ts\"",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("runTsgo = %v, want the message with %q", err, want)
+		}
+	}
+	if _, err := os.Stat(stamp); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a stamp was written for a src the program lacks: %v", err)
+	}
+
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"),
+		"pkg/b.ts\n   Imported via \"./b\" from file 'pkg/a.ts'\n"+rootA)
+	if err := runTsgo(args); err != nil {
+		t.Errorf("runTsgo with b.ts imported into the program: %v", err)
+	}
+	if _, err := os.Stat(stamp); err != nil {
+		t.Errorf("no stamp after a passing check: %v", err)
+	}
+}
+
 func captureStdout(t *testing.T) func() string {
 	t.Helper()
 	r, w, err := os.Pipe()

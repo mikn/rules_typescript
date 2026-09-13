@@ -12,7 +12,8 @@ included. TsgoCheck runs --noEmit over the written tsconfig, which
 carries no emit shape, and checks the --explainFiles listing against the
 ownership manifest written here: an edge from one of the target's files into
 a file a label outside deps owns fails the action naming that label
-(docs/rules/ts-compile.md § Deps Have to Be Direct). TsgoDeclare runs the
+(docs/rules/ts-compile.md § Deps Have to Be Direct), and so does a src the
+listing lacks that the chain's exclude names. TsgoDeclare runs the
 same program with the declaration emit on its command line and the .d.ts as
 its outputs, so it runs when a dependent's compile reads them.
 """
@@ -162,6 +163,8 @@ def tsgo_check(
         manifests,
     )
     run_args.add(ownership, format = "-check=%s")
+    if ctx.file.tsconfig:
+        run_args.add(ctx.file.tsconfig, format = "-tsconfig=%s")
     run_args.add(stamp, format = "-stamp=%s")
     run_args.add("--")
     run_args.add(tsgo.tsgo_binary)
