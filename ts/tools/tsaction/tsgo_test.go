@@ -180,7 +180,7 @@ func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 // and none of its JavaScript: a program reads a dep through its declarations.
 func TestTsgoStep_LaysNoJavaScriptOverThePackage(t *testing.T) {
 	laid := []string{"gen/m.d.ts", "gen/n.d.mts", "gen/data.json", "package.json"}
-	left := []string{"gen/m.js", "gen/n.mjs", "gen/legacy.cjs", "gen/view.jsx"}
+	left := []string{"gen/m.js", "gen/n.mjs", "gen/util.cjs", "gen/view.jsx"}
 	files := strings.Join(laid, " ") + " " + strings.Join(left, " ")
 	root, argv := newTsgoExecroot(t,
 		"for f in "+files+"; do "+
