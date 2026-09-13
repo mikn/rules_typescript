@@ -120,16 +120,21 @@ is the test's. The package's `tsconfig.json` names the compile and the test
 alike -- Gazelle writes it on both -- and the checkout's `tsc -p` checks their
 files as one program, so `TsgoCheck` on the test reads the compile's `.ts`,
 `.tsx`, JavaScript and declaration srcs beside the test files
-(`TsInfo.sources`) and the declarations the compile's own program read
-(`TsInfo.deps_declarations`), never the compile's emitted `.d.ts`: the check
-waits for no `TsgoDeclare`, and a type error in the package's sources fails
-the test's check as it fails the compile's. The edges stay the compile's to
-declare: an import from a test file into one of those sources lands on a file
-the compile's label owns, in `deps` already, and an import from one of them is
-not judged ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
-A dep under another `tsconfig` -- a `tsconfig.node.json` test over the
-package's browser compile, say -- reaches the test through its declarations, as
-it reaches any `ts_compile`. `//tests/package_program` pins both.
+(`TsInfo.sources`) and never the compile's emitted `.d.ts`, by any path: the
+declarations a program reads are the `TsInfo.owners` records' of its closure,
+one record per target, less the records of the deps held as sources, so a dep
+under another `tsconfig` that itself depends on the compile -- a worker between
+the package's test and its compile -- brings its own declarations and not the
+compile's, and its imports of the compile resolve to the compile's sources in
+the test's program. The check waits for no `TsgoDeclare` of the compile, and a
+type error in the package's sources fails the test's check as it fails the
+compile's. The edges stay the compile's to declare: an import from a test file
+into one of those sources lands on a file the compile's label owns, in `deps`
+already, and an import from one of them is not judged
+([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)). A dep under
+another `tsconfig` -- a `tsconfig.node.json` test over the package's browser
+compile, say -- reaches the test through its declarations, as it reaches any
+`ts_compile`. `//tests/package_program` pins the three.
 
 ## The Test's tsconfig
 

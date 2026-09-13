@@ -498,10 +498,10 @@ package's own imports resolve from its realpath in the store,
 so every dependent reaches the resolution pnpm recorded for it, and an import
 of a name the package does not declare to the hoist's link at
 `node_modules/.pnpm/node_modules/<name>`, as in the checkout. npm deps
-contribute no other input: a `ts_compile`'s `transitive_declarations` holds
-first-party declarations alone, and a package's file sits under
-`node_modules/<name>/`, the segment TypeScript reads to take it for a library
-file, type-checked and never emitted.
+contribute no other input: the declarations a program reads are its
+first-party closure's, the `TsInfo.owners` records', and a package's file sits
+under `node_modules/<name>/`, the segment TypeScript reads to take it for a
+library file, type-checked and never emitted.
 
 A workspace member is one of those packages. Its importer's link target,
 `//<importer>:node_modules/<name>`, enters the member's store tree, which
@@ -848,11 +848,12 @@ The fields, and the load path, are in
 [Providers and Toolchains](providers.md).
 
 - **`TsInfo`**: this target's `.js`, `.js.map`, declarations and data srcs as
-  direct depsets and the closure of each over its first-party deps as
-  transitive ones, plus the npm packages that closure imports. `ts_binary` reads
-  the transitive `.js` set; `ts_test`, `ts_binary` and `ts_dev_server` stage
-  `transitive_data` beside the `.js`; a downstream `ts_compile` type-checks
-  against `transitive_declarations` and stages `npm_files`
+  direct depsets, the closure of the `.js` and data over its first-party deps
+  as transitive ones, the closure's declarations per target in `owners`, plus
+  the npm packages that closure imports. `ts_binary` reads the transitive `.js`
+  set; `ts_test`, `ts_binary` and `ts_dev_server` stage `transitive_data`
+  beside the `.js`; a downstream `ts_compile` type-checks against the `owners`
+  records' declarations and stages `npm_files`
 - **`OutputGroupInfo(declarations=...)`**: `TsInfo.declarations` as an output
   group, with the `.d.ts.map` under `--//ts:declaration_map`: what
   `bazel build --output_groups=declarations` and a

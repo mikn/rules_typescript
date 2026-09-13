@@ -3,9 +3,9 @@
 - **`TsInfo` is the one provider a dep returns; `JsInfo` and
   `TsDeclarationInfo` are gone.** Its fields: `js`, `js_maps`, `declarations`,
   `data` and `sources` for what the target itself produces, `transitive_js`,
-  `transitive_js_maps`, `transitive_declarations` and `transitive_data` for the
-  closure over its first-party deps, `npm_packages` for the npm closure of its
-  deps and `npm_files` for the store files it reaches. `ts_compile`,
+  `transitive_js_maps` and `transitive_data` for the closure over its
+  first-party deps, `npm_packages` for the npm closure of its deps and
+  `npm_files` for the store files it reaches. `ts_compile`,
   `ts_codegen` and `ts_binary` return it over their outputs; an npm package
   target returns one naming its closure and nothing by path, since its files
   reach a consumer through the importer's link into the store, so an npm dep's
@@ -22,5 +22,5 @@
   `.transitive_data_files` become `TsInfo.js`, `.js_maps`, `.data`, `.sources`,
   `.transitive_js`, `.transitive_js_maps` and `.transitive_data`;
   `TsDeclarationInfo.declaration_files`, `.transitive_declaration_files` and
-  `.transitive_npm_packages` become `TsInfo.declarations`,
-  `.transitive_declarations` and `.npm_packages`.
+  `.transitive_npm_packages` become `TsInfo.declarations`, the `declarations`
+  of the `TsInfo.owners` records and `.npm_packages`.

@@ -109,7 +109,7 @@ def _leaf_declares_on_demand_impl(ctx):
 
 leaf_declares_on_demand_test = analysistest.make(_leaf_declares_on_demand_impl)
 
-def _check_reads_the_deps_declarations_impl(ctx):
+def _check_reads_the_dep_declarations_impl(ctx):
     env = analysistest.begin(ctx)
     dep_dts = ctx.attr.dep[TsInfo].declarations.to_list()
     asserts.equals(
@@ -132,8 +132,8 @@ def _check_reads_the_deps_declarations_impl(ctx):
                 )
     return analysistest.end(env)
 
-check_reads_the_deps_declarations_test = analysistest.make(
-    _check_reads_the_deps_declarations_impl,
+check_reads_the_dep_declarations_test = analysistest.make(
+    _check_reads_the_dep_declarations_impl,
     attrs = {
         "dep": attr.label(
             mandatory = True,

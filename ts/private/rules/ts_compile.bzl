@@ -340,7 +340,6 @@ def compile_program(
 
     compile_srcs, js_srcs, passthrough_dts, data_srcs = _classify_srcs(ctx)
 
-    transitive_dts_sets = []
     dep_npm_package_sets = []
     dep_npm_file_sets = []
     transitive_js_sets = []
@@ -353,6 +352,7 @@ def compile_program(
     npm_links = []
     direct_labels = []
     owner_sets = []
+    held_as_sources = {}
     overlays = {}
     dep_manifests = []
     joined_source_sets = []
@@ -375,9 +375,7 @@ def compile_program(
             continue
         if package_program and _same_tsconfig(ctx, info):
             joined_source_sets.append(info.sources)
-            transitive_dts_sets.append(info.deps_declarations)
-        else:
-            transitive_dts_sets.append(info.transitive_declarations)
+            held_as_sources[label_text(dep.label)] = True
         transitive_js_sets.append(info.transitive_js)
         transitive_js_map_sets.append(info.transitive_js_maps)
         transitive_data_sets.append(info.transitive_data)
@@ -430,7 +428,11 @@ def compile_program(
     ]
 
     dep_dts_depset = depset(
-        transitive = transitive_dts_sets,
+        transitive = [
+            record.declarations
+            for record in depset(transitive = owner_sets).to_list()
+            if record.label not in held_as_sources
+        ],
         order = "postorder",
     )
 
@@ -544,12 +546,14 @@ def compile_program(
     check_srcs = compile_srcs + js_srcs + passthrough_dts
     joined = depset(transitive = joined_source_sets).to_list()
 
+    direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
     owners = depset(
         [struct(
             label = label_text(ctx.label),
             files = depset(
                 check_srcs + dts_outputs + data_staged + as_built,
             ),
+            declarations = direct_dts,
         )],
         transitive = owner_sets,
     )
@@ -717,15 +721,9 @@ def compile_program(
     if lint.binary and check_srcs:
         validation_outputs.append(lint_action(ctx, lint, check_srcs))
 
-    direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
     direct_js = depset(js_outputs + js_passthrough, order = "postorder")
     direct_js_map = depset(js_map_outputs, order = "postorder")
 
-    transitive_dts = depset(
-        dts_outputs + passthrough_dts,
-        transitive = [dep_dts_depset],
-        order = "postorder",
-    )
     transitive_js = depset(
         js_outputs + js_passthrough,
         transitive = transitive_js_sets,
@@ -754,10 +752,8 @@ def compile_program(
         manifest = manifest,
         sources = depset(check_srcs, order = "postorder"),
         tsconfig = ctx.file.tsconfig,
-        deps_declarations = dep_dts_depset,
         transitive_js = transitive_js,
         transitive_js_maps = transitive_js_map,
-        transitive_declarations = transitive_dts,
         transitive_data = transitive_data,
         transitive_es_twins = transitive_es_twins,
         npm_packages = depset(
