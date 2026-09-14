@@ -5,11 +5,12 @@
   remote-cache-shaped), each cell three runs, the checkout's own commands
   (`.github/scripts/typecheck.sh`, the CI test rows, `tsc -p`, CI's
   `vitest run` over web) beside `bazel build //...`, `bazel test //...`,
-  `bazel build //web:web` and then `bazel build //web/...`; an `EXCLUDE`
-  file leaves a red target and its checkout row out of the test-everything
-  cells, an `EXCLUDE_BUILD` file leaves a target red at the proof's build out
-  of every `//...` cell on both lanes; one headed log per run and
-  `summary.md` with medians and spread.
+  `bazel build //web:web` and then `bazel build //web/...`; `BAZEL_FLAGS`
+  adds a consumer's build options to every Bazel cell; an `EXCLUDE` file
+  leaves a red target and its checkout row out of the test-everything cells,
+  an `EXCLUDE_BUILD` file leaves a target red at the proof's build out of
+  every `//...` cell on both lanes; one headed log per run and `summary.md`
+  with medians and spread.
   A cell starts once other processes' CPU is under `OTHER_CORES` (2) over
   3 s, and a cell during which it averaged more is not a number: its log
   moves to `contended/` and its segment is redone, `REDO` (3) attempts

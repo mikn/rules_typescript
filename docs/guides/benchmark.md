@@ -13,7 +13,9 @@ linter off alone -- `TsgoCheck` is a validation action now, and
 `--norun_validations` would skip the check. Four cache states, three runs per
 cell, the median with its spread; `tools/bench_parity.sh` ran all three
 (`OTHER_CORES=2 REDO=6 SYSTEM_PROCS=falcon-sensor-bpf`, the excluded targets
-below). A target red at the parity proof is left out of the test-everything
+below). `BAZEL_FLAGS` adds a consumer's build options to every Bazel cell
+after the runner's flag set; the three runs passed none. A target red at the
+parity proof is left out of the test-everything
 cells on both sides, together with the checkout rows that run the same files:
 Bazel never caches a failed test, so a red target would put its own run into
 every warm row. At f9fd041 thirteen `ts_test` targets were left out -- the

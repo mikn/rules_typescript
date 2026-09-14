@@ -4,6 +4,8 @@ set -uo pipefail
 usage() {
   echo "usage: tools/bench_parity.sh <checkout> <scratch> <logs> [runs]" >&2
   echo "  BAZEL (default bazelisk); LOCAL_TEST_JOBS (unset: Bazel's own)" >&2
+  echo "  BAZEL_FLAGS: build options added to every Bazel cell after the" >&2
+  echo "    runner's own flag set (a consumer's --extra_toolchains, ...)" >&2
   echo "  EXCLUDE: a file, one '<ts_test label>|<CI row, worker dir or" >&2
   echo "    ->|<why>' per line, left out of the test-everything cells" >&2
   echo "  EXCLUDE_BUILD: the same shape for targets red at the proof's" >&2
@@ -22,6 +24,7 @@ SCRATCH="$2"
 LOGS="$3"
 RUNS="${4:-3}"
 BAZEL="${BAZEL:-bazelisk}"
+BAZEL_FLAGS="${BAZEL_FLAGS:-}"
 EXCLUDE="${EXCLUDE:-}"
 EXCLUDE_BUILD="${EXCLUDE_BUILD:-}"
 OTHER_CORES="${OTHER_CORES:-2}"
@@ -240,10 +243,12 @@ checkout_cell() {
 
 bazel_cell() {
   local name="$1" run="$2" note="$3" ob="$4" dc="$5" verb="$6"; shift 6
-  local -a flags=("$TSGO" "--disk_cache=$dc" "$NO_LINT")
+  local -a flags=("$TSGO" "--disk_cache=$dc" "$NO_LINT") extra
   [ "$verb" = test ] && flags+=(--test_output=errors)
   [ -n "${LOCAL_TEST_JOBS:-}" ] &&
     flags+=("--local_test_jobs=$LOCAL_TEST_JOBS")
+  read -r -a extra <<< "$BAZEL_FLAGS"
+  flags+=("${extra[@]}")
   run_cell "$name" "$run" "$note" "$CHECKOUT" "$ob" \
     "$BAZEL" "--output_base=$ob" "$verb" "${flags[@]}" -- "$@"
 }
@@ -474,7 +479,7 @@ TOOLS="$(tool_versions)"
 echo "# $(now) load $(load) runs=$RUNS" \
   "local_test_jobs=${LOCAL_TEST_JOBS:-default} other_cores=$OTHER_CORES" \
   "redo=$REDO system_procs=${SYSTEM_PROCS:-none} exclude=${EXCLUDE:-none}" \
-  "exclude_build=${EXCLUDE_BUILD:-none}"
+  "exclude_build=${EXCLUDE_BUILD:-none} bazel_flags=${BAZEL_FLAGS:-none}"
 for n in $(seq 1 "$RUNS"); do
   lanes "$n"
   all_complete "$n" "$COLD $WARM $EDIT $CACHED" && continue
