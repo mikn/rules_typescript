@@ -26,6 +26,9 @@ load("//ts/private/actions:lint.bzl", "lint_config_repo")
 _DEFAULT_TSGO_LOCK = Label("//ts/private/tsgo:pnpm-lock.yaml")
 _TSGO_SOURCE_GO_MOD = Label("//ts/private/tsgo_source:go.mod")
 _TSGO_SOURCE_GO_SUM = Label("//ts/private/tsgo_source:go.sum")
+_TSGO_SOURCE_PATCHES = [
+    Label("//ts/private/tsgo_source:isolated-declarations-bound-expando.patch"),
+]
 
 # "<prefix>_<platform>", the labels the declare_*_toolchains() macros generate;
 # rules_typescript alone use_repo's them, in its own repo mapping.
@@ -79,16 +82,19 @@ def _tsgo_source(module_ctx):
         name = "tsgo_source_modules",
         importpaths = {go_repo_name(m.path): m.path for m in source.modules},
     )
+    tool = source.tool
     for module in source.modules:
+        patches = _TSGO_SOURCE_PATCHES if module.path == tool.module else []
         go_repository(
             name = go_repo_name(module.path),
             build_config = "@tsgo_source_modules//:WORKSPACE",
             build_file_generation = "on",
             importpath = module.path,
+            patch_args = ["-p1"],
+            patches = patches,
             sum = module.sum,
             version = module.version,
         )
-    tool = source.tool
     tsgo_source_repo(
         name = "tsgo_source",
         binary = "@{}//{}:{}".format(

@@ -54,5 +54,26 @@ func main() {
 			it.Fail("build failed, but not with an isolated-declarations diagnostic")
 		}
 		it.Pass("failure names the isolated-declarations problem")
+
+		// _validation alone is TsgoCheck; the default build's oxc emit rejects
+		// the same export first and would hide the check's answer.
+		expando, err := it.BazelLog("expando.log", "build",
+			"//src/expando:all", "--output_groups=_validation")
+		if err == nil {
+			expando.Dump()
+			it.Fail("TsgoCheck passed //src/expando; its export is " +
+				"un-annotated, so --//ts:declarations=oxc must reject it")
+		}
+		if expando.Contains("panic:") {
+			expando.Dump()
+			it.Fail("the compiler crashed on //src/expando instead of " +
+				"reporting its un-annotated export")
+		}
+		if !expando.Contains("TS9013") {
+			expando.Dump()
+			it.Fail("TsgoCheck failed //src/expando, but not with TS9013")
+		}
+		it.Pass("TsgoCheck reports //src/expando as TS9013 under the " +
+			"source-built compiler, where the 7.0.2 release crashes")
 	})
 }

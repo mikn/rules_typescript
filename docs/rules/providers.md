@@ -337,6 +337,22 @@ register_toolchains(
 )
 ```
 
+`ts/private/tsgo_source/isolated-declarations-bound-expando.patch` is the
+change that build carries today, applied to the module's repository by
+`go_repository`'s `patches` (`-p1`) before rules_go compiles it. Under
+`isolatedDeclarations` the 7.0.2 compiler crashes on an exported initializer
+of the shape `f().p || ""` (`panic: Unhandled case in Node.Text:
+*ast.CallExpression`): the declaration tracker's `isBoundExpando` took every
+binary expression with a property access on its left for an expando
+assignment and asked the resolver about the head of that access chain, which
+the resolver reads as an identifier. Patched, it asks only when the operator
+is `=` and the head is an identifier, and the compiler reports `TS9013` where
+TypeScript 5.9 reports `TS9007`. The patch carries the module's own case,
+`isolatedDeclarationsBoundExpandoCallee`, with its baselines;
+`//tests/integration:oxc_declarations_test` runs `TsgoCheck` over the shape
+under this toolchain and expects `TS9013`. The lockfile's binary keeps the
+crash.
+
 The pin moves in `ts/private/tsgo_source` with
 `go get github.com/microsoft/typescript-go@<commit> && go mod tidy`; for
 TypeScript 7.1 the Go code moved into `github.com/microsoft/TypeScript` under

@@ -127,7 +127,7 @@ bazel_integration_test(
 )
 
 # ── oxc_declarations ──────────────────────────────────────────────────────────
-# .bazelrc: --@rules_typescript//ts:declarations=oxc; un-annotated exports fail.
+# --//ts:declarations=oxc under the source-built tsgo: unannotated exports fail.
 
 bazel_integration_test(
     name = "oxc_declarations_test",
