@@ -13,7 +13,7 @@ TOOLS_VERSION = "1"
 TOOLS_INTEGRITY = {
     "darwin_amd64": "sha256-LIrBg3Jjllze2I5KCT9yNMYWuTltDhvKtnvpdVlI2o8=",
     "darwin_arm64": "sha256-8ypVbEMIWmrnbGFJ8YjCVDLmdbPJ88n2MOEOuGYs7CU=",
-    "linux_amd64": "sha256-bSTkp0Wgtlhfx4XC6/lKztNk+9M4Hs3/Hbe+hgmQduk=",
+    "linux_amd64": "sha256-+MB96pXCxLgr7UiOO/NS07mV0Y1bC4Dz5hfz7ZjJfzM=",
     "linux_arm64": "sha256-iLEN78pGjcfNywK9iMyIxdTATk1Rf5JJdphyMz5s2ws=",
 }
 

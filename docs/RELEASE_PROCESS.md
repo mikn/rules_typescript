@@ -179,15 +179,16 @@ A PR that changes any of `ts/tools`, `tools/launcher`, `tools/lcov_merger`,
 `tools/copy_to_workspace` or `tools/toolpack`:
 
 1. Bumps `TOOLS_VERSION` in `ts/private/tools_lock.bzl`.
-2. Pastes the `TOOLS_INTEGRITY` table `tools/ci/check_tools_lock.sh` prints
-   (the CI `tools` job prints it too; its SRIs are the ones the release job
-   will assert).
+2. Pastes the `TOOLS_INTEGRITY` table `tools/ci/check_tools_lock.sh` prints;
+   the four binaries are `pure = "on"`, so every machine prints the same
+   table.
 3. Before merging, the owner pushes the tag from the PR head:
    ```bash
    bazel run //tools/release -- tools <N> --push
    ```
    The `tools` job of `.github/workflows/release.yml` builds the four assets
-   with `bazel build --platforms=//platforms:<key>`, packs each with
+   with `bazel build --platforms=//platforms:<key>`, reads them out of that
+   configuration (`cquery config(..., target)`), packs each with
    `//tools/toolpack`, fails unless every SRI equals the table's, attaches the
    tarballs to the `tools-v<N>` release and attests them.
 

@@ -218,7 +218,7 @@ jobs:
         run: BAZEL=bazelisk tools/ci/check_tools_lock.sh
 
   integration-tests:
-    # 14 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
+    # 15 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
     # once, so this was never serial -- but one runner only has so many cores,
     # which is what kept the lane on the critical path. These legs spread it
     # over two runners.

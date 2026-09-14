@@ -40,7 +40,8 @@ targets="//ts/tools/tsaction //tools/launcher:ts_launcher //tools/lcov_merger"
 targets="$targets //tools/copy_to_workspace"
 
 "$bazel" build //tools/toolpack/cmd >/dev/null
-pack="$("$bazel" cquery --output=files //tools/toolpack/cmd 2>/dev/null)"
+pack="$("$bazel" cquery --output=files "config(//tools/toolpack/cmd, target)" \
+  2>/dev/null)"
 root="$("$bazel" info execution_root 2>/dev/null)"
 
 status=0
@@ -48,7 +49,7 @@ echo "TOOLS_INTEGRITY = {"
 for platform in $platforms; do
   "$bazel" build --platforms=//platforms:"$platform" $targets >/dev/null
   files="$("$bazel" cquery --platforms=//platforms:"$platform" --output=files \
-    "set($targets)" 2>/dev/null)"
+    "config(set($targets), target)" 2>/dev/null)"
   args=()
   for f in $files; do
     args+=("$(basename "$f")=$root/$f")

@@ -27,6 +27,8 @@ import (
 	"github.com/mikn/rules_typescript/tests/hmrsocket"
 )
 
+// Config names the child workspace under the checkout the nested Bazel runs
+// over; with no WorkspaceRel it runs over the checkout itself.
 type Config struct {
 	Name         string
 	WorkspaceRel string
@@ -40,7 +42,9 @@ type IT struct {
 	OutputBase   string
 
 	bazel      string
+	staged     string
 	scratchDir string
+	bazelrc    string
 	bazelBin   string
 	stops      []func()
 }
@@ -111,16 +115,20 @@ func start(cfg Config) (*IT, error) {
 	it := &IT{
 		Name:         cfg.Name,
 		RulesTSRoot:  root,
-		WorkspaceDir: filepath.Join(base, "workspace"),
+		WorkspaceDir: root,
 		OutputBase:   filepath.Join(base, "output_base"),
 		bazel:        bazel,
 		scratchDir:   filepath.Join(base, "scratch"),
+	}
+	if cfg.WorkspaceRel != "" {
+		it.staged = filepath.Join(base, "workspace")
+		it.WorkspaceDir = it.staged
 	}
 	return it, it.prepare(cfg, workspaceSrc)
 }
 
 func (it *IT) prepare(cfg Config, workspaceSrc string) error {
-	for _, dir := range []string{it.WorkspaceDir, it.scratchDir} {
+	for _, dir := range it.scratchDirs() {
 		makeWritable(dir)
 		if err := os.RemoveAll(dir); err != nil {
 			return err
@@ -131,6 +139,9 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 	}
 	if err := os.MkdirAll(it.OutputBase, 0o755); err != nil {
 		return err
+	}
+	if it.staged == "" {
+		return it.shareRepositoryCache()
 	}
 	if err := stage(workspaceSrc, it.WorkspaceDir); err != nil {
 		return err
@@ -151,6 +162,13 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 	return it.shareRepositoryCache()
 }
 
+func (it *IT) scratchDirs() []string {
+	if it.staged == "" {
+		return []string{it.scratchDir}
+	}
+	return []string{it.staged, it.scratchDir}
+}
+
 // Each test gets its own output base, so without a shared repository cache all
 // of them re-fetch the whole BCR registry at once and the concurrent DNS
 // lookups start failing ("Unknown host: bcr.bazel.build") on a different
@@ -167,12 +185,21 @@ func (it *IT) shareRepositoryCache() error {
 			return err
 		}
 	}
-	f, err := os.OpenFile(filepath.Join(it.WorkspaceDir, ".bazelrc"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	lines := "common --repository_cache=" + repo + "\n" +
+		"common --disk_cache=" + disk + "\n"
+	if it.staged == "" {
+		// The checkout keeps its .bazelrc and the outer build's bazel-* links.
+		it.bazelrc = filepath.Join(it.scratchDir, "bazelrc")
+		lines += "build --experimental_convenience_symlinks=ignore\n"
+		return os.WriteFile(it.bazelrc, []byte(lines), 0o644)
+	}
+	rc := filepath.Join(it.staged, ".bazelrc")
+	f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "\ncommon --repository_cache=%s\ncommon --disk_cache=%s\n", repo, disk)
+	_, err = fmt.Fprintf(f, "\n%s", lines)
 	return err
 }
 
@@ -220,6 +247,10 @@ func rulesTSRoot(workspaceSrc, workspaceRel string) (root, via string, err error
 				return root, "runfiles", nil
 			}
 		}
+	}
+	if workspaceRel == "" {
+		return "", "", fmt.Errorf("no rules_typescript checkout in the runfiles "+
+			"(tried %s)", strings.Join(tried, ", "))
 	}
 	trimmed := strings.TrimSuffix(workspaceSrc, "/"+workspaceRel)
 	if trimmed == workspaceSrc {
@@ -330,10 +361,10 @@ func (it *IT) cleanup() {
 	for i := len(it.stops) - 1; i >= 0; i-- {
 		it.stops[i]()
 	}
-	shutdown := exec.Command(it.bazel, "--output_base="+it.OutputBase, "shutdown")
+	shutdown := exec.Command(it.bazel, append(it.startup(), "shutdown")...)
 	shutdown.Env = nestedEnv()
 	shutdown.Run()
-	for _, dir := range []string{it.WorkspaceDir, it.scratchDir} {
+	for _, dir := range it.scratchDirs() {
 		makeWritable(dir)
 		os.RemoveAll(dir)
 	}
@@ -383,8 +414,31 @@ func nestedEnv() []string {
 	return append(env, "BAZELISK_HOME="+bazeliskHome())
 }
 
+func (it *IT) startup() []string {
+	opts := []string{"--output_base=" + it.OutputBase}
+	if it.bazelrc != "" {
+		opts = append(opts, "--bazelrc="+it.bazelrc)
+	}
+	return opts
+}
+
+// BazelExecutable is the nested Bazel as one executable, for a tool that
+// takes it through an environment variable (BAZEL=...).
+func (it *IT) BazelExecutable() string {
+	path := it.Scratch("bazel")
+	words := []string{}
+	for _, word := range append([]string{it.bazel}, it.startup()...) {
+		words = append(words, "'"+strings.ReplaceAll(word, "'", `'\''`)+"'")
+	}
+	script := "#!/usr/bin/env bash\nexec " + strings.Join(words, " ") + " \"$@\"\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		it.Fail("cannot write %s: %v", path, err)
+	}
+	return path
+}
+
 func (it *IT) command(args []string) *exec.Cmd {
-	cmd := exec.Command(it.bazel, append([]string{"--output_base=" + it.OutputBase}, args...)...)
+	cmd := exec.Command(it.bazel, append(it.startup(), args...)...)
 	cmd.Dir = it.WorkspaceDir
 	cmd.Env = nestedEnv()
 	return cmd
@@ -508,12 +562,16 @@ func (it *IT) Runfile(rel string) string {
 	return path
 }
 
-// Exec runs a command outside Bazel and keeps its output alongside the nested
-// build logs, so a failing assertion has the same paper trail as a failing build.
-func (it *IT) Exec(logName, name string, args ...string) (*Log, error) {
-	fmt.Printf("INFO: %s %s\n", name, strings.Join(args, " "))
+// Exec runs a command outside Bazel, in the workspace under the nested Bazel's
+// environment plus env; its output is kept beside the nested build logs.
+func (it *IT) Exec(
+	logName string, env []string, name string, args ...string,
+) (*Log, error) {
+	fmt.Printf("INFO: %s %s %s\n", strings.Join(env, " "), name,
+		strings.Join(args, " "))
 	cmd := exec.Command(name, args...)
 	cmd.Dir = it.WorkspaceDir
+	cmd.Env = append(nestedEnv(), env...)
 	out := &strings.Builder{}
 	cmd.Stdout = out
 	cmd.Stderr = out

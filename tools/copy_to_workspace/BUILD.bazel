@@ -11,5 +11,6 @@ go_library(
 go_binary(
     name = "copy_to_workspace",
     embed = [":copy_to_workspace_lib"],
+    pure = "on",
     visibility = ["//visibility:public"],
 )

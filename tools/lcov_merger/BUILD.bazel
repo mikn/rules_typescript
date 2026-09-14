@@ -10,6 +10,7 @@ go_library(
 go_binary(
     name = "lcov_merger",
     embed = [":lcov_merger_lib"],
+    pure = "on",
     visibility = ["//visibility:public"],
 )
 
