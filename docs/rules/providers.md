@@ -361,10 +361,10 @@ require. `//ts/private/tsgo:tsgo_test` reads the revision the lockfile's
 linux-amd64 binary embeds (`go version -m` prints it as `vcs.revision`) and
 fails when it is not the pinned one, naming both, so a `typescript` bump in
 the lockfile names the pin to move. A build that first resolves the toolchain
-compiles the module: 91 actions, 113.5 s wall and an 89.6 s critical path on
-a 22-core machine at load 11, cached after. rules_go's apparent name in this
-module is `io_bazel_rules_go`, the name Gazelle writes into the BUILD files
-of a repository with no MODULE.bazel of its own.
+compiles the module: 91 sandboxed actions, 113.5 s wall and an 89.6 s critical
+path on a 22-core machine at load 11, cached after. rules_go's apparent name
+in this module is `io_bazel_rules_go`, the name Gazelle writes into the BUILD
+files of a repository with no MODULE.bazel of its own.
 
 `//tests/toolchain:foreign_target_platform_test` pins the split. It analyses a
 probe rule under `--platforms=//platforms:windows_amd64`, a platform with a Node

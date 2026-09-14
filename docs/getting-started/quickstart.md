@@ -3,10 +3,11 @@
 The only prerequisite is **Bazelisk** (or Bazel 9+ directly). Bazel fetches
 everything else hermetically on the first build: the Rust toolchain, the
 Node.js runtime, tsgo, the Go tools of the [tools release](../RELEASE_PROCESS.md#tools),
-and the npm packages your targets reach; a Go SDK only when `bazel run
-//:gazelle` compiles Gazelle. It also compiles `oxc-bazel` from Rust source,
-which dominates the wall time: expect minutes at any project size. After that
-everything is cached.
+and the npm packages your targets reach; a Go SDK when `bazel run //:gazelle`
+compiles Gazelle and when the build registers
+[tsgo from source](../rules/providers.md#tsgo-from-source). It also compiles
+`oxc-bazel` from Rust source, which dominates the wall time: expect minutes at
+any project size. After that everything is cached.
 
 Choose your path:
 
