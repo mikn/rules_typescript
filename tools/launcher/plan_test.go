@@ -577,6 +577,62 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	}
 }
 
+// vitest walks the root the launcher staged, the program's compiled files at
+// their runfiles paths and nothing else, while vite's root stays in the tree.
+func TestPlanVitestStagesTheFilesVitestWalksBesideTheTree(t *testing.T) {
+	_, real := vitestFixture(t)
+	r := runfilesTree(t, real)
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesRoot := plan.EnvOverrides["TS_TEST_FILES_ROOT"]
+	if filesRoot == "" || strings.HasPrefix(filesRoot, r.Dir()) {
+		t.Fatalf("TS_TEST_FILES_ROOT = %q, want a root outside the tree %q",
+			filesRoot, r.Dir())
+	}
+	if want := filepath.Join(r.Dir(), "_main/tests/app"); plan.Dir != want {
+		t.Errorf("dir = %q, want vite's root in the tree, %q", plan.Dir, want)
+	}
+	staged := []string{}
+	walk := func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			rel, _ := filepath.Rel(filesRoot, p)
+			staged = append(staged, filepath.ToSlash(rel))
+		}
+		return nil
+	}
+	if err := filepath.WalkDir(filesRoot, walk); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(staged)
+	want := []string{
+		"_main/tests/app/a.test.js",
+		"_main/tests/app/b.test.js",
+		"_main/tests/app/c.test.js",
+	}
+	if strings.Join(staged, ",") != strings.Join(want, ",") {
+		t.Errorf("the staged root holds %q, want exactly %q", staged, want)
+	}
+	for _, rel := range want {
+		got, err := filepath.EvalSymlinks(filepath.Join(filesRoot, rel))
+		expected, _ := filepath.EvalSymlinks(real[rel])
+		if err != nil || got != expected {
+			t.Errorf("%s resolves to %q, %v; want %q", rel, got, err, expected)
+		}
+	}
+	if plan.Cleanup == nil {
+		t.Fatal("the staged root has to come back off")
+	}
+	plan.Cleanup()
+	if _, err := os.Stat(filesRoot); !os.IsNotExist(err) {
+		t.Errorf("cleanup left %s behind", filesRoot)
+	}
+}
+
 // vitest shards what it globs, so a shard's root holds every test file.
 func TestPlanVitestStagesEveryTestFileWhateverTheShard(t *testing.T) {
 	r, _ := vitestFixture(t)

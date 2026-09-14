@@ -42,16 +42,6 @@ store; a workspace member's hub view forwards the member's.
         "transitive_js": "depset of File: the .js of this target and its " +
                          "first-party deps.",
         "transitive_js_maps": "depset of File: their .js.map.",
-        "deps_declarations": "depset of File: the .d.ts this target's " +
-                             "program read, its first-party deps' " +
-                             "transitive_declarations. A ts_test that checks " +
-                             "this target's sources reads these in place of " +
-                             "`declarations`.",
-        "transitive_declarations": "depset of File: `declarations` with " +
-                                   "`deps_declarations`, this target's and " +
-                                   "its first-party deps'. An npm package's " +
-                                   "reach a consumer through `npm_files`, " +
-                                   "not through this depset.",
         "transitive_data": "depset of File: the data files of this target " +
                            "and its first-party deps, what a compiled module " +
                            "reaches beside itself at run time.",
@@ -72,11 +62,15 @@ store; a workspace member's hub view forwards the member's.
                      "holds with the trees they enter, and its first-party " +
                      "deps' npm_files. An action stages this and nothing " +
                      "else of the store.",
-        "owners": "depset of struct(label, files): one record per " +
-                  "first-party target in the closure, this one first -- " +
-                  "the label a deps list writes and the declarations, " +
-                  "data and manifest as built it stages. The tsgo action " +
-                  "names the owner of a listed file from these.",
+        "owners": "depset of struct(label, files, declarations): one " +
+                  "record per first-party target in the closure, this one " +
+                  "first -- the label a deps list writes, the sources, " +
+                  "declarations, data and manifest as built it stages, and " +
+                  "its declarations alone. The tsgo action names the owner " +
+                  "of a listed file from `files`; a consumer's program " +
+                  "reads the `declarations` of every record but a dep's it " +
+                  "holds as sources. An npm package's declarations reach a " +
+                  "consumer through `npm_files`, not through a record.",
     },
 )
 
@@ -98,10 +92,8 @@ def ts_info(
         manifest = None,
         sources = _EMPTY,
         tsconfig = None,
-        deps_declarations = _EMPTY,
         transitive_js = None,
         transitive_js_maps = None,
-        transitive_declarations = None,
         transitive_data = None,
         transitive_es_twins = _EMPTY,
         npm_packages = _EMPTY,
@@ -114,6 +106,7 @@ def ts_info(
         owners = depset([struct(
             label = label_text(label),
             files = depset(transitive = [sources, declarations, data]),
+            declarations = declarations,
         )])
     return TsInfo(
         js = js,
@@ -123,13 +116,8 @@ def ts_info(
         manifest = manifest,
         sources = sources,
         tsconfig = tsconfig,
-        deps_declarations = deps_declarations,
         transitive_js = _or_direct(transitive_js, js),
         transitive_js_maps = _or_direct(transitive_js_maps, js_maps),
-        transitive_declarations = _or_direct(
-            transitive_declarations,
-            depset(transitive = [declarations, deps_declarations]),
-        ),
         transitive_data = _or_direct(transitive_data, data),
         transitive_es_twins = transitive_es_twins,
         npm_packages = npm_packages,

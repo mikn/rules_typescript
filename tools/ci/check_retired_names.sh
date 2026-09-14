@@ -21,6 +21,7 @@ WORDS=(
   NpmPublishInfo TsLintInfo ts_lint linter_binary TS_TEST_PACKAGE_DIR
   ts_test_macro _ts_auto_node_modules RUNNER_NODE_TEST RUNNER_VITEST
   _generate_tsconfig
+  deps_declarations transitive_declarations
   TsStrictDeps _STRICT_DEPS_MJS strict_deps_check
   OxcCompile
   manifest_json member_manifest_json

@@ -93,7 +93,8 @@ it reads, and //tests/integration:new_project_test the failing build.
 
 The rule has three attributes: srcs, deps, tsconfig. Every compiler option is
 the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
-(//ts:declarations, //ts:source_map, //ts:declaration_map, //ts:lib_check).
+(//ts:declarations, //ts:source_map, //ts:declaration_map, //ts:lib_check);
+//ts:checkers sizes tsgo's threads and the cpus its two actions declare.
 ```
 
 **Key files:**

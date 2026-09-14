@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 // runTsgo lays the program root out, runs the command from it (checked against
@@ -38,6 +39,9 @@ func runTsgo(args []string) error {
 	check := flags.String("check", "",
 		"the ownership manifest the --explainFiles listing is checked against; "+
 			"without it the run's output is relayed and nothing is parsed")
+	project := flags.String("tsconfig", "",
+		"the target's tsconfig.json; with -check, an own src the listing "+
+			"lacks that its chain's exclude names fails the step")
 	stamp := flags.String("stamp", "", "file to create when tsgo exits 0")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -47,10 +51,16 @@ func runTsgo(args []string) error {
 		return errors.New("tsgo needs -root=DIR and a command after --")
 	}
 	var own *ownership
+	var chain *tsconfig.Resolved
 	if *check != "" {
 		var err error
 		if own, err = readOwnership(*check); err != nil {
 			return err
+		}
+		if *project != "" {
+			if chain, err = tsconfig.Resolve(*project); err != nil {
+				return err
+			}
 		}
 	}
 	err := layOutProgramRoot(*root, sources, importers, overlays, manifests)
@@ -67,7 +77,7 @@ func runTsgo(args []string) error {
 	if own == nil {
 		err = runToolIn(*root, os.Stdout, cmdline)
 	} else {
-		err = checkedRun(*root, cmdline, own)
+		err = checkedRun(*root, cmdline, own, chain, *project)
 	}
 	if err != nil {
 		return err
@@ -80,7 +90,8 @@ func runTsgo(args []string) error {
 
 // checkedRun keeps the listing off stdout: a failing tsgo relays its
 // diagnostics, or all it printed when none parse; a passing one is checked.
-func checkedRun(dir string, cmdline []string, own *ownership) error {
+func checkedRun(dir string, cmdline []string, own *ownership,
+	chain *tsconfig.Resolved, project string) error {
 	var out bytes.Buffer
 	runErr := runToolIn(dir, &out, cmdline)
 	listing, parseErr := explainfiles.Parse(out.String())
@@ -98,6 +109,10 @@ func checkedRun(dir string, cmdline []string, own *ownership) error {
 	execroot, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+	hits := excludedSrcs(own.own, listing.Files, chain, execroot)
+	if len(hits) > 0 {
+		return errors.New(own.reportExcluded(project, hits))
 	}
 	rootAbs := filepath.Join(execroot, dir)
 	for i, e := range listing.Edges {

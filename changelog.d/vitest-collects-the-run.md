@@ -9,5 +9,5 @@
   extensions, set after the merge on the root and on every project -- a
   config's `include`, written for the sources, is not read -- and the
   launcher names no file. A shard is vitest's `--shard=<index>/<count>`, so
-  `shard_count` is at most the count of test files; under `bazel run` the
-  private root holds every test file and vitest shards it.
+  `shard_count` is at most the count of test files; the root vitest walks
+  holds every test file and vitest shards it.

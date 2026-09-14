@@ -35,20 +35,19 @@ func planVitest(
 		}
 	}
 
-	// Without a runfiles tree the files sit in bazel-bin beside every sibling
-	// target's, so the root vitest globs is one of the test's own.
+	files, err := testFiles(r, v.TestFilesList)
+	if err != nil {
+		return nil, err
+	}
+	filesRoot, err := stageTestRoot(files)
+	if err != nil {
+		return nil, err
+	}
+	plan.Cleanup = func() { _ = os.RemoveAll(filesRoot) }
+	plan.setEnv("TS_TEST_FILES_ROOT", filesRoot)
 	tree := r.Dir()
 	if tree == "" {
-		files, err := testFiles(r, v.TestFilesList)
-		if err != nil {
-			return nil, err
-		}
-		root, err := stageTestRoot(files)
-		if err != nil {
-			return nil, err
-		}
-		tree = root
-		plan.Cleanup = func() { _ = os.RemoveAll(root) }
+		tree = filesRoot
 	}
 	nodeModules, err := installNodeModules(
 		r, plan, tree, cfg.Workspace, v.NodeModules)
@@ -126,8 +125,8 @@ func stageFiles(r *Resolver, tree string, stage map[string]string) error {
 	return nil
 }
 
-// stageTestRoot gives a manifest-only run a root of its own: symlinks to the
-// test's files, at the runfiles paths a runfiles tree would have used.
+// stageTestRoot links the program's files, at their runfiles paths, into a
+// root of their own: vitest's walk is the size of the run, not of the tree.
 func stageTestRoot(files []testFile) (string, error) {
 	root, err := os.MkdirTemp(os.Getenv("TEST_TMPDIR"), "ts_test_root")
 	if err != nil {

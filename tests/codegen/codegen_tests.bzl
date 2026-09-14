@@ -24,12 +24,15 @@ def _outs_codegen_providers_impl(ctx):
         [f.basename for f in info.declarations.to_list()],
         "the declaration outs",
     )
-    asserts.equals(
-        env,
-        [f.basename for f in info.declarations.to_list()],
-        [f.basename for f in info.transitive_declarations.to_list()],
-        "a codegen has no deps, so its closure is its own outs",
-    )
+    records = info.owners.to_list()
+    asserts.equals(env, 1, len(records), "a codegen has no deps: one record")
+    for record in records:
+        asserts.equals(
+            env,
+            [f.basename for f in info.declarations.to_list()],
+            [f.basename for f in record.declarations.to_list()],
+            "the record carries the declaration outs",
+        )
     asserts.equals(env, [], info.js.to_list(), "no JavaScript out")
     asserts.equals(env, [], info.npm_packages.to_list(), "no npm closure")
     return analysistest.end(env)

@@ -33,7 +33,9 @@ A direct field carries only what the target itself produces. A rule that
 forwards a dep's files leaves the direct field empty and puts the closure in the
 transitive one; `ts_compile` does that for its deps' data files, which reach
 `transitive_data` and never `data`. A consumer that wants everything reachable
-reads the transitive field.
+reads the transitive field. Declarations have no transitive field: the
+closure's are the `owners` records', one per target, so a consumer reads them
+all or leaves a target's out.
 
 | Field | Type | Description |
 |---|---|---|
@@ -46,13 +48,11 @@ reads the transitive field.
 | `tsconfig` | `File or None` | The `tsconfig.json` the program's options come from, the `tsconfig` attribute's file: the identity a `ts_test` joins a dep's sources by |
 | `transitive_js` | `depset of File` | Every `.js` from this target and its first-party deps |
 | `transitive_js_maps` | `depset of File` | Their `.js.map` |
-| `deps_declarations` | `depset of File` | The declarations this target's program read: its first-party deps' `transitive_declarations`, its own left out. A `ts_test` that checks this target's sources reads these in place of `declarations` |
-| `transitive_declarations` | `depset of File` | `declarations` with `deps_declarations`: every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the importer chain its tsgo action resolves along, not through this depset |
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
 | `transitive_es_twins` | `depset of (File, File)` | For a program tsgo emits, each `.js` of this target and its first-party deps paired with the ES module oxc emits from the same source; the vitest runner stages the second at the first's runfiles path ([The Module Format](ts-compile.md#the-module-format)) |
 | `npm_packages` | `depset of NpmPackageInfo` | The npm closure of this target's deps: what the ownership manifest names and a runner checks its packages against. A package itself arrives through its `NpmPackageInfo` |
 | `npm_files` | `depset of File` | The store files this target's program and runtime reach: the importer links of its direct npm deps and their `@types` twins, the member links its deps name, every store tree and edge link of their closures, the hoist links whose names the closure holds with the trees they enter ([The Store](node-modules.md#the-store)), and its first-party deps' `npm_files`. An action stages this and nothing else of the store. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them from the dep's own importer's links, which this depset carries into the consumer's action |
-| `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations, data and manifest as built it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
+| `owners` | `depset of struct(label, files, declarations)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it; `files`, the sources, declarations, data and manifest as built it stages; `declarations`, its own alone. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)); a consumer's program reads the `declarations` of every record in its closure but a dep's it holds as sources, so that dep's declarations arrive by no path ([The Test's Program](ts-test.md#the-tests-program)). An npm package's declarations reach a consumer through `npm_files`, not through a record |
 
 A dep reached through the store -- an `@npm` package, a member's link target
 -- reaches the consumer's program and runtime there: `ts_compile` reads

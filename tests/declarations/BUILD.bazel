@@ -5,7 +5,7 @@ load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 load(
     ":declarations_tests.bzl",
-    "check_reads_the_deps_declarations_test",
+    "check_reads_the_dep_declarations_test",
     "leaf_declares_on_demand_test",
 )
 
@@ -30,8 +30,8 @@ leaf_declares_on_demand_test(
     target_under_test = ":lib",
 )
 
-check_reads_the_deps_declarations_test(
-    name = "check_reads_the_deps_declarations_test",
+check_reads_the_dep_declarations_test(
+    name = "check_reads_the_dep_declarations_test",
     dep = ":lib",
     target_under_test = ":app",
 )

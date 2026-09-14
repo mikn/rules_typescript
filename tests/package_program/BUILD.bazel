@@ -1,11 +1,15 @@
 """A ts_test and the compile under its tsconfig are one program: the test
-checks the compile's sources beside its own files and never waits for the
-compile's declarations; a test under another tsconfig reads them."""
+checks the compile's sources beside its own files and never reads the
+compile's declarations, on any path through its deps; a test under another
+tsconfig, and a ts_compile, read them."""
 
 load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
 load(
     ":package_program_tests.bzl",
     "checks_the_sources_test",
+    "compile_reads_the_declarations_test",
+    "drops_the_declarations_on_every_path_test",
+    "owners_record_test",
     "reads_the_declarations_test",
 )
 
@@ -36,6 +40,23 @@ ts_compile(
     tsconfig = ":tsconfig",
 )
 
+ts_compile(
+    name = "mid",
+    srcs = ["mid.ts"],
+    tsconfig = ":tsconfig_other",
+    deps = [":lib"],
+)
+
+ts_compile(
+    name = "both",
+    srcs = ["both.ts"],
+    tsconfig = ":tsconfig",
+    deps = [
+        ":lib",
+        ":mid",
+    ],
+)
+
 ts_test(
     name = "lib_test",
     srcs = ["lib.test.ts"],
@@ -58,6 +79,18 @@ ts_test(
     ],
 )
 
+ts_test(
+    name = "both_test",
+    srcs = ["both.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = ":tsconfig",
+    deps = [
+        ":lib",
+        ":mid",
+        "@npm//:vitest",
+    ],
+)
+
 checks_the_sources_test(
     name = "checks_the_sources_test",
     dep = ":lib",
@@ -70,4 +103,25 @@ reads_the_declarations_test(
     dep = ":lib",
     target_under_test = ":other_test",
     tsconfig = ":tsconfig_other",
+)
+
+drops_the_declarations_on_every_path_test(
+    name = "drops_the_declarations_on_every_path_test",
+    dep = ":lib",
+    target_under_test = ":both_test",
+    through = ":mid",
+    tsconfig = ":tsconfig",
+)
+
+compile_reads_the_declarations_test(
+    name = "compile_reads_the_declarations_test",
+    dep = ":lib",
+    target_under_test = ":both",
+    tsconfig = ":tsconfig",
+)
+
+owners_record_test(
+    name = "owners_record_test",
+    dep = ":lib",
+    target_under_test = ":mid",
 )

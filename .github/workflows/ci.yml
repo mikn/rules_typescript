@@ -391,7 +391,8 @@ jobs:
         run: |
           go vet ./gazelle/... ./tests/... ./ts/... \
             ./tools/changelog/... ./tools/copy_to_workspace/... \
-            ./tools/launcher/... ./tools/lcov_merger/... ./tools/release/...
+            ./tools/launcher/... ./tools/lcov_merger/... ./tools/release/... \
+            ./tools/toolpack/...
 
       # docs.yml builds the site only on push to main, so until now a PR that
       # broke the nav or a page reference was caught after it had already merged.

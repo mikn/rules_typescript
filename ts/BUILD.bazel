@@ -1,5 +1,10 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load(
+    "@bazel_skylib//rules:common_settings.bzl",
+    "bool_flag",
+    "int_flag",
+    "string_flag",
+)
 load("//ts/private/actions:lint.bzl", "lint_config")
 
 package(default_visibility = ["//visibility:public"])
@@ -27,6 +32,13 @@ bool_flag(
 bool_flag(
     name = "declaration_map",
     build_setting_default = False,
+)
+
+# The threads tsgo checks with, and the cpus TsgoCheck and TsgoDeclare declare
+# to Bazel's scheduler; 0 leaves tsgo's own count and Bazel's estimate.
+int_flag(
+    name = "checkers",
+    build_setting_default = 0,
 )
 
 # `bazel build //... --//ts:lib_check` type-checks every .d.ts in every program,

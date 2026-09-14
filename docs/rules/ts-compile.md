@@ -29,7 +29,7 @@ flags in `.bazelrc`. Every compiler option is the tsconfig's.
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
 | `node_modules` | `label` | `None` | The `node_modules` target of the nearest lockfile importer at or above the package: the chain a direct npm dep resolves along. Required when the closure holds an npm package; Gazelle writes it. See [The node_modules Chain](#the-node_modules-chain) |
 
-Those are the three. The emit knobs are build flags, one value for the whole
+Those are the three. Everything else is a build flag, one value for the whole
 build:
 
 | Flag | Type | Default | Description |
@@ -38,6 +38,7 @@ build:
 | `--//ts:source_map` | `bool` | `True` | Emit a `.js.map` next to every `.js`. See [Source and declaration maps](#source-and-declaration-maps) |
 | `--//ts:declaration_map` | `bool` | `False` | Emit a `.d.ts.map` next to every declaration. See [Source and declaration maps](#source-and-declaration-maps) |
 | `--//ts:lib_check` | `bool` | `False` | Turn `skipLibCheck` off for every target. See [Finding a broken declaration](#finding-a-broken-declaration) |
+| `--//ts:checkers` | `int` | `0` | The threads tsgo checks with: `--checkers N` on TsgoCheck and TsgoDeclare, and `cpu:N` on each so Bazel schedules it as N cpus. `0` leaves tsgo's own count, the four the checkout's `tsc -p` runs with. |
 
 A target that has to be built under another value of one of these is reached
 through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
@@ -189,7 +190,11 @@ that pass too. Lowest precedence first:
    path it is staged (below), one entry per path, so tsc's rules for a
    pattern's match -- `allowJs`, the higher-priority extension of a pair
    listed together -- reach a src named by path, as they reach nothing in
-   `files`. A chain that sets no `exclude` gets `[]`,
+   `files`. The chain's `exclude` is such a rule too: a src it names is in
+   the program only through an import, and one the program never read fails
+   `TsgoCheck` naming the src and the entry -- the program is the srcs, so
+   the file leaves `srcs` or the entry leaves `exclude`. A chain that sets
+   no `exclude` gets `[]`,
    not tsc's default list, whose `outDir` entry is the output directory such
    an entry sits in. `references` is `[]`. The roots are patterns rather than
    a `files` entry per src because `--explainFiles` finds a `files` root's
@@ -498,10 +503,10 @@ package's own imports resolve from its realpath in the store,
 so every dependent reaches the resolution pnpm recorded for it, and an import
 of a name the package does not declare to the hoist's link at
 `node_modules/.pnpm/node_modules/<name>`, as in the checkout. npm deps
-contribute no other input: a `ts_compile`'s `transitive_declarations` holds
-first-party declarations alone, and a package's file sits under
-`node_modules/<name>/`, the segment TypeScript reads to take it for a library
-file, type-checked and never emitted.
+contribute no other input: the declarations a program reads are its
+first-party closure's, the `TsInfo.owners` records', and a package's file sits
+under `node_modules/<name>/`, the segment TypeScript reads to take it for a
+library file, type-checked and never emitted.
 
 A workspace member is one of those packages. Its importer's link target,
 `//<importer>:node_modules/<name>`, enters the member's store tree, which
@@ -848,11 +853,12 @@ The fields, and the load path, are in
 [Providers and Toolchains](providers.md).
 
 - **`TsInfo`**: this target's `.js`, `.js.map`, declarations and data srcs as
-  direct depsets and the closure of each over its first-party deps as
-  transitive ones, plus the npm packages that closure imports. `ts_binary` reads
-  the transitive `.js` set; `ts_test`, `ts_binary` and `ts_dev_server` stage
-  `transitive_data` beside the `.js`; a downstream `ts_compile` type-checks
-  against `transitive_declarations` and stages `npm_files`
+  direct depsets, the closure of the `.js` and data over its first-party deps
+  as transitive ones, the closure's declarations per target in `owners`, plus
+  the npm packages that closure imports. `ts_binary` reads the transitive `.js`
+  set; `ts_test`, `ts_binary` and `ts_dev_server` stage `transitive_data`
+  beside the `.js`; a downstream `ts_compile` type-checks against the `owners`
+  records' declarations and stages `npm_files`
 - **`OutputGroupInfo(declarations=...)`**: `TsInfo.declarations` as an output
   group, with the `.d.ts.map` under `--//ts:declaration_map`: what
   `bazel build --output_groups=declarations` and a

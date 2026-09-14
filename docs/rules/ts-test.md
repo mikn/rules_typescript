@@ -80,7 +80,10 @@ node:test Runner](#the-nodetest-runner)). `//tests/vitest/own_manifest` and
 
 vitest runs from the `config`'s package in the runfiles, the test's own with no
 config -- the directory `pnpm run test` runs from -- so `process.cwd()` names it
-and `join(process.cwd(), "fixtures/x.txt")` reads the package's file. The
+and `join(process.cwd(), "fixtures/x.txt")` reads the package's file. What
+vitest walks to collect the run is not that tree but a root of the program's
+compiled files alone ([The Generated vitest
+Config](#the-generated-vitest-config)). The
 `config` file and its `config_srcs` are regular files at their own paths in the
 runfiles, and the generated config vitest is handed is in the test's package,
 all written by the launcher before the run: a runfiles entry is a symlink, and
@@ -120,16 +123,21 @@ is the test's. The package's `tsconfig.json` names the compile and the test
 alike -- Gazelle writes it on both -- and the checkout's `tsc -p` checks their
 files as one program, so `TsgoCheck` on the test reads the compile's `.ts`,
 `.tsx`, JavaScript and declaration srcs beside the test files
-(`TsInfo.sources`) and the declarations the compile's own program read
-(`TsInfo.deps_declarations`), never the compile's emitted `.d.ts`: the check
-waits for no `TsgoDeclare`, and a type error in the package's sources fails
-the test's check as it fails the compile's. The edges stay the compile's to
-declare: an import from a test file into one of those sources lands on a file
-the compile's label owns, in `deps` already, and an import from one of them is
-not judged ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
-A dep under another `tsconfig` -- a `tsconfig.node.json` test over the
-package's browser compile, say -- reaches the test through its declarations, as
-it reaches any `ts_compile`. `//tests/package_program` pins both.
+(`TsInfo.sources`) and never the compile's emitted `.d.ts`, by any path: the
+declarations a program reads are the `TsInfo.owners` records' of its closure,
+one record per target, less the records of the deps held as sources, so a dep
+under another `tsconfig` that itself depends on the compile -- a worker between
+the package's test and its compile -- brings its own declarations and not the
+compile's, and its imports of the compile resolve to the compile's sources in
+the test's program. The check waits for no `TsgoDeclare` of the compile, and a
+type error in the package's sources fails the test's check as it fails the
+compile's. The edges stay the compile's to declare: an import from a test file
+into one of those sources lands on a file the compile's label owns, in `deps`
+already, and an import from one of them is not judged
+([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)). A dep under
+another `tsconfig` -- a `tsconfig.node.json` test over the package's browser
+compile, say -- reaches the test through its declarations, as it reaches any
+`ts_compile`. `//tests/package_program` pins the three.
 
 ## The Test's tsconfig
 
@@ -247,15 +255,22 @@ from a later layer win: a `cacheDir` the config sets wins over layer 1's, and
 and 4 are root-only because coverage and `resolveSnapshotPath` are vitest's
 non-project options, applied once and never merged into a project.
 
-`test.include` is set after the merge, on the root and on every project:
-`**/*.{test,spec}.{js,jsx,mjs,cjs}`, vitest's default include over the
-extensions a compiled test file has, so vitest collects the run by one crawl
-of the root, as it does in the checkout, and the launcher names no file. A
-config's `include` is written for the sources, which are in the runfiles
-beside the compiled files, and is not read: through it each test would run
-twice. The run is the test-named files among the compiled `srcs`, a config's
-`exclude` in force; a `ts_compile` dep's compiled test-named file under the
-root is in it too. `//tests/vitest/config_include` is the example, and
+`test.include` and `test.dir` are set after the merge, on the root and on
+every project. The include is `**/*.{test,spec}.{js,jsx,mjs,cjs}`, vitest's
+default over the extensions a compiled test file has; `dir`, the directory
+vitest walks to collect the run, is the root the launcher staged before the
+run: every compiled file of [the test's program](#the-tests-program), linked
+at its runfiles path under a directory of its own beneath `TEST_TMPDIR`, which
+`TS_TEST_FILES_ROOT` names. The walk is the size of the run -- web's 2,287
+files against the 48,515 entries of its runfiles tree, 46,539 of them
+symlinks each stat'ed to be followed -- and the launcher names no file. A
+config's `include` and `dir` are written for the sources, which are in the
+runfiles beside the compiled files, and are not read: through them each test
+would run twice. The run is the test-named files of the program, a config's
+`exclude` in force. A collected file's id is its runfiles path (below), so a
+relative import, `import.meta.url`, a snapshot and a coverage record are the
+tree's; a reporter names the file relative to vite's root, so by its staged
+path. `//tests/vitest/config_include` is the example, and
 `//tests/vitest/many_files` runs a thousand files, starting as its one-file
 test does.
 
