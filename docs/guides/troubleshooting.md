@@ -491,7 +491,10 @@ Full workflow: [Snapshots](testing.md#snapshots).
 The first build downloads a Rust toolchain, a tsgo npm tarball, a Node.js
 tarball, and the npm packages your targets reach (not the whole lockfile), then
 compiles `oxc-bazel` and its crate graph from Rust source. That compile takes
-minutes. Everything after it is cached; do not `bazel clean`.
+minutes. A build that registers
+[tsgo from source](../rules/providers.md#tsgo-from-source) also fetches a Go
+SDK and compiles tsgo from the pinned Go module. Everything after the first
+build is cached; do not `bazel clean`.
 
 Mount a persistent cache volume so CI pays it once:
 
