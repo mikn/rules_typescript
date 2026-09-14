@@ -164,12 +164,12 @@ Common issues:
 
 ## Tools
 
-A consumer's build compiles no Go: `tsaction`, `ts_launcher`, `lcov_merger`
-and `copy_to_workspace` are the assets of the `tools-v<N>` release
-`ts/private/tools_lock.bzl` names, one tarball per platform of
-`TSGO_PLATFORMS`, downloaded by the `@tools_<platform>` repository the `ts`
-extension declares and verified against the table's SRI. The ruleset's own
-workspace and the nested integration workspaces register the source-built
+A consumer's build compiles none of the ruleset's Go tools: `tsaction`,
+`ts_launcher`, `lcov_merger` and `copy_to_workspace` are the assets of the
+`tools-v<N>` release `ts/private/tools_lock.bzl` names, one tarball per
+platform of `TSGO_PLATFORMS`, downloaded by the `@tools_<platform>` repository
+the `ts` extension declares and verified against the table's SRI. The ruleset's
+own workspace and the nested integration workspaces register the source-built
 instances (`//ts/tools/tsaction:source_toolchain`, `//tools/launcher:all`)
 ahead of `//ts/toolchain:all`, so a tool change is red there before it is
 released; `e2e/basic`, `examples/*` and the BCR presubmit download the

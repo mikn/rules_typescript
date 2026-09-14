@@ -6,7 +6,7 @@ directory is a dep, never a src: srcs declares one output per file at analysis
 time and a directory has no file list to declare from.
 """
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//ts:defs.bzl", "ts_codegen", "ts_compile")
 load(":tree_tests.bzl", "tree_reaches_compile_test")

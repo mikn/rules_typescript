@@ -13,6 +13,7 @@ launcher through the one function.
 """
 
 load("//ts:defs.bzl", "ts_binary")
+load(":go_mod_tests.bzl", "go_mod_test_suite")
 load(":probe.bzl", "toolchain_probe")
 load(
     ":resolution_test.bzl",
@@ -48,3 +49,7 @@ tsgo_lock_test_suite(name = "tsgo_lock_tests")
 
 # The tools release table: its shape and the one URL the rules download.
 tools_lock_test_suite(name = "tools_lock_tests")
+
+# The go.mod and go.sum readers behind the source-built tsgo: which modules
+# ts/private/tsgo_source pins and what they refuse.
+go_mod_test_suite(name = "go_mod_tests")

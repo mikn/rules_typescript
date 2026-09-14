@@ -29,7 +29,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude tools_release
 # gazelle:exclude tsgo_lockfile
 
-load("@rules_go//go:def.bzl", "go_binary")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary")
 
 _RUNNERS = [
     "codegen",

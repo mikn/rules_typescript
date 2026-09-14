@@ -1,3 +1,6 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@tsgo_source//:defs.bzl", "TSGO_SOURCE_MODULE", "TSGO_SOURCE_VERSION")
+
 # The default toolchain's lockfile; after editing package.json, regenerate with
 # `bazel run //:pnpm -- install --lockfile-only --dir ts/private/tsgo`.
 
@@ -7,3 +10,17 @@ exports_files([
     "package.json",
     "pnpm-lock.yaml",
 ])
+
+# One platform's binary names the revision all four were built from.
+go_test(
+    name = "tsgo_test",
+    size = "small",
+    srcs = ["lockstep_test.go"],
+    data = ["@tsgo_linux_amd64//:tsgo"],
+    env = {"TSGO_LOCKFILE_BINARY": "$(rlocationpath @tsgo_linux_amd64//:tsgo)"},
+    x_defs = {
+        "pinnedModule": TSGO_SOURCE_MODULE,
+        "pinnedVersion": TSGO_SOURCE_VERSION,
+    },
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)

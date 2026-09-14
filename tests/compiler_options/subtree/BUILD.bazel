@@ -5,7 +5,7 @@
 # gazelle:exclude nested
 # gazelle:exclude nested/deep
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])

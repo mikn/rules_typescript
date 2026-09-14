@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 
 # gazelle:prefix github.com/mikn/rules_typescript/tests/gazelle_binary
 
@@ -14,5 +14,5 @@ go_test(
         "GAZELLE_TS": "$(rlocationpath //gazelle:gazelle_ts)",
         "GAZELLE_TYPESCRIPT": "$(rlocationpath //gazelle:gazelle_typescript)",
     },
-    deps = ["@rules_go//go/runfiles"],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
 )

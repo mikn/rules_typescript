@@ -118,6 +118,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `npm/private/npmrc_auth.bzl` — the credentials an `.npmrc` grants a fetch; loaded by `npm_import` and the tsgo toolchain's repository rule
 - `ts/private/pnpm.bzl` — hermetic pnpm download + `ts_pnpm`/`ts_add_package` macros
 - `ts/private/tsgo_lock.bzl` — which compiler a pnpm lockfile pins, the reader behind `ts.tsgo(pnpm_lock = ...)`; `ts/private/tsgo/pnpm-lock.yaml` is the default
+- `ts/private/go_mod.bzl` — the go.mod and go.sum readers behind the source-built tsgo; `ts/private/tsgo_source/go.mod` pins the compiler's source, `//ts/toolchain/tsgo_source` is the toolchain over rules_go's build of it, outside `//ts/toolchain:all`; `//ts/private/tsgo:tsgo_test` holds the pin to the lockfile's binary
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — the six toolchain types and their instances;

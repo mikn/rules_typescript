@@ -7,7 +7,7 @@ own assertions.
 
 # gazelle:ignore
 
-load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "harness",
@@ -17,7 +17,7 @@ go_library(
     visibility = ["//tests/integration:__subpackages__"],
     deps = [
         "//tests/hmrsocket",
-        "@rules_go//go/runfiles",
+        "@io_bazel_rules_go//go/runfiles",
     ],
 )
 

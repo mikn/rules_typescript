@@ -18,7 +18,7 @@ by naming it in its tsconfig `types`, the dep edge staging the file.
 # Compiler options, not data: named by the tsconfig attr.
 # gazelle:exclude tsconfig.consumer.json
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 load(
     ":declaration_tests.bzl",

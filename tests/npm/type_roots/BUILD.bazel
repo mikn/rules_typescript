@@ -1,5 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//tests/npm:forest_tests.bzl", "chain_test")
 load("//ts:defs.bzl", "ts_compile")
 

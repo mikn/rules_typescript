@@ -1,10 +1,15 @@
-"""Module extension for the rules_typescript toolchains and linter."""
+"""Module extension for the rules_typescript toolchains, the linter and the
+source-built compiler."""
 
+load("@gazelle//:deps.bzl", "go_repository")
 load("//npm/private:npm_translate_lock.bzl", "npmrc_registries")
+load("//ts/private:go_mod.bzl", "go_repo_name", "tsgo_source_modules")
 load(
     "//ts/private:toolchain.bzl",
     "TSGO_PLATFORMS",
+    "go_repository_table",
     "tools_toolchain_repo",
+    "tsgo_source_repo",
     "tsgo_toolchain_repo",
 )
 load(
@@ -19,6 +24,8 @@ load("//ts/private/actions:lint.bzl", "lint_config_repo")
 
 # Label(), not a string, so it resolves in this repository from any consumer.
 _DEFAULT_TSGO_LOCK = Label("//ts/private/tsgo:pnpm-lock.yaml")
+_TSGO_SOURCE_GO_MOD = Label("//ts/private/tsgo_source:go.mod")
+_TSGO_SOURCE_GO_SUM = Label("//ts/private/tsgo_source:go.sum")
 
 # "<prefix>_<platform>", the labels the declare_*_toolchains() macros generate;
 # rules_typescript alone use_repo's them, in its own repo mapping.
@@ -60,6 +67,39 @@ def _lint_for(module_ctx):
                 return tag
     return None
 
+def _tsgo_source(module_ctx):
+    source = tsgo_source_modules(
+        module_ctx.read(_TSGO_SOURCE_GO_MOD),
+        module_ctx.read(_TSGO_SOURCE_GO_SUM),
+        str(_TSGO_SOURCE_GO_MOD),
+    )
+    if source.error:
+        fail(source.error)
+    go_repository_table(
+        name = "tsgo_source_modules",
+        importpaths = {go_repo_name(m.path): m.path for m in source.modules},
+    )
+    for module in source.modules:
+        go_repository(
+            name = go_repo_name(module.path),
+            build_config = "@tsgo_source_modules//:WORKSPACE",
+            build_file_generation = "on",
+            importpath = module.path,
+            sum = module.sum,
+            version = module.version,
+        )
+    tool = source.tool
+    tsgo_source_repo(
+        name = "tsgo_source",
+        binary = "@{}//{}:{}".format(
+            go_repo_name(tool.module),
+            tool.package[len(tool.module):].lstrip("/"),
+            tool.package.rsplit("/", 1)[-1],
+        ),
+        module = tool.module,
+        version = tool.version,
+    )
+
 def _ts_impl(module_ctx):
     tag = None
     for mod in module_ctx.modules:
@@ -94,6 +134,7 @@ def _ts_impl(module_ctx):
             integrity = TOOLS_INTEGRITY[platform],
             strip_prefix = tools_asset_prefix(TOOLS_VERSION, platform),
         )
+    _tsgo_source(module_ctx)
 
 _tsgo_tag = tag_class(
     attrs = {

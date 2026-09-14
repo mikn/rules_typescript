@@ -232,6 +232,27 @@ def declare_oxc_toolchain(name):
         toolchain_type = OXC_TOOLCHAIN_TYPE,
     )
 
+def declare_tsgo_source_toolchain(name):
+    """Declares the tsgo toolchain over the compiler built from source.
+
+    `@tsgo_source//:tsgo` is rules_go's build of the module
+    ts/private/tsgo_source/go.mod pins, so one toolchain serves every exec
+    platform and constrains none, as the oxc one does. //ts/toolchain:all
+    does not reach it; a consumer registers it ahead of that pattern.
+
+    Args:
+        name: Name of the generated toolchain target.
+    """
+    tsgo_toolchain(
+        name = "{}_impl".format(name),
+        tsgo_binary = Label("@tsgo_source//:tsgo"),
+    )
+    native.toolchain(
+        name = name,
+        toolchain = ":{}_impl".format(name),
+        toolchain_type = TSGO_TOOLCHAIN_TYPE,
+    )
+
 def declare_tsgo_toolchains(name, repo_prefix = None):
     """Declares one tsgo toolchain per platform tsgo publishes a binary for.
 
@@ -428,4 +449,70 @@ tsgo_toolchain_repo = repository_rule(
 
 One repository per platform, so that a build fetches only the compiler it runs.
 """,
+)
+
+def _tsgo_source_repo_impl(repository_ctx):
+    repository_ctx.file("BUILD.bazel", """\
+alias(
+    name = "tsgo",
+    actual = "{binary}",
+    visibility = ["//visibility:public"],
+)
+""".format(binary = repository_ctx.attr.binary))
+    repository_ctx.file("defs.bzl", """\
+TSGO_SOURCE_MODULE = "{module}"
+TSGO_SOURCE_VERSION = "{version}"
+""".format(
+        module = repository_ctx.attr.module,
+        version = repository_ctx.attr.version,
+    ))
+
+tsgo_source_repo = repository_rule(
+    implementation = _tsgo_source_repo_impl,
+    attrs = {
+        "binary": attr.string(
+            doc = "The compiler's go_binary in the module's repository, " +
+                  "`@com_github_microsoft_typescript_go//cmd/tsgo:tsgo`.",
+            mandatory = True,
+        ),
+        "module": attr.string(
+            doc = "The compiler's module path.",
+            mandatory = True,
+        ),
+        "version": attr.string(
+            doc = "The version ts/private/tsgo_source/go.mod requires.",
+            mandatory = True,
+        ),
+    },
+    doc = """The source-built compiler behind one label and its pin as Starlark.
+
+`@tsgo_source//:tsgo` aliases the module's `cmd/tsgo` binary, so the toolchain
+macro knows nothing of the module's layout; `@tsgo_source//:defs.bzl` carries
+`TSGO_SOURCE_MODULE` and `TSGO_SOURCE_VERSION` for //ts/private/tsgo:tsgo_test.
+""",
+)
+
+def _go_repository_table_impl(repository_ctx):
+    rules = []
+    for name, importpath in sorted(repository_ctx.attr.importpaths.items()):
+        rules.append((
+            "go_repository(\n" +
+            "    name = \"{}\",\n" +
+            "    importpath = \"{}\",\n" +
+            ")\n"
+        ).format(name, importpath))
+    repository_ctx.file("WORKSPACE", "".join(rules))
+    repository_ctx.file("BUILD.bazel", "exports_files([\"WORKSPACE\"])\n")
+
+go_repository_table = repository_rule(
+    implementation = _go_repository_table_impl,
+    attrs = {
+        "importpaths": attr.string_dict(
+            doc = "Repository name to module path, one entry per module.",
+            mandatory = True,
+        ),
+    },
+    doc = """The table Gazelle reads while it writes a module repository's BUILD
+files, `go_repository`'s `build_config`: an import of a module in the table
+resolves to its repository, and an import of one outside it to nothing.""",
 )

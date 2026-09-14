@@ -30,10 +30,11 @@ bazel_dep(name = "gazelle", version = "0.47.0")
 
 `rules_typescript` declares `rules_go`, `go_sdk` and `go_deps` as non-dev
 dependencies, so they propagate transitively via bzlmod. Consumers need only the
-`bazel_dep` above, and no Go toolchain of their own. Gazelle is the one Go a
-consumer compiles, and only under `bazel run`: `tags = ["manual"]` keeps the
-target and its runner out of `bazel build //...`, and the run fetches a Go SDK
-and its modules. `bazel build` and `bazel test` compile no Go; the ruleset's
+`bazel_dep` above, and no Go toolchain of their own. Gazelle compiles only
+under `bazel run`: `tags = ["manual"]` keeps the target and its runner out of
+`bazel build //...`, and the run fetches a Go SDK and its modules. `bazel build`
+and `bazel test` compile no Go unless the workspace registers
+[tsgo from source](../rules/providers.md#tsgo-from-source); the ruleset's
 other Go tools are the binaries of its
 [tools release](../RELEASE_PROCESS.md#tools).
 

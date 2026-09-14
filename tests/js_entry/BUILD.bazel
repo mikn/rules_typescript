@@ -6,7 +6,7 @@ drive it from the exec configuration with the runtime and node_modules the
 rule documents.
 """
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile")
 load(":entry_point_tests.bzl", "typescript_entry_point_test", "unusable_entry_point_test")

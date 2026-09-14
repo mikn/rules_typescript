@@ -1,0 +1,10 @@
+# The compiler's source pin; move it with `go get -tool
+# github.com/microsoft/typescript-go/cmd/tsgo@<commit> && go mod tidy` here.
+
+exports_files(
+    [
+        "go.mod",
+        "go.sum",
+    ],
+    visibility = ["//ts:__subpackages__"],
+)

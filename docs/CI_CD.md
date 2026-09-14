@@ -567,12 +567,12 @@ The toolchain binaries an executor runs:
 | Tool | Source | Platforms |
 |------|--------|-----------|
 | `oxc-bazel` | Built from Rust source via rules_rust | whichever exec platform the build runs on |
-| `tsgo` | Downloaded npm package | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
+| `tsgo` | Downloaded npm package; under `//ts/toolchain/tsgo_source`, built from Go source via rules_go | linux-x64, linux-arm64, darwin-x64, darwin-arm64; whichever exec platform the build runs on |
 | `tsaction`, `lcov_merger`, `copy_to_workspace` | Downloaded tools release asset; static Go, exec platform | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | `ts_launcher` | Downloaded tools release asset; static Go, target platform | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | Node.js | JS runtime toolchain | linux and macOS on x86_64/arm64, Windows on x86_64 |
 
-`oxc-bazel` is compiled on the executor itself, so it matches whatever the worker runs. `tsgo`, the tools and Node.js are self-contained downloads. None of them needs a library the worker does not already have.
+`oxc-bazel`, and `tsgo` under `//ts/toolchain/tsgo_source`, are compiled on the executor itself, so they match whatever the worker runs. The lockfile's `tsgo`, the tools and Node.js are self-contained downloads. None of them needs a library the worker does not already have.
 
 ### BuildBuddy RBE Setup
 
