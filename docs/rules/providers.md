@@ -326,9 +326,9 @@ the names Gazelle writes for them; `@tsgo_source//:tsgo` aliases the module's
 `cmd/tsgo` binary, and the toolchain over it constrains no platform, since
 `cfg = "exec"` on the binary builds it for whichever platform runs the build.
 The lockfile's binary reads its `lib/*.d.ts` from beside itself
-(`-tags=noembed`); this build embeds them, so the binary is one file. The
-toolchain is outside `//ts/toolchain:all`, so a consumer registers it by name,
-first:
+(`-tags=noembed`); this build embeds them, so the binary is one file and its
+listings name them under `bundled:///libs/`. The toolchain is outside
+`//ts/toolchain:all`, so a consumer registers it by name, first:
 
 ```python
 register_toolchains(

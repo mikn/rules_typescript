@@ -9,8 +9,17 @@ func main() {
 		Name:         "oxc_declarations",
 		WorkspaceRel: "tests/integration/oxc_declarations",
 	}, func(it *harness.IT) {
-		it.MustBazel("run", "//:gazelle")
-		it.Pass("bazel run //:gazelle")
+		gz, err := it.BazelLog("gazelle.log", "run", "//:gazelle")
+		if err != nil {
+			gz.Dump()
+			it.Fail("bazel run //:gazelle exited non-zero: %v", err)
+		}
+		if gz.Contains("gazelle: typescript:") {
+			gz.Dump()
+			it.Fail("Gazelle reported a file: every file here is owned and " +
+				"the compiler's embedded libs are its own")
+		}
+		it.Pass("bazel run //:gazelle reports no file")
 
 		for _, dir := range []string{"src/lib", "src/bad"} {
 			it.RequireFile(it.Path(dir, "BUILD.bazel"), "Gazelle did not generate %s/BUILD.bazel", dir)
@@ -27,7 +36,7 @@ func main() {
 
 		// --output_groups=+_validation is explicit, not in the .bazelrc: the next
 		// step deliberately builds WITHOUT it.
-		err := it.Bazel("build", "//src/lib:all",
+		err = it.Bazel("build", "//src/lib:all",
 			"--output_groups=+_validation,+declarations")
 		if err != nil {
 			it.Fail("annotated target failed to build or type-check under --//ts:declarations=oxc")

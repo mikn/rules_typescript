@@ -401,8 +401,9 @@ label:
   file, its importer and why: the nearest `tsconfig.json` above it does not
   list it, no `tsconfig.json` above it lists a file, or it sits under a
   directory this run did not walk.
-- **The toolchain's own libs** (`lib.dom.d.ts` and its kin, under `../`) are
-  nothing.
+- **The compiler's own libs** (`lib.dom.d.ts` and its kin: under `../` from
+  the lockfile's binary, which reads them from beside itself, under
+  `bundled:///libs/` from the source build, which embeds them) are nothing.
 
 The tsgo action checks every edge against `deps` from the same listing
 ([Deps Have to Be Direct](../rules/ts-compile.md#deps-have-to-be-direct)), so

@@ -22,8 +22,8 @@ import (
 // Linked in from gazelle/BUILD.bazel's x_defs; empty under a plain go build.
 var tsgoRlocationpath string
 
-// One tsconfig.json as tsgo lists it from the repository root: first-party
-// paths print relative to the root, node_modules and the toolchain's libs under ../.
+// One tsconfig.json as tsgo lists it from the repository root, first-party
+// paths relative to it and the compiler's libs under ../ or bundled:///.
 type program struct {
 	explainfiles.Listing
 	dir     string

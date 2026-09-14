@@ -8,10 +8,14 @@ import (
 	"strings"
 )
 
+// tsgo's scheme for the libs the source build embeds (internal/bundled).
+const embeddedLibs = "bundled:///"
+
 // A listed path is first-party when it lies inside the repository: not above
-// it, not absolute and not under a node_modules directory.
+// it, not absolute, not a lib the compiler embeds, not under node_modules.
 func firstParty(f string) bool {
-	if strings.HasPrefix(f, "../") || strings.HasPrefix(f, "/") {
+	if strings.HasPrefix(f, "../") || strings.HasPrefix(f, "/") ||
+		strings.HasPrefix(f, embeddedLibs) {
 		return false
 	}
 	return !slices.Contains(strings.Split(f, "/"), "node_modules")
