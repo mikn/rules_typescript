@@ -111,9 +111,10 @@ virtual store from them as Bazel artifacts.
 That is fewer moving parts in the JS layer and a larger dependency chain overall.
 Oxc is Rust, so `rules_rust` and a Rust toolchain come along, and the first
 build pays for it. The ruleset's Go tools arrive as the binaries of its tools
-release; Gazelle is the one Go a consumer compiles, under `bazel run
-//:gazelle` alone, which is when `rules_go`'s SDK is fetched. `rules_ts` needs
-neither toolchain.
+release; a consumer compiles Gazelle, under `bazel run //:gazelle`, and the
+compiler only when it registers
+[tsgo from source](../rules/providers.md#tsgo-from-source); `rules_go`'s SDK
+is fetched for those alone. `rules_ts` needs neither toolchain.
 
 ### Gazelle
 

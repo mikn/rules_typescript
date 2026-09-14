@@ -86,11 +86,15 @@ bazelisk and repository caches in all of them, the external cache in all but
      and saves CI nothing
    - The harness appends `common --repository_cache=<shared>` and
      `common --disk_cache=<shared>` to every staged workspace's `.bazelrc`
-     (`prepare()` in `tests/integration/harness/harness.go`). Without it each
-     workspace fetches the whole BCR registry for itself, and the resulting
-     lookup failures read as flaky tests. A workspace that carries a lockfile
-     is installed by the runner (`Install()`) with the workspace's `ts_pnpm`,
-     its store under `/mnt/rules_ts_it/pnpm`, before Gazelle lists it
+     (`prepare()` in `tests/integration/harness/harness.go`); a runner over the
+     checkout itself (`//tests/integration/tools_lock`) gets the two lines as a
+     `--bazelrc` file, with `--experimental_convenience_symlinks=ignore` so the
+     checkout's `bazel-*` links stay the outer build's. Without the shared
+     cache each workspace fetches the whole BCR registry for itself, and the
+     resulting lookup failures read as flaky tests. A workspace that carries a
+     lockfile is installed by the runner (`Install()`) with the workspace's
+     `ts_pnpm`, its store under `/mnt/rules_ts_it/pnpm`, before Gazelle lists
+     it
    - The harness's persistent root is `RULES_TS_IT_SCRATCH` when set (CI's
      `/mnt/rules_ts_it`), else `$XDG_CACHE_HOME/rules_typescript_it`, else
      `~/.cache/rules_typescript_it`, else `os.TempDir()`, last because `$TMPDIR`
@@ -324,10 +328,11 @@ input.
 - **A release tarball** is `git archive` over a tag, so it is a function of the
   commit.
 - **A tools release asset** is the four Go tools built at the `tools-v<N>` tag
-  with `bazel build --platforms=//platforms:<key>` and packed by
-  `//tools/toolpack`, so it is a function of the commit;
-  `tools/ci/check_tools_lock.sh` rebuilds the four and compares their SRIs with
-  `ts/private/tools_lock.bzl` on every PR and on the tag.
+  with `bazel build --platforms=//platforms:<key>`, each `pure = "on"` (no
+  cgo, so no builder's C library in the bytes), packed by `//tools/toolpack`,
+  so it is a function of the commit; `tools/ci/check_tools_lock.sh` rebuilds
+  the four and compares their SRIs with `ts/private/tools_lock.bzl` on every
+  PR and on the tag.
 - **Sandbox isolation** is the sandbox's, with no default shell env; see
   [Environment Variable Leaks](#6-environment-variable-leaks).
 
@@ -379,9 +384,12 @@ downloads were built from the sources in the tree it consumes; then
 `tools/ci/check_tools_lock.sh`, the four assets rebuilt with the release job's
 command line and their SRIs compared with the table, its output the lines a PR
 that changes a tool pastes into `ts/private/tools_lock.bzl` after bumping
-`TOOLS_VERSION`. The `determinism` job builds the four binaries from two empty
-output bases and compares them byte for byte. Both `tools` steps are red on
-such a PR until the owner pushes the new tag from its head.
+`TOOLS_VERSION`. Its `cquery` is `config(..., target)`, the configuration of
+the build before it, so a long-lived server that holds the tools in other
+configurations answers as a fresh one does (`//tests/integration/tools_lock`
+runs it both ways). The `determinism` job builds the four binaries from two
+empty output bases and compares them byte for byte. Both `tools` steps are red
+on such a PR until the owner pushes the new tag from its head.
 
 ## BCR (Bazel Central Registry) Publishing
 
@@ -559,12 +567,12 @@ The toolchain binaries an executor runs:
 | Tool | Source | Platforms |
 |------|--------|-----------|
 | `oxc-bazel` | Built from Rust source via rules_rust | whichever exec platform the build runs on |
-| `tsgo` | Downloaded npm package | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
+| `tsgo` | Downloaded npm package; under `//ts/toolchain/tsgo_source`, built from Go source via rules_go | linux-x64, linux-arm64, darwin-x64, darwin-arm64; whichever exec platform the build runs on |
 | `tsaction`, `lcov_merger`, `copy_to_workspace` | Downloaded tools release asset; static Go, exec platform | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | `ts_launcher` | Downloaded tools release asset; static Go, target platform | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | Node.js | JS runtime toolchain | linux and macOS on x86_64/arm64, Windows on x86_64 |
 
-`oxc-bazel` is compiled on the executor itself, so it matches whatever the worker runs. `tsgo`, the tools and Node.js are self-contained downloads. None of them needs a library the worker does not already have.
+`oxc-bazel`, and `tsgo` under `//ts/toolchain/tsgo_source`, are compiled on the executor itself, so they match whatever the worker runs. The lockfile's `tsgo`, the tools and Node.js are self-contained downloads. None of them needs a library the worker does not already have.
 
 ### BuildBuddy RBE Setup
 

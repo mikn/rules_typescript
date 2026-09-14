@@ -7,7 +7,7 @@ that order; `attrs_test` itself runs on what the user's file sets -- `globals`
 proves the test compiles its srcs with ts_compile's actions.
 """
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_test")
 load(":parity_tests.bzl", "compile_parity_test")

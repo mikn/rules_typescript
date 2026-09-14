@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])

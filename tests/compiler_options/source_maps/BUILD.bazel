@@ -4,7 +4,7 @@ one shape a .js.map has from either emitter."""
 # Compiler options, not data: named by the tsconfig attr.
 # gazelle:exclude tsconfig.commonjs.json
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//tests:flags.bzl", "ts_under_flags")
 load("//ts:defs.bzl", "ts_compile", "ts_config")
 

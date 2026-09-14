@@ -164,12 +164,12 @@ Common issues:
 
 ## Tools
 
-A consumer's build compiles no Go: `tsaction`, `ts_launcher`, `lcov_merger`
-and `copy_to_workspace` are the assets of the `tools-v<N>` release
-`ts/private/tools_lock.bzl` names, one tarball per platform of
-`TSGO_PLATFORMS`, downloaded by the `@tools_<platform>` repository the `ts`
-extension declares and verified against the table's SRI. The ruleset's own
-workspace and the nested integration workspaces register the source-built
+A consumer's build compiles none of the ruleset's Go tools: `tsaction`,
+`ts_launcher`, `lcov_merger` and `copy_to_workspace` are the assets of the
+`tools-v<N>` release `ts/private/tools_lock.bzl` names, one tarball per
+platform of `TSGO_PLATFORMS`, downloaded by the `@tools_<platform>` repository
+the `ts` extension declares and verified against the table's SRI. The ruleset's
+own workspace and the nested integration workspaces register the source-built
 instances (`//ts/tools/tsaction:source_toolchain`, `//tools/launcher:all`)
 ahead of `//ts/toolchain:all`, so a tool change is red there before it is
 released; `e2e/basic`, `examples/*` and the BCR presubmit download the
@@ -179,15 +179,16 @@ A PR that changes any of `ts/tools`, `tools/launcher`, `tools/lcov_merger`,
 `tools/copy_to_workspace` or `tools/toolpack`:
 
 1. Bumps `TOOLS_VERSION` in `ts/private/tools_lock.bzl`.
-2. Pastes the `TOOLS_INTEGRITY` table `tools/ci/check_tools_lock.sh` prints
-   (the CI `tools` job prints it too; its SRIs are the ones the release job
-   will assert).
+2. Pastes the `TOOLS_INTEGRITY` table `tools/ci/check_tools_lock.sh` prints;
+   the four binaries are `pure = "on"`, so every machine prints the same
+   table.
 3. Before merging, the owner pushes the tag from the PR head:
    ```bash
    bazel run //tools/release -- tools <N> --push
    ```
    The `tools` job of `.github/workflows/release.yml` builds the four assets
-   with `bazel build --platforms=//platforms:<key>`, packs each with
+   with `bazel build --platforms=//platforms:<key>`, reads them out of that
+   configuration (`cquery config(..., target)`), packs each with
    `//tools/toolpack`, fails unless every SRI equals the table's, attaches the
    tarballs to the `tools-v<N>` release and attests them.
 

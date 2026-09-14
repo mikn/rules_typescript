@@ -30,10 +30,11 @@ bazel_dep(name = "gazelle", version = "0.47.0")
 
 `rules_typescript` declares `rules_go`, `go_sdk` and `go_deps` as non-dev
 dependencies, so they propagate transitively via bzlmod. Consumers need only the
-`bazel_dep` above, and no Go toolchain of their own. Gazelle is the one Go a
-consumer compiles, and only under `bazel run`: `tags = ["manual"]` keeps the
-target and its runner out of `bazel build //...`, and the run fetches a Go SDK
-and its modules. `bazel build` and `bazel test` compile no Go; the ruleset's
+`bazel_dep` above, and no Go toolchain of their own. Gazelle compiles only
+under `bazel run`: `tags = ["manual"]` keeps the target and its runner out of
+`bazel build //...`, and the run fetches a Go SDK and its modules. `bazel build`
+and `bazel test` compile no Go unless the workspace registers
+[tsgo from source](../rules/providers.md#tsgo-from-source); the ruleset's
 other Go tools are the binaries of its
 [tools release](../RELEASE_PROCESS.md#tools).
 
@@ -400,8 +401,9 @@ label:
   file, its importer and why: the nearest `tsconfig.json` above it does not
   list it, no `tsconfig.json` above it lists a file, or it sits under a
   directory this run did not walk.
-- **The toolchain's own libs** (`lib.dom.d.ts` and its kin, under `../`) are
-  nothing.
+- **The compiler's own libs** (`lib.dom.d.ts` and its kin: under `../` from
+  the lockfile's binary, which reads them from beside itself, under
+  `bundled:///libs/` from the source build, which embeds them) are nothing.
 
 The tsgo action checks every edge against `deps` from the same listing
 ([Deps Have to Be Direct](../rules/ts-compile.md#deps-have-to-be-direct)), so

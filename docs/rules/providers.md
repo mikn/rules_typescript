@@ -312,6 +312,60 @@ for a release no lockfile states, downloaded unverified;
 `package = "@typescript/native-preview"` selects the nightly, whose binary is
 `lib/tsgo`. `TsgoToolchainInfo.tsgo_binary` is that file either way.
 
+### tsgo from source
+
+`//ts/toolchain/tsgo_source` is the same compiler built by rules_go.
+`ts/private/tsgo_source/go.mod` names
+`github.com/microsoft/typescript-go/cmd/tsgo` in a `tool` directive and
+requires the module at the commit the lockfile's `typescript` release was
+built from, so the two toolchains run one compiler at one revision, and a
+change the ruleset makes to that source reaches a build that registers this
+one. The `ts` extension reads the go.mod and its go.sum and declares one
+Gazelle-written `go_repository` per require, the module's dependencies under
+the names Gazelle writes for them; `@tsgo_source//:tsgo` aliases the module's
+`cmd/tsgo` binary, and the toolchain over it constrains no platform, since
+`cfg = "exec"` on the binary builds it for whichever platform runs the build.
+The lockfile's binary reads its `lib/*.d.ts` from beside itself
+(`-tags=noembed`); this build embeds them, so the binary is one file and its
+listings name them under `bundled:///libs/`. The toolchain is outside
+`//ts/toolchain:all`, so a consumer registers it by name, first:
+
+```python
+register_toolchains(
+    "@rules_typescript//ts/toolchain/tsgo_source",
+    "@rules_typescript//ts/toolchain:all",
+)
+```
+
+`ts/private/tsgo_source/isolated-declarations-bound-expando.patch` is the
+change that build carries today, applied to the module's repository by
+`go_repository`'s `patches` (`-p1`) before rules_go compiles it. Under
+`isolatedDeclarations` the 7.0.2 compiler crashes on an exported initializer
+of the shape `f().p || ""` (`panic: Unhandled case in Node.Text:
+*ast.CallExpression`): the declaration tracker's `isBoundExpando` took every
+binary expression with a property access on its left for an expando
+assignment and asked the resolver about the head of that access chain, which
+the resolver reads as an identifier. Patched, it asks only when the operator
+is `=` and the head is an identifier, and the compiler reports `TS9013` where
+TypeScript 5.9 reports `TS9007`. The patch carries the module's own case,
+`isolatedDeclarationsBoundExpandoCallee`, with its baselines;
+`//tests/integration:oxc_declarations_test` runs `TsgoCheck` over the shape
+under this toolchain and expects `TS9013`. The lockfile's binary keeps the
+crash.
+
+The pin moves in `ts/private/tsgo_source` with
+`go get github.com/microsoft/typescript-go@<commit> && go mod tidy`; for
+TypeScript 7.1 the Go code moved into `github.com/microsoft/TypeScript` under
+`tsc/`, so the next pin changes the module path in the `tool` line and the
+require. `//ts/private/tsgo:tsgo_test` reads the revision the lockfile's
+linux-amd64 binary embeds (`go version -m` prints it as `vcs.revision`) and
+fails when it is not the pinned one, naming both, so a `typescript` bump in
+the lockfile names the pin to move. A build that first resolves the toolchain
+compiles the module: 91 sandboxed actions, 113.5 s wall and an 89.6 s critical
+path on a 22-core machine at load 11, cached after. rules_go's apparent name
+in this module is `io_bazel_rules_go`, the name Gazelle writes into the BUILD
+files of a repository with no MODULE.bazel of its own.
+
 `//tests/toolchain:foreign_target_platform_test` pins the split. It analyses a
 probe rule under `--platforms=//platforms:windows_amd64`, a platform with a Node
 runtime and no compiler binary: oxc and tsgo still resolve to exec-platform

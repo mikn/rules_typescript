@@ -156,16 +156,10 @@ func TestCleanupKeepsTheOutputBase(t *testing.T) {
 	it := &IT{
 		WorkspaceDir: filepath.Join(base, "workspace"),
 		OutputBase:   filepath.Join(base, "output_base"),
+		staged:       filepath.Join(base, "workspace"),
 		scratchDir:   filepath.Join(base, "scratch"),
 	}
-	for _, dir := range []string{it.WorkspaceDir, it.OutputBase, it.scratchDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "marker"), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	markDirs(t, it.WorkspaceDir, it.OutputBase, it.scratchDir)
 
 	it.cleanup()
 
@@ -175,6 +169,43 @@ func TestCleanupKeepsTheOutputBase(t *testing.T) {
 	for _, dir := range []string{it.WorkspaceDir, it.scratchDir} {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Errorf("cleanup() left %s behind (err = %v)", dir, err)
+		}
+	}
+}
+
+// A run over the checkout stages nothing, so cleanup() removes the scratch
+// directory alone: the checkout it ran in is not this run's to delete.
+func TestCleanupKeepsTheCheckout(t *testing.T) {
+	base := t.TempDir()
+	it := &IT{
+		RulesTSRoot:  filepath.Join(base, "checkout"),
+		WorkspaceDir: filepath.Join(base, "checkout"),
+		OutputBase:   filepath.Join(base, "output_base"),
+		scratchDir:   filepath.Join(base, "scratch"),
+	}
+	markDirs(t, it.WorkspaceDir, it.OutputBase, it.scratchDir)
+
+	it.cleanup()
+
+	for _, dir := range []string{it.WorkspaceDir, it.OutputBase} {
+		if _, err := os.Stat(filepath.Join(dir, "marker")); err != nil {
+			t.Errorf("cleanup() removed %s: %v", dir, err)
+		}
+	}
+	if _, err := os.Stat(it.scratchDir); !os.IsNotExist(err) {
+		t.Errorf("cleanup() left %s behind (err = %v)", it.scratchDir, err)
+	}
+}
+
+func markDirs(t *testing.T, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(dir, "marker")
+		if err := os.WriteFile(marker, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

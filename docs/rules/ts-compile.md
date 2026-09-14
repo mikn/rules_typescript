@@ -29,7 +29,7 @@ flags in `.bazelrc`. Every compiler option is the tsconfig's.
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
 | `node_modules` | `label` | `None` | The `node_modules` target of the nearest lockfile importer at or above the package: the chain a direct npm dep resolves along. Required when the closure holds an npm package; Gazelle writes it. See [The node_modules Chain](#the-node_modules-chain) |
 
-Those are the three. Everything else is a build flag, one value for the whole
+Those are the four. Everything else is a build flag, one value for the whole
 build:
 
 | Flag | Type | Default | Description |
@@ -39,6 +39,7 @@ build:
 | `--//ts:declaration_map` | `bool` | `False` | Emit a `.d.ts.map` next to every declaration. See [Source and declaration maps](#source-and-declaration-maps) |
 | `--//ts:lib_check` | `bool` | `False` | Turn `skipLibCheck` off for every target. See [Finding a broken declaration](#finding-a-broken-declaration) |
 | `--//ts:checkers` | `int` | `0` | The threads tsgo checks with: `--checkers N` on TsgoCheck and TsgoDeclare, and `cpu:N` on each so Bazel schedules it as N cpus. `0` leaves tsgo's own count, the four the checkout's `tsc -p` runs with. |
+| `--//ts:lint` | `label` | `@lint_config//:lint` | The `lint_config` every target runs as its `TsLint` validation: the one the root module's `ts.lint()` writes. `//ts:no_lint` names no binary, so no target lints. See [Lint](../guides/lint.md) |
 
 A target that has to be built under another value of one of these is reached
 through a Starlark transition; `tests/flags.bzl` is the ruleset's own.

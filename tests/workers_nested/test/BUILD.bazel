@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_test")
 load(":wrangler_config_tests.bzl", "data_shadow_test", "wrangler_config_runfiles_test")

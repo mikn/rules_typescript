@@ -21,7 +21,7 @@
 # gazelle:exclude *_test.go
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile", "ts_config")
 load(
     ":analysis_tests.bzl",

@@ -54,6 +54,8 @@ const (
 		"780519/node_modules/@types/node/index.d.ts"
 	libES5 = "../../../.cache/bazel/_bazel_mikn/445afab5f80dc0267f608ab4b5ec" +
 		"802c/external/rules_typescript++ts+tsgo_linux_amd64/lib/lib.es5.d.ts"
+	bundledDOM   = "bundled:///libs/lib.dom.d.ts"
+	bundledES22  = "bundled:///libs/lib.es2022.full.d.ts"
 	workerConfig = "workers/download/worker-configuration.d.ts"
 	sampleDir    = "workers/download/test"
 )
@@ -65,6 +67,7 @@ func TestOwner_FirstParty(t *testing.T) {
 		"packages/figma-plugin/manifest.json": true,
 		storeNode:                             false,
 		libES5:                                false,
+		bundledDOM:                            false,
 		"/abs/x.ts":                           false,
 		"web/node_modules/@lovable.dev/pulse/x.ts": false,
 		"my_node_modules/x.ts":                     true,
@@ -185,12 +188,16 @@ func TestOwner_NoInputsIsNotAPackage(t *testing.T) {
 }
 
 func TestOwner_RefusedAndLibraryOnlyListingsAreNotPackages(t *testing.T) {
-	s := storeOf(t, []string{"", "libs", "vendored"}, map[string]string{
-		"libs": libES5 + "\n   Default library\n" + storeNode +
-			"\n   Entry point of type library 'node' specified in compilerOptions\n",
-		"vendored": "vendored/node_modules/x/index.d.ts\n" +
-			"   Matched by include pattern '**/*' in 'vendored/tsconfig.json'\n",
-	})
+	s := storeOf(t, []string{"", "libs", "embedded", "vendored"},
+		map[string]string{
+			"libs": libES5 + "\n   Default library\n" + storeNode +
+				"\n   Entry point of type library 'node' specified in compilerOptions\n",
+			"embedded": bundledES22 + "\n   Default library for target 'es2022'\n" +
+				bundledDOM + "\n   Library referenced via 'dom' from file '" +
+				bundledES22 + "'\n",
+			"vendored": "vendored/node_modules/x/index.d.ts\n" +
+				"   Matched by include pattern '**/*' in 'vendored/tsconfig.json'\n",
+		})
 	s.record(&program{dir: "", refused: "neither include nor files"})
 	if got := s.packageDirs(); len(got) != 0 {
 		t.Errorf("packages = %q, want none", got)
@@ -238,6 +245,31 @@ func TestOwner_AFileUnderAnUnwalkedDirectoryIsUnowned(t *testing.T) {
 		"walk (excluded or ignored); listed by app/tsconfig.json\n"
 	if got := captureLog(t, s.reportUnowned); got != want {
 		t.Errorf("reportUnowned said:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// The source-built compiler embeds its libs and lists them under its
+// bundled:/// scheme, where the lockfile's binary lists them under ../.
+func TestOwner_TheCompilersEmbeddedLibsAreItsOwn(t *testing.T) {
+	s := storeOf(t, []string{"", "app"}, map[string]string{
+		"app": listingOf("app", "app/main.ts") +
+			bundledES22 + "\n   Default library for target 'es2022'\n" +
+			bundledDOM + "\n   Library referenced via 'dom' from file '" +
+			bundledES22 + "'\n",
+	})
+	if got := s.packageDirs(); !slices.Equal(got, []string{"app"}) {
+		t.Errorf("packages = %q, want [app]", got)
+	}
+	if got := s.owner(bundledDOM); got != "" {
+		t.Errorf("owner(%s) = %q, want none: it is the compiler's", bundledDOM, got)
+	}
+	got := s.srcs("app", defaultTsConfig())
+	if !got.equal(srcSet{library: []string{"app/main.ts"}}) {
+		t.Errorf("srcs(app) = %+v, want main.ts alone", got)
+	}
+	if got := captureLog(t, s.reportUnowned); got != "" {
+		t.Errorf("reportUnowned said:\n%s\nwant nothing: the libs are the "+
+			"compiler's", got)
 	}
 }
 

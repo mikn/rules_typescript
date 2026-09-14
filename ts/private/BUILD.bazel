@@ -121,6 +121,11 @@ bzl_library(
 )
 
 bzl_library(
+    name = "go_mod",
+    srcs = ["go_mod.bzl"],
+)
+
+bzl_library(
     name = "runtime",
     srcs = ["runtime.bzl"],
     deps = [

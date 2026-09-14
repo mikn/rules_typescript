@@ -1,0 +1,28 @@
+"""Integration test: check_tools_lock.sh reads the files of the configuration
+it built.
+
+The runner runs the check over this checkout on a nested Bazel server of its
+own, twice: on the fresh server, then after
+`bazel build //tests/validation/...`, whose actions ran the four tools in exec
+configurations the check never builds. Both runs exit 0 and print the same
+four rows of ts/private/tools_lock.bzl. docs/CI_CD.md § Tools.
+
+  bazel test //tests/integration/tools_lock:tools_lock_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "tools_lock_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:tools_lock_runner",
+)

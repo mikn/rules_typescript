@@ -1,0 +1,9 @@
+"""The tsgo toolchain over the compiler built from source. Its own package, so
+//ts/toolchain:all leaves it out and a consumer registers it by name ahead of
+that pattern (docs/rules/providers.md § tsgo from source)."""
+
+load("//ts/private:toolchain.bzl", "declare_tsgo_source_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+declare_tsgo_source_toolchain(name = "tsgo_source")

@@ -1,7 +1,7 @@
 """A leaf runs TsgoCheck alone; TsgoDeclare emits the declarations where a
 dependent's compile reads them, or on request through the output group."""
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 load(
     ":declarations_tests.bzl",
