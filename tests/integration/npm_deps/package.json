@@ -1,0 +1,10 @@
+{
+  "name": "npm-deps",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "oxlint": "0.16.6",
+    "vitest": "4.1.11",
+    "zod": "3.24.2"
+  }
+}

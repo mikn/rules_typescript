@@ -1,0 +1,10 @@
+load("@npm_esbuild//:defs.bzl", "npm_virtual_store")
+
+# @npm_esbuild is translated from these; not a fixture: the bundle
+# //vite:vite_plugin_bazel builds with it ships to consumers.
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])
+
+npm_virtual_store(name = "node_modules/.pnpm")

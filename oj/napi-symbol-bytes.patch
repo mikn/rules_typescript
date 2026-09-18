@@ -1,0 +1,28 @@
+--- a/lib.rs
++++ b/lib.rs
+@@ -1245,10 +1245,23 @@
+   Ok(exports)
+ }
+ 
++pub fn symbol_exports(target_os: &str) -> &'static [u8] {
++  match target_os {
++    "windows" => include_bytes!("generated_symbol_exports_list_windows.def"),
++    "macos" => include_bytes!("generated_symbol_exports_list_macos.def"),
++    "linux" | "freebsd" | "openbsd" | "android" => {
++      include_bytes!("generated_symbol_exports_list_linux.def")
++    }
++    _ => panic!("unsupported symbol export target: {target_os}"),
++  }
++}
++
+ #[allow(clippy::print_stdout, reason = "cargo build script output")]
+ pub fn print_linker_flags(name: &str) {
+-  let symbols_path =
+-    include_str!(concat!(env!("OUT_DIR"), "/napi_symbol_path.txt"));
++  let symbols_path = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())
++    .join("napi_symbols.def");
++  std::fs::write(&symbols_path, symbol_exports(std::env::consts::OS)).unwrap();
++  let symbols_path = symbols_path.display();
+ 
+   #[cfg(target_os = "windows")]
+   println!("cargo:rustc-link-arg-bin={name}=/DEF:{}", symbols_path);

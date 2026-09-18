@@ -1,0 +1,37 @@
+"""Integration test: a consumer's tests run under the Node its .nvmrc names.
+
+rules_nodejs's `node` extension keeps the root module's `node.toolchain(name =
+"nodejs")` and ignores every other module's, so a consumer's call decides the
+runtime rules_typescript's toolchains resolve, and the version this module's
+MODULE.bazel pins is what a consumer that makes no call runs under. The
+extension is evaluated in the nested workspace, out of every Starlark unit
+test's reach; this test pins the three cases: the .nvmrc's version runs, an
+edited .nvmrc moves the runtime, no call runs the pin.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy: a real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage.
+
+  bazel test //tests/integration/node_version:node_version_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "node_version_test",
+    timeout = "eternal",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:node_version_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

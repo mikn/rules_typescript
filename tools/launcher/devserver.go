@@ -8,11 +8,9 @@ import (
 	"strings"
 )
 
-// serverCommand builds the argv for whichever dev server implementation the
-// target selected. A server inside the npm tree is a path joined onto the
-// resolved tree, because a file inside a TreeArtifact has no label to resolve;
-// a native binary is a runfile. ts_dev_server guarantees exactly one is set.
-func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, port int) ([]string, string, error) {
+// serverCommand builds the argv for the selected dev server: a path under the
+// importer's node_modules, or a native binary from the runfiles.
+func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules, root string, port int) ([]string, string, error) {
 	d := cfg.DevServer
 	var argv []string
 	var serverPath string
@@ -20,7 +18,7 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, por
 	if d.ServerInTree != "" {
 		if nodeModules == "" {
 			return nil, "", fmt.Errorf(
-				"ts_dev_server: %s selected a server that ships inside the npm tree (%s), "+
+				"ts_dev_server: %s selected a server that ships as an npm package (%s), "+
 					"but the target has no node_modules attr.\n"+
 					"Add node_modules = \":node_modules\" pointing at a node_modules() target "+
 					"whose deps include that package; there is no host-PATH fallback.",
@@ -29,7 +27,7 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, por
 		serverPath = filepath.Join(nodeModules, filepath.FromSlash(d.ServerInTree))
 		if !fileExists(serverPath) {
 			return nil, "", fmt.Errorf(
-				"ts_dev_server: the dev server is missing from the node_modules tree of %s:\n"+
+				"ts_dev_server: the dev server is missing from the node_modules of %s:\n"+
 					"                 %s\n"+
 					"                 Add the package providing it to the deps of that "+
 					"node_modules() target.",
@@ -55,18 +53,6 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, por
 		argv = append(runtime, serverPath)
 	} else {
 		argv = []string{serverPath}
-	}
-
-	// The serve root is the workspace when bazel run supplies one; the config
-	// carries the same value, but a server taking it from argv does not read it
-	// there. See DevServerInfo.argv.
-	root := os.Getenv("BUILD_WORKSPACE_DIRECTORY")
-	if root == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, "", err
-		}
-		root = cwd
 	}
 	named := false
 	for _, a := range d.Argv {
@@ -105,7 +91,8 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 			"ts_dev_server: %s has no node_modules attr, so the app's own dependencies "+
 				"are not in runfiles.\n"+
 				"Add node_modules = \":node_modules\" pointing at a node_modules() target; "+
-				"the generated config resolves every bare specifier through that tree.", cfg.Label)
+				"the generated config resolves every bare specifier through its links.",
+			cfg.Label)
 	}
 	nodeModules, err := r.Path(d.NodeModules)
 	if err != nil {
@@ -120,10 +107,24 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// walk up to, so without this the dev server answers 500 for that stylesheet.
 	plan.prependPath("NODE_PATH", nodeModules)
 
+	workspace := os.Getenv("BUILD_WORKSPACE_DIRECTORY")
+	if workspace == "" {
+		workspace, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+	}
+	bazelBin := filepath.Join(workspace, "bazel-bin")
+	plan.setEnv("BAZEL_BIN_DIR", bazelBin)
+
+	appRoot := filepath.Join(workspace, filepath.FromSlash(d.PackageDir))
+	plan.Dir = appRoot
+	plan.setEnv("BUILD_WORKSPACE_DIRECTORY", workspace)
+
 	// A server whose argv names the port takes the override there; one that reads
 	// it from the config still gets it appended, which is where it looked before.
 	port, args := portOverride(d.Port, args)
-	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules, port)
+	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules, appRoot, port)
 	if err != nil {
 		return nil, err
 	}
@@ -137,10 +138,8 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 
 	for name, rl := range map[string]string{
-		"VITE_PLUGIN_PATH":            d.Plugin,
-		"VITE_CSS_MODULE_PLUGIN_PATH": d.CSSModulePlugin,
-		"VITE_USER_CONFIG_PATH":       d.UserConfig,
-		"BUNDLER_BINARY":              d.BundlerBinary,
+		"VITE_PLUGIN_PATH":      d.Plugin,
+		"VITE_USER_CONFIG_PATH": d.UserConfig,
 	} {
 		if rl == "" {
 			continue
@@ -151,38 +150,11 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 		}
 		plan.setEnv(name, p)
 	}
-
-	workspace := os.Getenv("BUILD_WORKSPACE_DIRECTORY")
-	bazelBin := ""
-	if workspace != "" {
-		plan.Dir = workspace
-		bazelBin = filepath.Join(workspace, "bazel-bin")
-	} else {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		bazelBin = filepath.Join(cwd, "bazel-bin")
-		workspace = cwd
-	}
-	plan.setEnv("BAZEL_BIN_DIR", bazelBin)
-
-	// A dev server's scratch belongs in the output tree, not in the sources it
-	// is serving. Left alone, oj writes .oj-cache/ and TanStack Start writes
-	// .tanstack/ into the workspace root, where they survive the server, get
-	// walked by anything that lists the workspace, and dirty a tree a build is
-	// entitled to find clean. Vite's own cacheDir is set in the generated
-	// config, which is the same decision made where Vite reads it.
-	// A dev server's scratch belongs in the output tree, not in the sources it
-	// is serving. Left alone, oj writes .oj-cache/ and TanStack Start writes
-	// .tanstack/ into the workspace root, where they survive the server and get
-	// walked by anything that lists the workspace. Created rather than only
-	// named: a tool given a directory that does not exist may or may not make
-	// one.
+	// Server caches belong in the output tree, outside the sources being watched.
 	scratch := filepath.Join(bazelBin, filepath.FromSlash(d.ScratchDir))
 	for name, dir := range map[string]string{
-		"OJ_CACHE_DIR": filepath.Join(scratch, "oj-cache"),
 		"TSR_TMP_DIR":  filepath.Join(scratch, "tanstack-tmp"),
+		"OJ_CACHE_DIR": filepath.Join(scratch, "oj-cache"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("ts_dev_server: cannot create %s at %s: %w", name, dir, err)
@@ -205,7 +177,7 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	)
 	if anchor != "" {
 		plan.Messages = append(plan.Messages, fmt.Sprintf(
-			"[ts_dev_server] Linked %s -> the npm tree; removed on Ctrl-C. "+
+			"[ts_dev_server] Linked %s -> the node_modules; removed on Ctrl-C. "+
 				"Add `node_modules` (no trailing slash) to .gitignore.", anchor))
 	}
 
@@ -217,22 +189,8 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	return plan, nil
 }
 
-// anchorNodeModules links the npm tree in as <workspace>/node_modules, and
-// returns the link it created, or "" when one was already there.
-//
-// This is what makes a bare `import "react"` resolve at all in the parts of a
-// bundler that no plugin can reach. Vite's SSR externalisation and its
-// optimizeDeps.include resolution both call the resolver directly rather than
-// through the plugin container, and both walk the directory chain up from the
-// importer -- or, for a package in resolve.dedupe, up from `root` regardless of
-// the importer. Above a checked-in source file there is nothing to find: the
-// npm tree is a Bazel output somewhere else entirely. Naming it here is the
-// only place the walk can see it, and it is what a bundler outside Bazel would
-// have found anyway.
-//
-// An existing path is never replaced. A real directory is somebody's install
-// and a link to another tree belongs to another dev server; either way the two
-// answers cannot both be right, so the launcher says which two and stops.
+// anchorNodeModules links the importer's node_modules in as <workspace>/
+// node_modules (docs/guides/dev-server.md § How a Bare npm Specifier Resolves).
 func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error) {
 	link := filepath.Join(workspace, "node_modules")
 	switch target, err := os.Readlink(link); {
@@ -240,11 +198,11 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 		return "", nil
 	case err == nil:
 		return "", fmt.Errorf(
-			"ts_dev_server: %s is already a symlink to a different npm tree:\n"+
+			"ts_dev_server: %s is already a symlink to a different node_modules:\n"+
 				"                 have %s\n"+
 				"                 want %s\n"+
 				"A dev server resolves bare specifiers by walking up from the "+
-				"workspace root, so the two trees cannot both be there. Stop the "+
+				"workspace root, so the two cannot both be there. Stop the "+
 				"other dev server, or point both targets at one node_modules().",
 			link, target, nodeModules)
 	}
@@ -252,7 +210,7 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 		return "", fmt.Errorf(
 			"ts_dev_server: %s already exists and is not a symlink.\n"+
 				"That is usually a `pnpm install` tree. The dev server resolves "+
-				"through the Bazel npm tree at\n"+
+				"through the Bazel node_modules at\n"+
 				"                 %s\n"+
 				"and will not delete an install to get there -- remove it yourself "+
 				"if Bazel should own the dependencies.", link, nodeModules)
@@ -265,9 +223,32 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 				"On Windows a symlink needs Developer Mode or an elevated shell.",
 			link, nodeModules, err)
 	}
-	// ibazel SIGTERMs the launcher on every rebuild and Supervise.IgnoreTerm
-	// swallows it, so this runs on Ctrl-C rather than once per rebuild. Remove
-	// the link only -- never its target, which is the Bazel tree.
+	// Supervise.IgnoreTerm swallows ibazel's per-rebuild SIGTERM, so this runs
+	// on Ctrl-C; the link only, never its target.
 	plan.Cleanup = func() { os.Remove(link) }
 	return link, nil
+}
+
+// Some servers reject repeated --port flags instead of accepting the last value.
+func portOverride(port int, args []string) (int, []string) {
+	kept := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		flag, value := args[i], ""
+		if eq := strings.IndexByte(flag, '='); eq >= 0 {
+			flag, value = flag[:eq], flag[eq+1:]
+		} else if flag == "-p" || flag == "--port" {
+			if i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+		}
+		if flag != "-p" && flag != "--port" {
+			kept = append(kept, args[i])
+			continue
+		}
+		if parsed, err := strconv.Atoi(value); err == nil {
+			port = parsed
+		}
+	}
+	return port, kept
 }

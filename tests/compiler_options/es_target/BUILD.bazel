@@ -1,4 +1,7 @@
-"""target and jsx_mode are rule attrs, and the editor still has to see them."""
+"""target and jsx come from the tsconfig, for oxc and tsgo alike."""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.legacy.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
@@ -8,8 +11,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "legacy",
     srcs = ["legacy.ts"],
-    jsx_mode = "preserve",
-    target = "es2017",
+    tsconfig = "tsconfig.legacy.json",
 )
 
 build_test(

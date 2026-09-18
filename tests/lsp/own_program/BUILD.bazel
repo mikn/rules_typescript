@@ -1,0 +1,31 @@
+"""A package whose targets check under the tsconfig.json in their own
+directory: that file is the editor program, so ide_tsconfig writes none and
+the root program excludes the files it covers."""
+
+load("//tests/lsp:ide_tsconfig_tests.bzl", "own_program_test")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+
+ts_compile(
+    name = "own_program",
+    srcs = ["a.ts"],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+)
+
+ide_tsconfig(
+    name = "own_program_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":own_program"],
+)
+
+own_program_test(
+    name = "own_program_test",
+    target_under_test = ":own_program_ide_tsconfig",
+)

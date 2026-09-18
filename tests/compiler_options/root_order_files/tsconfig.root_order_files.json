@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "skipLibCheck": true
+  },
+  "files": ["svgr.d.ts", "src/env.d.ts", "src/app.ts"]
+}

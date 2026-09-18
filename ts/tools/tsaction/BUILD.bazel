@@ -1,16 +1,64 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//ts/private:toolchain.bzl", "TOOLS_TOOLCHAIN_TYPE", "tools_toolchain")
 
 # gazelle:ignore
+# gazelle:exclude testdata
 
 go_library(
     name = "tsaction_lib",
-    srcs = ["main.go"],
+    srcs = [
+        "check.go",
+        "emit.go",
+        "exclude.go",
+        "main.go",
+        "manifest.go",
+        "paths.go",
+        "showconfig.go",
+        "tsgo.go",
+    ],
     importpath = "github.com/mikn/rules_typescript/ts/tools/tsaction",
     visibility = ["//visibility:private"],
+    deps = [
+        "//ts/tools/explainfiles",
+        "//ts/tools/tsconfig",
+    ],
 )
 
 go_binary(
     name = "tsaction",
     embed = [":tsaction_lib"],
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "tsaction_test",
+    size = "small",
+    srcs = [
+        "check_test.go",
+        "emit_test.go",
+        "exclude_test.go",
+        "main_test.go",
+        "manifest_test.go",
+        "paths_test.go",
+        "showconfig_test.go",
+        "tsgo_test.go",
+    ],
+    data = glob(["testdata/**"]),
+    embed = [":tsaction_lib"],
+)
+
+tools_toolchain(
+    name = "source_tools",
+    copy_to_workspace = "//tools/copy_to_workspace",
+    lcov_merger = "//tools/lcov_merger",
+    tsaction = ":tsaction",
+    visibility = ["//visibility:public"],
+)
+
+toolchain(
+    name = "source_toolchain",
+    toolchain = ":source_tools",
+    toolchain_type = TOOLS_TOOLCHAIN_TYPE,
     visibility = ["//visibility:public"],
 )

@@ -1,0 +1,10 @@
+# Integration test workspace for tsgo_lockfile.
+
+build --incompatible_strict_action_env
+build --nolegacy_external_runfiles
+
+test --test_output=errors
+test --test_summary=terse
+
+# Keeps the nested output the runner logs free of progress lines.
+common --noshow_progress

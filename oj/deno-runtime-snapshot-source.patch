@@ -1,0 +1,68 @@
+diff --git a/snapshot.rs b/snapshot.rs
+--- a/snapshot.rs
++++ b/snapshot.rs
+@@ -17,11 +17,8 @@
+ use crate::shared::runtime;
+ 
+-/// A single lazy_loaded_* entry declared by an extension, in
+-/// `(specifier, absolute source path)` form. The build script uses this to
+-/// decide which sources still need to be embedded in the final binary.
+ #[derive(Clone, Debug)]
+ pub struct LazyExtensionFile {
+   pub specifier: String,
+-  pub path: PathBuf,
++  pub source: ExtensionFileSource,
+   pub kind: LazyExtensionFileKind,
+ }
+@@ -181,17 +178,14 @@
+ ) -> Option<LazyExtensionFile> {
+   #[allow(deprecated, reason = "matching deprecated variant we still inspect")]
+-  let path = match &file.code {
+-    ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(p) => PathBuf::from(p),
+-    // After the macro change every lazy entry is LoadedFromFsDuringSnapshot;
+-    // the other variants only appear for ad-hoc entries pushed by customizers
+-    // (e.g. inline sources) that have no on-disk path and therefore can't be
+-    // re-embedded by the build script.
++  match &file.code {
++    ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(_)
++    | ExtensionFileSourceCode::EmbeddedDuringSnapshot(_) => {}
+     ExtensionFileSourceCode::IncludedInBinary(_)
+     | ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(_)
+     | ExtensionFileSourceCode::Computed(_) => return None,
+-  };
++  }
+   Some(LazyExtensionFile {
+     specifier: file.specifier.to_string(),
+-    path,
++    source: file.clone(),
+     kind,
+   })
+diff --git a/shared.rs b/shared.rs
+--- a/shared.rs
++++ b/shared.rs
+@@ -55,10 +55,7 @@
+         deno_features::JS_SOURCE,
+       ));
+-      // 99_main.js is the snapshot's ESM entry point; its source is loaded
+-      // from disk only during snapshot creation, so we don't duplicate it in
+-      // the final binary's `.rodata`.
+-      ext.esm_files.to_mut().push(ExtensionFileSource::loaded_during_snapshot(
++      ext.esm_files.to_mut().push(ExtensionFileSource::embedded_during_snapshot(
+         "ext:runtime_main/js/99_main.js",
+-        concat!(env!("CARGO_MANIFEST_DIR"), "/js/99_main.js"),
++        deno_core::ascii_str_include!(concat!(env!("CARGO_MANIFEST_DIR"), "/js/99_main.js")),
+       ));
+       ext.esm_entry_point = Some("ext:runtime_main/js/99_main.js");
+diff --git a/snapshot.rs b/snapshot.rs
+--- a/snapshot.rs
++++ b/snapshot.rs
+@@ -108,1 +108,1 @@
+-      cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
++      cargo_manifest_dir: "",
+diff --git a/js.rs b/js.rs
+--- a/js.rs
++++ b/js.rs
+@@ -3,2 +3,1 @@
+-pub static PATH_FOR_99_MAIN_JS: &str =
+-  concat!(env!("CARGO_MANIFEST_DIR"), "/js/99_main.js");
++pub static PATH_FOR_99_MAIN_JS: &str = "js/99_main.js";

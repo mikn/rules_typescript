@@ -4,22 +4,14 @@
     "composite": false,
     "incremental": false,
     "noEmit": true,
-    "rootDir": ".",
-    "typeRoots": [
-      "./typings"
-    ],
-    "types": [
-      "my-globals"
-    ]
+    "rootDir": "."
   },
   "exclude": [],
   "extends": [
-    "../../../tsconfig.json"
+    "../../../tsconfig.json",
+    "./tsconfig.ambient.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "app.ts"
   ]

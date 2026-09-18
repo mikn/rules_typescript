@@ -1,0 +1,25 @@
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+# keep
+ts_compile(
+    name = "dom",
+    srcs = ["vitest.setup.ts"],
+    node_modules = "//tests/npm:node_modules",
+    visibility = ["//visibility:public"],
+    deps = ["@npm//:vitest"],
+)
+
+# A DOM environment: vitest asks Vite for the setup file at its realpath, which
+# lies outside the root Vite serves; layer 1 answers with the staged path.
+# keep
+ts_test(
+    name = "dom_test",
+    srcs = ["dom.test.ts"],
+    config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        ":dom",
+        "@npm//:happy-dom",
+        "@npm//:vitest",
+    ],
+)

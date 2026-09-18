@@ -1,23 +1,57 @@
-"""source_map and declaration_map: which maps Bazel declares."""
+""" //ts:source_map and //ts:declaration_map: which maps Bazel declares, and the
+one shape a .js.map has from either emitter."""
 
-load("@rules_go//go:def.bzl", "go_test")
-load("//ts:defs.bzl", "ts_compile")
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.commonjs.json
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//tests:flags.bzl", "ts_under_flags")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
 
 package(default_visibility = ["//:__pkg__"])
 
-# declaration_map is what makes go-to-definition from a consumer's editor land
-# on mapped.ts instead of the generated mapped.d.ts.
 ts_compile(
     name = "mapped",
     srcs = ["mapped.ts"],
-    declaration_map = True,
 )
 
-# A bundle input whose bundler makes its own map has no use for oxc's.
 ts_compile(
     name = "unmapped",
     srcs = ["unmapped.ts"],
-    source_map = False,
+)
+
+# tsgo's emit, moved from TsEmit's scratch outDir; oxc writes mapped.js.map.
+ts_config(
+    name = "commonjs_tsconfig",
+    src = "tsconfig.commonjs.json",
+    module = "commonjs",
+)
+
+ts_compile(
+    name = "commonjs",
+    srcs = ["commonjs.ts"],
+    tsconfig = ":commonjs_tsconfig",
+)
+
+# --//ts:declaration_map is what makes go-to-definition from a consumer's editor
+# land on mapped.ts instead of the generated mapped.d.ts.
+ts_under_flags(
+    name = "mapped_with_declaration_map",
+    declaration_map = "true",
+    target = ":mapped",
+)
+
+# --no//ts:source_map, for a build whose bundler makes its own map.
+ts_under_flags(
+    name = "unmapped_without_source_map",
+    source_map = "false",
+    target = ":unmapped",
+)
+
+filegroup(
+    name = "mapped_declarations",
+    srcs = [":mapped_with_declaration_map"],
+    output_group = "declarations",
 )
 
 go_test(
@@ -25,8 +59,10 @@ go_test(
     size = "small",
     srcs = ["source_maps_test.go"],
     data = [
-        ":mapped",
-        ":unmapped",
+        ":commonjs",
+        ":mapped_declarations",
+        ":mapped_with_declaration_map",
+        ":unmapped_without_source_map",
     ],
     deps = ["//tests/verify"],
 )

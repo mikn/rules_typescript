@@ -1,5 +1,6 @@
 load("//ts:defs.bzl", "ts_compile")
 
+# keep
 ts_compile(
     name = "pkg_00",
     srcs = [
@@ -7,6 +8,5 @@ ts_compile(
         "types.ts",
         "utils.ts",
     ],
-    # keep
     visibility = ["//tests/synthetic:__subpackages__"],
 )

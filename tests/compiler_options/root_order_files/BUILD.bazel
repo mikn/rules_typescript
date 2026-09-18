@@ -1,0 +1,27 @@
+"""files order: a `files` list names the roots in its own order, so the first
+pass hands the chain's `files` to --showConfig instead of an empty list."""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.root_order_files.json
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# svgr.d.ts sorts after src/, so in srcs order src/env.d.ts's `*.svg` would win
+# and app.ts's call would be TS2349.
+ts_compile(
+    name = "app",
+    srcs = [
+        "src/app.ts",
+        "src/env.d.ts",
+        "svgr.d.ts",
+    ],
+    tsconfig = "tsconfig.root_order_files.json",
+)
+
+build_test(
+    name = "root_order_files_test",
+    targets = [":app"],
+)

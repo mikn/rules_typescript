@@ -27,7 +27,7 @@ pub struct CliOptions {
     /// JSX transform mode.
     ///
     /// Accepted values: react-jsx (automatic runtime), react (classic
-    /// runtime), preserve (leave JSX as-is).
+    /// runtime), preserve (JSX left as-is, a .tsx named .jsx as tsc does).
     #[arg(long, default_value = "react-jsx", value_name = "MODE")]
     pub jsx: String,
 
@@ -39,6 +39,11 @@ pub struct CliOptions {
     /// Package that provides the JSX runtime import (e.g. "react").
     #[arg(long, default_value = "react", value_name = "SOURCE")]
     pub jsx_import_source: Option<String>,
+
+    /// Keep a top-level await, as tsc does under a module that admits one;
+    /// without this a target below es2022 refuses it.
+    #[arg(long)]
+    pub top_level_await: bool,
 
     /// Emit .d.ts declaration files using isolated-declarations semantics.
     /// Implies --declaration.

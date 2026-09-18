@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "jsx": "react-jsx",
+        "strict": true,
+        "target": "es2022",
+        "module": "esnext"
+    },
+    "files": [
+        "../../../../pkg/globals.d.ts",
+        "../../../../pkg/src/a.ts"
+    ],
+    "include": [
+        "../../../../pkg/globals.d.ts",
+        "../../../../pkg/src"
+    ]
+}

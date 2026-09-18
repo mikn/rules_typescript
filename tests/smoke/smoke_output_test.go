@@ -24,7 +24,7 @@ func TestCompiledOutputs(t *testing.T) {
 	// Source file is Button.tsx so the output stem preserves the case.
 	button := tree.File("tests/smoke/Button.js")
 	button.Contains("function Button(props)")
-	// jsx_mode = "react-jsx": the element becomes a jsx() call against the
+	// jsx react-jsx, the baseline: the element becomes a jsx() call against the
 	// automatic runtime import, and no angle-bracket syntax survives.
 	button.Contains(`from "react/jsx-runtime"`, `_jsx("button"`)
 	button.Excludes("<button")

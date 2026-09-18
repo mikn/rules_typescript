@@ -2,8 +2,8 @@
   "compilerOptions": {
     // ── Target ─────────────────────────────────────────────────────────────
     "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
     "lib": ["ES2022"],
 
     // ── Output ─────────────────────────────────────────────────────────────

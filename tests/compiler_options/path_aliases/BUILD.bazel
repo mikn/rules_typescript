@@ -1,27 +1,34 @@
-"""path_aliases: a source-level alias, and the files it resolves to."""
+"""A tsconfig `paths` alias reaching a module and a JSON src."""
 
 # The target below has srcs in these directories; a BUILD file in any of them
 # would turn it into a package and make those labels cross a package boundary.
 # gazelle:exclude app
 # gazelle:exclude shared
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.aliases.json
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# The alias points outside this target's srcs, so the files it resolves to have
-# to be declared: they are inputs to the type-check action, which is what makes
-# the resolution the same on every machine rather than dependent on what else
-# was staged in the sandbox.
+# One alias reaches value.ts and data.json, typed from its contents under the
+# resolveJsonModule bundler resolution implies; `title` is a string only then.
 ts_compile(
     name = "app",
-    srcs = ["app/main.ts"],
-    path_alias_srcs = ["shared/value.ts"],
-    path_aliases = {"@shared/": "tests/compiler_options/path_aliases/shared/"},
+    srcs = [
+        "app/main.ts",
+        "shared/data.json",
+        "shared/value.ts",
+    ],
+    tsconfig = "tsconfig.aliases.json",
 )
 
 build_test(
     name = "path_aliases_test",
     targets = [":app"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

@@ -1,9 +1,24 @@
-"""Toolchain types and instances: the oxc and tsgo compilers, and the JS runtime in both its roles."""
+"""Toolchain types and instances: the oxc and tsgo compilers, the Go tools,
+the launcher, and the JS runtime in both its roles."""
 
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//platforms:platforms.bzl", "constraints")
 load("//ts/private:runtime.bzl", "declare_node_runtime_toolchains", "declare_node_tool_toolchains")
-load("//ts/private:toolchain.bzl", "declare_oxc_toolchain", "declare_tsgo_toolchains")
-load(":resolved.bzl", "node_resolved", "oxc_resolved", "tsgo_resolved")
+load(
+    "//ts/private:toolchain.bzl",
+    "TSGO_PLATFORMS",
+    "declare_oxc_toolchain",
+    "declare_tsgo_toolchains",
+)
+load(
+    ":resolved.bzl",
+    "launcher_resolved",
+    "lcov_merger_resolved",
+    "node_resolved",
+    "oxc_resolved",
+    "tools_resolved",
+    "tsgo_resolved",
+)
 
 package(default_visibility = ["//visibility:public"])
 
@@ -21,12 +36,17 @@ bzl_library(
 
 # ─── Toolchain types ───────────────────────────────────────────────────────────
 
-# oxc and tsgo are compilers: they run on the exec platform, so their
-# toolchains are exec_compatible_with-constrained and place no constraint on
-# the target platform.
+# The compilers and the Go tools run inside actions, on the exec platform:
+# exec_compatible_with-constrained, no constraint on the target platform.
 toolchain_type(name = "oxc_toolchain_type")
 
 toolchain_type(name = "tsgo_toolchain_type")
+
+toolchain_type(name = "tools_toolchain_type")
+
+# The launcher is the executable of a ts_test, ts_binary, ts_dev_server or
+# npm_bin: built for the target platform, as the JS runtime below is.
+toolchain_type(name = "launcher_toolchain_type")
 
 # The JS runtime a built program executes on (target platform).
 toolchain_type(name = "js_runtime_type")
@@ -43,6 +63,22 @@ toolchain_type(name = "js_tool_type")
 declare_oxc_toolchain(name = "oxc")
 
 declare_tsgo_toolchains(name = "tsgo")
+
+toolchain(
+    name = "tools",
+    toolchain = "//ts/tools/tsaction:source_tools",
+    toolchain_type = ":tools_toolchain_type",
+)
+
+[
+    toolchain(
+        name = "launcher_" + platform,
+        target_compatible_with = constraints(platform),
+        toolchain = "//tools/launcher:source_launcher",
+        toolchain_type = ":launcher_toolchain_type",
+    )
+    for platform in TSGO_PLATFORMS
+]
 
 declare_node_runtime_toolchains(name = "node")
 
@@ -64,3 +100,15 @@ node_resolved(
     name = "node_resolved",
     toolchain_type = ":js_runtime_type",
 )
+
+tools_resolved(
+    name = "tools_resolved",
+    toolchain_type = ":tools_toolchain_type",
+)
+
+launcher_resolved(
+    name = "launcher_resolved",
+    toolchain_type = ":launcher_toolchain_type",
+)
+
+lcov_merger_resolved(name = "lcov_merger_resolved")

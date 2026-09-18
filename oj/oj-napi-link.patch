@@ -1,0 +1,26 @@
+--- a/build.rs
++++ b/build.rs
+@@ -3,9 +3,17 @@
+ 
+ fn main() {
+-    // Export the Node-API symbols from the oj binary so `.node` native addons
+-    // (napi) loaded by the embedded JS engine can resolve them against this
+-    // executable. On macOS this uses -exported_symbols_list, which also hides
+-    // every symbol not on deno_napi's list; that is the intended usage (the
+-    // deno CLI links the same way) and fine for a CLI binary.
+-    deno_napi::print_linker_flags("oj");
++    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
++    let path = "${pwd}/${out_dir}/napi_symbols.def";
++    let flag = match target_os.as_str() {
++        "windows" => format!("/DEF:{path}"),
++        "macos" => format!("-Wl,-exported_symbols_list,{path}"),
++        "linux" | "freebsd" | "openbsd" | "android" => {
++            format!("-Wl,--dynamic-list={path}")
++        }
++        _ => return,
++    };
++    let path = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())
++        .join("napi_symbols.def");
++    std::fs::write(path, deno_napi::symbol_exports(&target_os)).unwrap();
++    println!("cargo:rustc-link-arg={flag}");
+ }

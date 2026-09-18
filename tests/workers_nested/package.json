@@ -1,0 +1,8 @@
+{
+  "name": "rules_typescript_workers_nested_test",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "vitest"
+  }
+}

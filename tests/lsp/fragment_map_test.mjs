@@ -81,12 +81,7 @@ const fromDataIndex = write(withFragments, 'src/from_data/index.ts', 'export con
 write(
   withFragments,
   '.bazel/tsserver-hook-data.json',
-  JSON.stringify({
-    npmDir: '.bazel/npm',
-    npmPackages: [],
-    packages: ['src/from_data'],
-    aliases: [{ prefix: '@data', dir: 'src/from_data' }],
-  })
+  JSON.stringify({ packages: ['src/from_data'] })
 );
 
 const leafLines = fragmentLines(leafFragment);
@@ -97,36 +92,31 @@ process.stdout.write(`INFO: root fragment =\n${rootLines.join('\n')}\n`);
 stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:leaf`, leafLines);
 stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:root`, rootLines);
 
-// The same label under a second configuration, disagreeing about the alias. The
-// merge must pick one and always the same one -- the roots are sorted, so
-// k8-fastbuild wins -- rather than letting the filesystem decide.
-stage(
-  withFragments,
-  'k8-opt',
-  `//${FIXTURE_PKG}:root`,
-  rootLines.map((line) => line.replace(/"dir":"[^"]*"/, '"dir":"src/from_data"'))
-);
+// The same label under a second configuration: counted once, the sorted roots
+// deciding which wins rather than the filesystem.
+stage(withFragments, 'k8-opt', `//${FIXTURE_PKG}:root`, rootLines);
 
 // A fragment whose package is gone from the source tree. Discovery never looks
 // in a directory the source tree does not have, so nothing here is even read.
 stage(withFragments, 'k8-fastbuild', '//deleted/pkg:target', [
   JSON.stringify({ format: 'tsconfig-fragment-v1', label: '@@//deleted/pkg:target' }),
-  JSON.stringify({ alias: '@deleted', dir: 'src/from_data' }),
+  JSON.stringify({ package: 'src/from_data', index: true }),
 ]);
 
-// A fragment in a package that does exist, naming things that do not: a renamed
-// alias and a removed package linger in bazel-out until that target is rebuilt.
+// A fragment in a package that does exist, naming a package that does not: a
+// removed package lingers in bazel-out until that target is rebuilt.
 stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:renamed`, [
   JSON.stringify({ format: 'tsconfig-fragment-v1', label: `@@//${FIXTURE_PKG}:renamed` }),
-  JSON.stringify({ alias: '@stale', dir: 'src/deleted_by_a_later_commit' }),
   JSON.stringify({ package: 'src/deleted_by_a_later_commit', index: true }),
 ]);
 
 // A format this worker does not understand: skipped whole, not half-read.
 stage(withFragments, 'k8-fastbuild', `${FIXTURE_PKG}:future`, [
   JSON.stringify({ format: 'tsconfig-fragment-v99', label: `@@//${FIXTURE_PKG}:future` }),
-  JSON.stringify({ alias: '@future', dir: 'src/from_data' }),
+  JSON.stringify({ package: 'src/future_only', index: true }),
 ]);
+write(withFragments, 'src/future_only/BUILD.bazel', '');
+write(withFragments, 'src/future_only/index.ts', 'export const f = 1;\n');
 
 // ── The workspace without them ──────────────────────────────────────────────
 
@@ -138,12 +128,7 @@ const fallbackIndex = write(noFragments, 'src/from_data/index.ts', 'export const
 write(
   noFragments,
   '.bazel/tsserver-hook-data.json',
-  JSON.stringify({
-    npmDir: '.bazel/npm',
-    npmPackages: [],
-    packages: ['src/from_data'],
-    aliases: [{ prefix: '@data', dir: 'src/from_data' }],
-  })
+  JSON.stringify({ packages: ['src/from_data'] })
 );
 
 // ── Assertions ──────────────────────────────────────────────────────────────
@@ -212,20 +197,14 @@ const withMap = withRun.map;
 process.stdout.write(`INFO: map with fragments = ${JSON.stringify(withMap, null, 2)}\n`);
 process.stdout.write(`INFO: worker log =\n${withRun.log}\n`);
 
-// The headline: a package no rule may name, resolved from its fragment alone,
-// under both the path it sits at and the bare specifier it declares.
+// The headline: a package no rule may name, resolved from its fragment alone.
 expectEntry(withMap, FIXTURE_PKG, fixtureIndex);
-expectEntry(withMap, '@acme/leaf', fixtureIndex);
-expectEntry(withMap, '__alias__@frag/', path.join(withFragments, FIXTURE_PKG));
 
 // The data file is still the data file.
 expectEntry(withMap, 'src/from_data', fromDataIndex);
-expectEntry(withMap, '__alias__@data/', path.join(withFragments, 'src/from_data'));
 
-// Five fragment files carrying three labels: :root appears under two
-// configurations and is counted once, and :future's format is rejected whole.
-// The sixth file, under //deleted/pkg, is not in the count because a directory
-// the source tree does not have is never opened.
+// Five fragment files, three labels: :root under two configurations counts
+// once, :future's format is rejected whole, //deleted/pkg is never opened.
 const counted = 'fragments: 3 labels from 5 files';
 if (withRun.log.includes(counted)) {
   pass(`the merge deduped by label (${counted})`);
@@ -233,19 +212,15 @@ if (withRun.log.includes(counted)) {
   fail(`the merge deduped by label (${counted})`, 'not in the worker log');
 }
 
-expectAbsent(withMap, '__alias__@deleted/', 'its package is gone, so its fragment is never read');
-expectAbsent(withMap, '__alias__@stale/', 'the directory it names no longer exists');
 expectAbsent(withMap, 'src/deleted_by_a_later_commit', 'the package it names no longer exists');
-expectAbsent(withMap, '__alias__@future/', 'the fragment declares a format this worker cannot read');
+expectAbsent(withMap, 'src/future_only', 'the fragment declares a format this worker cannot read');
 
 const withoutMap = (await runWorker(noFragments)).map;
 process.stdout.write(`INFO: map without fragments = ${JSON.stringify(withoutMap, null, 2)}\n`);
 
 // The fallback the .bazelrc lines are optional against.
 expectEntry(withoutMap, 'src/from_data', fallbackIndex);
-expectEntry(withoutMap, '__alias__@data/', path.join(noFragments, 'src/from_data'));
 expectAbsent(withoutMap, FIXTURE_PKG, 'no build wrote a fragment for it');
-expectAbsent(withoutMap, '@acme/leaf', 'the module_name arrives with the fragment or not at all');
 
 if (failures > 0) {
   process.stderr.write(`\n${failures} FAILED\n`);

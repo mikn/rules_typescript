@@ -6,11 +6,20 @@ The dep uses only .d.ts files from //src/schema at compile time — this is the
 schema's implementation without changing its types does not recompile app.
 """
 
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
 
 ts_compile(
     name = "app",
     srcs = ["index.ts"],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     deps = ["//src/schema"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
 )

@@ -36,10 +36,7 @@ type Socket struct {
 	fail   chan error
 }
 
-// dialHMR completes the WebSocket handshake against a dev server's HMR endpoint.
-// Where that endpoint is, and whether it demands a subprotocol, is per
-// implementation: Vite upgrades on the base path and only for "vite-hmr", oj
-// upgrades on /__ws for anything.
+// Vite requires the base path and vite-hmr subprotocol for HMR upgrades.
 func Dial(addr, path, protocol string) (*Socket, error) {
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {

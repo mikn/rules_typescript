@@ -1,0 +1,13 @@
+"""A package whose only config is vite.config.ts: plain vitest reads it, so
+Gazelle writes it as the test's `config` and the runner loads it like any."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "vite_config_test",
+    srcs = ["define.test.ts"],
+    config = "vite.config.ts",
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
+)

@@ -1,0 +1,12 @@
+load("//ts:defs.bzl", "ts_test")
+
+# The other half of //tests/vitest/attrs:compile_parity_test: ts_test over the
+# srcs ../compile compiles; parity.ts is no test by name, so the run holds none.
+ts_test(
+    name = "parity_test",
+    srcs = ["parity.ts"],
+    config = "vitest.config.mts",
+    node_modules = "//tests/npm:node_modules",
+    visibility = ["//tests/vitest/attrs:__pkg__"],
+    deps = ["@npm//:vitest"],
+)

@@ -5,11 +5,6 @@
 
 # gazelle:exclude src
 
-# The tsup config only type-checks under `module: Preserve` with bundler
-# resolution, which Gazelle cannot infer, so its target is hand-written below and
-# the file kept out of what Gazelle claims.
-# gazelle:ts_exclude tsup.config.ts
-
 # BUILD.bazel for the vite/ package.
 #
 # vite-plugin-bazel (the npm plugin in vite/src/) is compiled inside Bazel
@@ -22,10 +17,6 @@
 #
 # For production distribution, the pre-built dist/ (built with tsup) is used
 # for npm publishing.  The Bazel build target is for in-workspace use only.
-#
-# bundler.bzl is the Bazel-side complement: it defines the vite_bundler rule
-# that returns a BundlerInfo provider wiring a pre-built Vite binary into the
-# ts_binary / ts_bundle bundler interface.
 
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
@@ -39,38 +30,29 @@ package(default_visibility = ["//visibility:public"])
 exports_files(["package.json"])
 
 bzl_library(
-    name = "bundler",
-    srcs = ["bundler.bzl"],
-    deps = [
-        "//ts/private:providers",
-        "//ts/private:runtime",
-    ],
-)
-
-bzl_library(
     name = "dev_server_bzl",
     srcs = ["dev_server.bzl"],
     deps = ["//ts/private:providers"],
 )
 
-# The default ts_dev_server(server = ...). Vite itself comes from the target's
-# own node_modules tree, so this instance carries no state.
 vite_dev_server(name = "dev_server")
 
 bzl_library(
     name = "plugin",
     srcs = ["plugin.bzl"],
     deps = [
+        "//ts/private:providers",
         "//ts/private:runtime",
     ],
 )
 
-# node_modules tree for the plugin build action below.
+# The plugin build action's node_modules: vite/esbuild's lockfile, not @npm,
+# which resolves into the consumer's and need not have esbuild at all.
+# keep
 node_modules(
-    name = "esbuild_node_modules",
-    # Not @npm: that name resolves into the consumer's lockfile, which need not
-    # have esbuild at all, and the bundle this feeds is consumer API.
-    deps = ["@npm_css//:esbuild"],
+    name = "node_modules",
+    hoist = "//vite/esbuild:node_modules/.pnpm/node_modules",
+    deps = ["@npm_esbuild//:esbuild"],
 )
 
 # Build the vite-plugin-bazel TypeScript source into a single bundled ESM file.
@@ -87,7 +69,7 @@ esbuild_bundle(
     # vite alone: anything else the plugin imports must be a node builtin, so
     # esbuild fails the build rather than shipping an unresolvable import.
     external = ["vite"],
-    node_modules = ":esbuild_node_modules",
+    node_modules = ":node_modules",
 )
 
 # esbuild strips types without checking them, so this is the type check for the
@@ -95,12 +77,7 @@ esbuild_bundle(
 ts_compile(
     name = "plugin_typecheck",
     srcs = glob(["src/*.ts"]),
-    # npm deps reach tsgo as tsconfig `paths` entries pointing at package
-    # directories, which node16 ESM resolution cannot resolve.
-    compiler_options = {
-        "module": "Preserve",
-        "moduleResolution": "Bundler",
-    },
+    node_modules = "//tests/npm:node_modules",
     tsconfig = "vite.tsconfig.json",
     deps = [
         "@npm//:types_node",
@@ -113,10 +90,7 @@ ts_compile(
 ts_compile(
     name = "tsup_config",
     srcs = ["tsup.config.ts"],
-    compiler_options = {
-        "module": "Preserve",
-        "moduleResolution": "Bundler",
-    },
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:tsup"],
 )
 

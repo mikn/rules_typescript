@@ -14,7 +14,7 @@ import (
 // rule's env attribute, then drops the keys in unset. Duplicate keys are
 // collapsed because execve keeps them all and getenv then answers with the
 // first, inverting the precedence.
-func Environ(env map[string]string, unset []string, runfilesEnv []string) []string {
+func Environ(env map[string]string, runfilesEnv []string) []string {
 	value := map[string]string{}
 	order := []string{}
 	set := func(entry string) {
@@ -41,15 +41,8 @@ func Environ(env map[string]string, unset []string, runfilesEnv []string) []stri
 	for _, k := range keys {
 		set(k + "=" + env[k])
 	}
-	drop := make(map[string]bool, len(unset))
-	for _, k := range unset {
-		drop[k] = true
-	}
 	out := make([]string, 0, len(order))
 	for _, k := range order {
-		if drop[k] {
-			continue
-		}
 		out = append(out, k+"="+value[k])
 	}
 	return out
@@ -62,6 +55,8 @@ type SuperviseOptions struct {
 	IgnoreTerm bool
 	// ExitZeroOnInterrupt reports success after a Ctrl-C shutdown.
 	ExitZeroOnInterrupt bool
+	// StdoutToStderr leaves stdout to what the launcher prints after the child.
+	StdoutToStderr bool
 	// Cleanup runs after the child exits, however it exits.
 	Cleanup func()
 }
@@ -75,6 +70,9 @@ func Supervise(argv []string, env []string, opts SuperviseOptions) (int, error) 
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
+	if opts.StdoutToStderr {
+		cmd.Stdout = os.Stderr
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return 1, err

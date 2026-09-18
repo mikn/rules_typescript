@@ -1,4 +1,4 @@
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_dev_server")
 
 ts_compile(
     name = "app",
@@ -6,6 +6,8 @@ ts_compile(
         "App.tsx",
         "index.ts",
     ],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     deps = [
         "//src/components",
@@ -17,7 +19,15 @@ ts_compile(
 ts_dev_server(
     name = "dev",
     entry_point = ":app",
+    node_modules = "//:node_modules",
     plugin = "@rules_typescript//vite:vite_plugin_bazel",
     port = 5173,
     visibility = ["//visibility:public"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
 )

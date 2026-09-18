@@ -61,6 +61,30 @@ func contains(haystack, needle string) bool {
 	return false
 }
 
+func TestLockedToolsVersion(t *testing.T) {
+	lock := "\"\"\"doc.\"\"\"\n\nTOOLS_VERSION = \"12\"\n\nTOOLS_INTEGRITY = {}\n"
+	got, err := lockedToolsVersion(lock)
+	if err != nil || got != "12" {
+		t.Errorf("lockedToolsVersion = %q, %v; want 12", got, err)
+	}
+	if _, err := lockedToolsVersion("TOOLS_INTEGRITY = {}\n"); err == nil {
+		t.Error("a table without TOOLS_VERSION was read")
+	}
+}
+
+func TestToolsVersionFormat(t *testing.T) {
+	for _, ok := range []string{"1", "12"} {
+		if !toolsVersion.MatchString(`TOOLS_VERSION = "` + ok + `"`) {
+			t.Errorf("%q should be accepted", ok)
+		}
+	}
+	for _, bad := range []string{"", "v1", "1.0", "one"} {
+		if toolsVersion.MatchString(`TOOLS_VERSION = "` + bad + `"`) {
+			t.Errorf("%q should be rejected", bad)
+		}
+	}
+}
+
 // The release-PR path: the bump is already in HEAD, so there is nothing to write
 // and nothing to commit. run() keys the skip on old == version.
 func TestSetModuleVersionIsIdempotent(t *testing.T) {

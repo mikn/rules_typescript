@@ -68,20 +68,6 @@ func TestResolverWorksFromAManifestAlone(t *testing.T) {
 	}
 }
 
-func TestResolverInTreeJoinsUnderADirectoryArtifact(t *testing.T) {
-	r, real := fakeRunfiles(t, map[string]string{
-		"_main/tests/app/node_modules": dirMarker,
-	})
-	got, err := r.InTree("_main/tests/app/node_modules", "vite/bin/vite.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(real["_main/tests/app/node_modules"], "vite", "bin", "vite.js")
-	if got != want {
-		t.Errorf("InTree = %q, want %q", got, want)
-	}
-}
-
 func TestResolverReportsMissingEntries(t *testing.T) {
 	r, _ := fakeRunfiles(t, map[string]string{"_main/a.js": "x"})
 	if _, err := r.Path("_main/nope.js"); err == nil {
@@ -96,5 +82,49 @@ func TestResolverEnvCarriesTheManifestToChildren(t *testing.T) {
 	joined := strings.Join(r.Env(), " ")
 	if !strings.Contains(joined, "RUNFILES_MANIFEST_FILE=") {
 		t.Errorf("Env() = %v, want it to carry RUNFILES_MANIFEST_FILE", r.Env())
+	}
+}
+
+func TestNodeModulesUsesAutoDiscoveredRunfilesWithoutEnvironment(t *testing.T) {
+	for _, mode := range []string{"directory", "manifest"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("RUNFILES_DIR", "")
+			t.Setenv("RUNFILES_MANIFEST_FILE", "")
+			t.Setenv("TEST_SRCDIR", "")
+			base := t.TempDir()
+			program := filepath.Join(base, "generator")
+			rl := "_main/app/node_modules/pkg/package.json"
+			tree := program + ".runfiles"
+			source := tree
+			if mode == "manifest" {
+				source = filepath.Join(base, "files")
+			}
+			file := filepath.Join(source, filepath.FromSlash(rl))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(`{"name":"pkg"}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			root := tree
+			if mode == "manifest" {
+				if err := os.WriteFile(program+".runfiles_manifest", []byte(rl+" "+file+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				root = filepath.Join(base, "staged")
+			}
+			r, err := newResolver(runfiles.ProgramName(program))
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := &Plan{EnvOverrides: map[string]string{}}
+			if _, err := installNodeModules(r, plan, root, "_main", []string{"_main/app/node_modules"}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rl)))
+			if err != nil || string(data) != `{"name":"pkg"}` {
+				t.Fatalf("staged package = %q, %v", data, err)
+			}
+		})
 	}
 }

@@ -46,6 +46,7 @@ func generate(t *testing.T, binaryEnv string) string {
 		"go.mod":        "module example.com/fixture\n\ngo 1.26\n",
 		"fixture.go":    "package fixture\n",
 		"fixture.proto": "syntax = \"proto3\";\n\npackage fixture;\n",
+		"tsconfig.json": "{\"include\": [\"*.ts\"]}\n",
 		"index.ts":      "export const answer = 42;\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {

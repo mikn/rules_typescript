@@ -1,7 +1,8 @@
-# oj has no npm package and publishes no release binary, so the crate built from
-# source by MODULE.bazel's oj_crates extension is the only way to pin it.
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":dev_server.bzl", "oj_dev_server")
+load(":v8_archive_env.bzl", "v8_archive_env")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -12,3 +13,67 @@ bzl_library(
 )
 
 oj_dev_server(name = "dev_server")
+
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+    "aws-lc-macos-headers.patch",
+    "llvm-resource-directory.patch",
+    "libffi-static-archive.patch",
+    "cranelift-assembler-isle.patch",
+    "cranelift-codegen-isle.patch",
+    "deno-core-snapshot-source.patch",
+    "deno-runtime-snapshot-source.patch",
+    "deno-snapshots-source.patch",
+    "napi-symbol-bytes.patch",
+    "oj-napi-link.patch",
+    "oj-server-file-hmr.patch",
+    "v8-output-dir.patch",
+    "sqlite-build-script-path.patch",
+])
+
+rust_test(
+    name = "isle_paths_test",
+    srcs = ["isle_paths_tests.rs"],
+    edition = "2024",
+    deps = [
+        "@oj_crates//:cranelift-assembler-x64",
+        "@oj_crates//:cranelift-codegen-meta",
+    ],
+)
+
+sh_test(
+    name = "napi_exports_test",
+    srcs = ["napi_exports_test.sh"],
+    args = ["$(rlocationpath @oj_crates//:oj__oj)"],
+    data = ["@oj_crates//:oj__oj"],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+rust_test(
+    name = "napi_symbols_test",
+    srcs = ["napi_symbols_tests.rs"],
+    edition = "2024",
+    features = ["-static_link_cpp_runtimes"],
+    deps = ["@oj_crates//:oj_deno_napi"],
+)
+
+rust_test(
+    name = "snapshot_source_test",
+    srcs = ["snapshot_source_tests.rs"],
+    compile_data = ["snapshot_fixture.js"],
+    edition = "2024",
+    features = ["-static_link_cpp_runtimes"],
+    deps = ["@oj_crates//:deno_core"],
+)
+
+v8_archive_env(
+    name = "v8_archive_env",
+    archive = select({
+        "//platforms:is_linux_amd64": "@oj_v8_linux_amd64//file",
+        "//platforms:is_linux_arm64": "@oj_v8_linux_arm64//file",
+        "//platforms:is_darwin_amd64": "@oj_v8_darwin_amd64//file",
+        "//platforms:is_darwin_arm64": "@oj_v8_darwin_arm64//file",
+        "//platforms:is_windows_amd64": "@oj_v8_windows_amd64//file",
+    }),
+)

@@ -15,7 +15,7 @@
 
 ## Development Environment
 
-The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency — the Rust toolchain, Go toolchain, Node.js, and npm packages — is fetched hermetically by Bazel on the first build.
+The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency (the Rust toolchain, Go SDK, Node.js, and npm packages) is fetched hermetically by Bazel on the first build. This workspace and consumers build the Go tools from source with rules_go. Prebuilt tools require an explicit [release configuration](https://mikn.github.io/rules_typescript/RELEASE_PROCESS/#tools).
 
 ### Install Bazelisk
 
@@ -50,28 +50,47 @@ bazel test //...
 
 The first build fetches a Rust toolchain, a Go SDK, Node.js and tsgo, then
 compiles `oxc-bazel` and its crate graph from source. The Rust compile takes
-minutes. Subsequent builds are fast via Bazel's content-addressed cache, so do
-not `bazel clean` afterwards.
+minutes. Subsequent builds hit Bazel's content-addressed cache; do not
+`bazel clean`.
 
-### Enable the pre-push hook
+### Which Binary a Toolchain Resolved
+
+`//ts/toolchain` provides the runnable inspection targets below. They run the binary selected by toolchain resolution, with the arguments after `--`. Action tools use the execution platform; the launcher and runtime use the target platform.
+
+```bash
+bazel run //ts/toolchain:oxc_resolved -- --help
+bazel run //ts/toolchain:tsgo_resolved -- --version
+bazel run //ts/toolchain:node_resolved -- --version
+bazel run //ts/toolchain:tools_resolved
+bazel run //ts/toolchain:launcher_resolved
+```
+
+The second prints `Version 7.0.2` and the third `v22.23.1`: the `typescript`
+release `ts/private/tsgo/pnpm-lock.yaml` pins and the Node.js version
+`MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first; `tools_resolved`
+prints tsaction's usage and `launcher_resolved` the launcher's config error,
+both built from source by the default toolchains. `//tests/integration/tsgo_lockfile` checks the compiler version selected by a consumer's lockfile. `//tests/integration/new_project` uses the default public registration without source overrides. `node_resolved` is the node the `tests/dev_server` and `tests/lsp`
+suites run, and the one a `tests/integration` workspace that makes no
+`node.toolchain()` call runs (`//tests/integration/node_version` makes one);
+`//tests/toolchain` pins which platform each toolchain's binary comes from.
+
+### Pre-Push Hook
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-`.githooks/pre-push` refuses a push whose working tree differs from `HEAD` —
-tracked edits and untracked files alike, since `.gitignore` already covers what
-a working checkout really does carry. A push sends commits, so a file you
-edited but never committed is not in it: three PRs in one day were pushed
-missing a file that only existed in the author's worktree, and one of them
-turned `main` red for hours. The failure names the files and tells you to
-commit or stash; `git push --no-verify` pushes anyway.
+`.githooks/pre-push` refuses a push whose working tree differs from `HEAD`,
+tracked edits and untracked files alike; `.gitignore` covers what a working
+checkout carries. A push sends commits, so a file edited but never committed is
+not in it. The failure names the files and says to commit or stash;
+`git push --no-verify` pushes anyway.
 
 It is opt-in per clone, because `core.hooksPath` is repository config and
 repository config is not checked in. A linked worktree inherits it from the
 clone it was created from.
 
-### Optional: buildifier for Starlark formatting
+### Buildifier
 
 See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
 
@@ -82,7 +101,7 @@ See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
 One formatter per language. The `lint` CI job checks Starlark and Go; Rust and
 TypeScript formatting are local conventions.
 
-### Starlark (BUILD files and .bzl files)
+### Starlark (BUILD Files and .bzl Files)
 
 Use **buildifier**:
 
@@ -100,11 +119,13 @@ buildifier --mode=check -r .                     # what CI runs
 Key conventions (see also AGENTS.md):
 - `ctx.actions.run` over `ctx.actions.run_shell` wherever possible
 - `depset(order = "postorder")` for transitive file sets
-- `args.add_all()` for file lists — never materialize depsets at analysis time
+- `args.add_all()` for file lists; never materialize depsets at analysis time
 - Private attrs prefixed with `_`
-- Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`
+- Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`:
+  the rule declarations in `ts/private/rules/`, one action per file in
+  `ts/private/actions/` (rules_go's `go/private/{rules,actions}` layout)
 
-### Go (Gazelle extension)
+### Go (Gazelle Extension)
 
 Use **gofmt**:
 
@@ -132,40 +153,21 @@ The Rust CLI lives in `oxc_cli/`. Build with:
 bazel build //oxc_cli:oxc-bazel
 ```
 
-#### Repinning Crate Dependencies
+#### Updating Rust dependencies
 
-Two `crate_universe` hubs are pinned by checked-in lockfiles. rules_rust
-requires a lockfile for a hub declared by a non-root module, and rules_typescript
-is a dependency in a consumer's build, where repinning across the module boundary
-is not possible:
+Edit `oj/Cargo.toml` or `oxc_cli/Cargo.toml` and update its Cargo.lock with Cargo. Run `bazel mod deps --lockfile_mode=update` and verify the affected native tests. rules_rs resolves both manifests directly; no Cargo.Bazel.lock, vendoring script, or compatibility-floor rendering is maintained. Crate patches and platform-specific build inputs stay in MODULE.bazel annotations.
 
-| Hub          | Rendering            | Cargo resolution      |
-| ------------ | -------------------- | --------------------- |
-| `@crates`    | `oxc_cli/Cargo.Bazel.lock` | `oxc_cli/Cargo.lock` |
-| `@oj_crates` | `oj/Cargo.Bazel.lock`      | `oj/Cargo.lock`      |
-
-After editing `oxc_cli/Cargo.toml` or the `crate.spec` for `oj` in
-`MODULE.bazel`, regenerate all four:
-
-```bash
-CARGO_BAZEL_REPIN=1 bazel query "@crates//:all + @oj_crates//:all"
-```
-
-A rules_rust bump also invalidates the renderings: the digest covers the cargo
-and rustc versions rules_rust pins, so repin in the same commit as the bump.
-Without it, every build fails with "The current `lockfile` is out of date".
-
-### TypeScript (test fixtures and e2e workspaces)
+### TypeScript (Test Fixtures and E2E Workspaces)
 
 Use **prettier** (if you have it locally). The TypeScript files in `tests/` and
-`e2e/` are fixtures — keep them minimal and readable, illustrating the feature
-under test. CI does not lint them.
+`e2e/` are fixtures: keep them minimal, illustrating the feature under test. CI
+does not lint them.
 
 ---
 
 ## Running Tests
 
-### Unit tests and type checking (main repo)
+### Unit Tests and Type Checking (Main Repo)
 
 ```bash
 # Run all tests
@@ -185,22 +187,57 @@ bazel test //gazelle/...
 tools/ci/check_test_sources.sh
 ```
 
-`bazel test //...` passing does not mean your test ran. A Gazelle run that
-**deletes** a test target satisfies `bazel build //...`, `bazel test //...` and a
-byte-identical Gazelle rerun alike. This script compares the test sources on disk
-against the srcs of every test target, and again against only the targets
-`bazel test //...` actually runs, so a target tagged `manual` does not count as
-coverage.
+A Gazelle run that deletes a test target still satisfies `bazel build //...`,
+`bazel test //...` and a byte-identical Gazelle rerun. The script compares the
+test sources on disk against the srcs of every test target, and again against
+only the targets `bazel test //...` runs, so a target tagged `manual` does not
+count as coverage.
 
 If a file's only target is `manual`, add the file to `MANUAL_ONLY` inside the
-script **with the reason it cannot run**. The list is exact in both directions:
-tagging a test `manual` fails CI until someone writes the reason down, and
-untagging it fails until the entry is removed.
+script with the reason it cannot run. The list is exact in both directions:
+tagging a test `manual` fails CI until the reason is written down, and untagging
+it fails until the entry is removed.
 
 The script is read-only: a loading-phase query and `git ls-files`. It is the
-first step of the `test` job in CI. One local caveat — `git ls-files` cannot see
-an unstaged new file, so a local run reports green on a test you have not
-`git add`ed yet.
+first step of the `test` job in CI. `git ls-files` cannot see an unstaged new
+file, so a local run reports green on a test not yet `git add`ed.
+
+### Retired Names
+
+```bash
+tools/ci/check_retired_names.sh
+```
+
+A rule attribute, Gazelle kind, provider, directive, export or file path this
+ruleset has retired is named in `changelog.d/` and nowhere else. The script
+greps every tracked file outside `changelog.d/`, `CHANGELOG.md` and the two
+history documents for the names it carries, in identifier form, and fails on a
+hit. A file that asserts a retired name is absent or inert is listed in
+`ALLOWED` inside the script with the reason; the list is exact in both
+directions. It is the third step of the `test` job.
+
+### Coverage Report
+
+```bash
+tools/ci/check_coverage_report.sh
+```
+
+The suite never runs `bazel coverage`, and a coverage run whose report is
+empty passes. The script runs `//tests/vitest/coverage:math_coverage_test`
+under it twice, with the default `--instrumentation_filter` and with one naming
+`//tests/vitest`, and compares the combined report's `SF:` lines against the
+files each filter selects. It is the step after the suite in the `test` job.
+
+### Determinism
+
+```bash
+tools/ci/check_determinism.sh "$HOME/.cache/rules_ts_det"
+```
+
+`//tests/smoke:hello` and the four Go tools built from the empty output bases
+`DIR/a` and `DIR/b` with no disk or remote cache, and every file of the built
+configuration compared byte for byte; the two bases must be empty. It is the
+`determinism` job (docs/CI_CD.md § Determinism Verification).
 
 ### Integration Tests
 
@@ -229,6 +266,8 @@ bazel test --config=fast //...
 
 ```bash
 cd e2e/basic
+bazel run //:pnpm -- install --frozen-lockfile
+bazel run //:gazelle -- -mode=diff  # prints nothing: the files are Gazelle's
 bazel build //...
 bazel test //...
 ```
@@ -247,44 +286,43 @@ bazel test //...
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
 | Test-source coverage | `tools/ci/check_test_sources.sh` | Every tracked test source is claimed by a target that runs |
+| Retired names | `tools/ci/check_retired_names.sh` | No tracked prose or code outside the changelog names a retired attribute, kind, provider, directive, export or path |
 
 ---
 
 ## Pull Request Process
 
 1. **Fork** the repository and create your branch from `main`.
-2. **Write tests** for new behaviour. The project has coverage at unit,
-   integration and e2e level — add tests at the appropriate one.
+2. **Write tests** for new behaviour, at unit, integration or e2e level.
 3. **Run the full test suite** before opening a PR:
    ```bash
    bazel test //...
    bazel build //... --output_groups=+_validation
    ```
-4. **Add a changelog entry** — a new file in `changelog.d/`, not an edit to
-   `CHANGELOG.md`. Its first line is the `###` section the entry belongs under,
-   and the rest is the entry itself, in as much prose as the change needs:
+4. **Add a changelog entry**: a new file in `changelog.d/`, not an edit to
+   `CHANGELOG.md`. Its first line is the `###` section the entry belongs under;
+   the rest is the entry:
 
    ```bash
    cat > changelog.d/ts-binary-js-entry.md <<'EOF'
    ### Added
 
    - **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The
-     attr is polymorphic: a target providing `JsInfo` behaves exactly as before.
+     attr is polymorphic: a target providing `TsInfo` behaves exactly as before.
    EOF
 
    bazel run //tools/changelog   # prints the section as it will read
    ```
 
    `changelog.d/README.md` lists the sections and the rules. A release folds the
-   fragments into `CHANGELOG.md`; editing `CHANGELOG.md` directly is what put
-   nine PRs in one day into a rebase over the same few added lines.
-5. **Update documentation** — a public-API change (rule attributes, providers,
+   fragments into `CHANGELOG.md`.
+5. **Update documentation**: a public-API change (rule attributes, providers,
    directives) lands with its page under `docs/` in the same PR, plus `README.md`
    and `AGENTS.md` where they say the same thing. `mkdocs build --strict` runs in
    the `lint` job, so a nav entry without a page, or a link to a page that does
    not exist, fails CI.
 6. **Open the PR** against `main` with the provided pull request template filled in.
-7. A maintainer will review and may request changes. Please respond to review comments within a reasonable time (two weeks is a good guideline).
+7. A maintainer reviews and may request changes. Respond to review comments within two weeks.
 8. Once approved, a maintainer will squash-merge your PR.
 
 ### What Makes a Good PR
@@ -317,18 +355,18 @@ Use the **Conventional Commits** format:
 - `chore` — maintenance (dependency updates, build scripts, toolchain bumps)
 
 **Scopes** (optional, use when helpful):
-- `ts_compile`, `ts_test`, `ts_binary`, `ts_bundle` — rule changes
+- `ts_compile`, `ts_test`, `ts_binary` — rule changes
 - `gazelle` — Gazelle extension
 - `oxc_cli` — Rust CLI
 - `npm` — npm/lockfile support
 - `toolchain` — toolchain registration
 - `runtime` — JS runtime support
-- `vite` — Vite bundler integration
+- `vite` — the Vite dev server and plugin under `vite/`
 
 **Examples:**
 
 ```
-feat(gazelle): add ts_path_alias directive support
+feat(gazelle): list the vitest configs in one tsgo run
 fix(ts_compile): pass rootDirs to tsgo for bin_dir resolution
 docs: update COMPATIBILITY.md for Bazel 9.x support
 chore(toolchain): bump oxc to 0.120.0
@@ -367,18 +405,23 @@ extension written in Go.
 
 | File | Role |
 |---|---|
-| `gazelle/language.go` | Entry point — registers the language, `Kinds()`, `Loads()`, `KnownDirectives()` |
-| `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), `gazelle_ts.json`, framework and codegen detection |
-| `gazelle/generate.go` | Rule generation — produces `ts_compile`, `ts_test` and the rest |
-| `gazelle/resolve.go` | Import resolution — maps import specifiers to Bazel labels |
-| `gazelle/imports.go` | Import extraction from TypeScript sources |
-| `gazelle/jsonc.go` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
-| `gazelle/framework_bundle.go` | Vite-based framework bundle targets — TanStack Start, Remix, SvelteKit (Next.js has its own, `framework_next.go`) |
-| `gazelle/codegen.go` | Auto-detected codegen targets |
+| `gazelle/language.go` | Entry point: registers the language, `Kinds()`, `Loads()`; `KnownDirectives()` is empty |
+| `gazelle/program.go` | The tsgo listing of each `tsconfig.json`, and the foreign projects it does not list; the combined run over the vitest configs; the install check |
+| `gazelle/owner.go` | The run's packages, `owner(f)`, the test/library/declaration split, the unowned report |
+| `gazelle/npm.go` | The lockfile gate, the importer-scoped label, the member table and the member view |
+| `gazelle/manifest.go` | The nearest `package.json`: its name, its dependencies |
+| `gazelle/generate.go` | One package's rules from the owner map; `Empty` where no program is |
+| `gazelle/resolve.go` | `deps` from the listing's edges: one label per edge target |
+| `gazelle/workers_pool.go` | The Workers pool's half: the wrangler config a vitest config names as a `filegroup`, and a pooled `ts_test`'s `wrangler_config`, `coverage_provider` and istanbul dep |
+| `gazelle/config.go` | The root-once lockfile load, the foreign-project mark, the `ts_codegen` bookkeeping |
+| `gazelle/keep.go` | The managed-attribute reports: what a run drops and what it cannot merge |
+| `gazelle/pnpm_lock.go` | The lockfile's names, importers, links and aliases |
+| `ts/tools/explainfiles/` | The `--explainFiles` grammar: one listing's files, roots, edges and `types` entries -- shared with the build actions |
+| `ts/tools/tsconfig/` | The `tsconfig.json` reader -- one file, or its `extends` chain flattened leaf-wins -- shared with the build actions |
+| `ts/tools/jsonc/` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
 
-**AGENTS.md** is the architectural reference for contributors: package boundary
-heuristics, import resolution strategy, the directive reference, and
-`gazelle_ts.json` migration notes.
+`docs/gazelle/overview.md` is the reference for what a run reads and writes;
+**AGENTS.md** carries the contributor rules.
 
 The extension is compiled into two `gazelle_binary` targets. `//gazelle:gazelle_ts`
 is the one this repo runs, through the `gazelle` runner beside it:
@@ -391,5 +434,5 @@ It also carries the Go and proto languages, because this repo generates BUILD
 files for its own `.go` sources. `//gazelle:gazelle_typescript` is the exported
 one and carries TypeScript alone, so it never rewrites a consumer's Go BUILD
 files. A consumer workspace declares its own `gazelle` target pointing at
-`@rules_typescript//gazelle:gazelle_typescript` — `e2e/basic/BUILD.bazel` is the
-worked example — and runs `bazel run //:gazelle`.
+`@rules_typescript//gazelle:gazelle_typescript` (`e2e/basic/BUILD.bazel` is the
+worked example) and runs `bazel run //:gazelle`.

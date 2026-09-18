@@ -1,0 +1,34 @@
+diff --git a/build/not_msvc.rs b/build/not_msvc.rs
+--- a/build/not_msvc.rs
++++ b/build/not_msvc.rs
+@@ -53,6 +53,8 @@
+         Command::new(make_command)
+             .env_remove("DESTDIR")
+             .arg("install")
++            // libtool otherwise adds compiler runtime archives from LDFLAGS as archive members.
++            .arg("LDFLAGS=")
+             .current_dir(build_dir),
+     );
+ 
+diff --git a/libffi/Makefile.am b/libffi/Makefile.am
+--- a/libffi/Makefile.am
++++ b/libffi/Makefile.am
+@@ -34,7 +34,6 @@
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ 
+-MAKEOVERRIDES=
+ 
+ pkgconfigdir = $(libdir)/pkgconfig
+ pkgconfig_DATA = libffi.pc
+diff --git a/libffi/Makefile.in b/libffi/Makefile.in
+--- a/libffi/Makefile.in
++++ b/libffi/Makefile.in
+@@ -547,7 +547,6 @@
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+-MAKEOVERRIDES = 
+ pkgconfigdir = $(libdir)/pkgconfig
+ pkgconfig_DATA = libffi.pc
+ toolexeclib_LTLIBRARIES = libffi.la

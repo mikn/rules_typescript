@@ -31,7 +31,8 @@ func TestOptimizeDepsIncludeResolvesThroughTheWorkspaceLink(t *testing.T) {
 	tmp := t.TempDir()
 	ws := filepath.Join(tmp, "ws")
 	mkdir(t, filepath.Join(ws, "bazel-bin"))
-	write(t, filepath.Join(ws, "npm_entry.js"), "import { z } from \"zod\";\nexport { z };\n")
+	mkdir(t, filepath.Join(ws, "tests", "dev_server"))
+	write(t, filepath.Join(ws, "tests", "dev_server", "npm_entry.js"), "import { z } from \"zod\";\nexport { z };\n")
 
 	srv := start(t, launcher.Abs(), ws, tmp)
 	base := srv.awaitHTTP(t, "/npm_entry.js")

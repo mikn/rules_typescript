@@ -20,17 +20,28 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 75 || 60 }}
     steps:
       - uses: actions/checkout@v4
+
+      # setup-bazel hashes BUILD files; this marker refreshes action outputs
+      # without duplicating dependency archives for every source revision.
+      - name: Include the source revision in the action-cache key
+        run: echo "# $(git rev-parse HEAD)" > .git/BUILD.bazel
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         id: setup
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
-          repository-cache: true
-          external-cache: true
-          disk-cache: true
+          repository-cache: |
+            - "**/MODULE.bazel"
+            - "**/pnpm-lock.yaml"
+            - "**/Cargo.lock"
+            - .bazelversion
+          # Only the source-test lane saves this OS cache; smaller consumers
+          # must not reserve its immutable key before the native build finishes.
+          disk-cache: shared-ci
 
       # `bazel test //...` and a byte-identical Gazelle rerun are both satisfied
       # by a Gazelle run that deletes a test target, so neither notices a
@@ -48,8 +59,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: tools/ci/check_integration_shards.sh
 
-      # Both gates keep their place in front of the suite -- the reason above
-      # holds -- but a step defaults to `if: success()`, so either of them going
+      # A retired name a page or a comment still uses is a sentence the code
+      # falsified; changelog.d is where a retirement is recorded.
+      - name: No prose or code names a retired attribute, kind or provider
+        if: matrix.os == 'ubuntu-latest'
+        run: tools/ci/check_retired_names.sh
+
+      # The gates keep their place in front of the suite -- the reason above
+      # holds -- but a step defaults to `if: success()`, so one of them going
       # red used to skip everything below on ubuntu while fail-fast cancelled
       # macOS, and `bazel test //...` ran nowhere. That is how #74 to #77 merged
       # onto a red main with the suite effectively switched off. These two run
@@ -68,6 +85,74 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bazel build --config=ci //... --output_groups=+_validation
 
+      # The suite never runs `bazel coverage`, and a coverage run whose report
+      # is empty passes; the fixture runs under it here and its report is read.
+      - name: bazel coverage on the fixture names what the filter selects
+        if: >-
+          ${{ !cancelled() && steps.setup.outcome == 'success' &&
+              matrix.os == 'ubuntu-latest' }}
+        run: tools/ci/check_coverage_report.sh
+
+      # Native Darwin archive bundling is not exercised by a Linux cross-link.
+      - name: Diagnose native archive symbols on macOS failure
+        if: ${{ failure() && matrix.os == 'macos-latest' }}
+        run: |
+          output=$(bazel info output_path)
+          output_base=$(bazel info output_base)
+          libffi_source="$output_base/external/rules_rs++crate+oj_crates__libffi-sys-4.2.2/build/not_msvc.rs"
+          echo "Fetched libffi build source: $libffi_source"
+          if [ -f "$libffi_source" ]; then
+            shasum -a 256 "$libffi_source"
+            sed -n '45,65p' "$libffi_source"
+          else
+            echo "Fetched libffi build source is absent"
+          fi
+          bazel aquery '@@rules_rs++crate+oj_crates__libffi-sys-4.2.2//:_bs_' \
+            --output=text --include_artifacts=true || true
+          find -H "$output" -type f \( -name 'libffi.a' -o -name 'libffi_convenience.a' -o -name 'liblibffi_sys*.rlib' \) \
+            -print | while IFS= read -r archive; do
+            echo "$archive"
+            file "$archive"
+            ar -t "$archive"
+            xcrun nm -g "$archive" 2>&1 \
+              | grep -E 'ffi_(call|prep_cif|type_void)|file format|architecture|no symbols|cannot|error' || true
+          done
+          python3 - <<'PY'
+          import os
+          import signal
+          import subprocess
+
+          print("Diagnostic replay only: this does not verify the macOS test gate.", flush=True)
+          command = [
+              "bazel", "--batch", "build",
+              "@@rules_rs++crate+oj_crates__libffi-sys-4.2.2//:_bs",
+              "--@@rules_rs++rules_rust+rules_rust//cargo/settings:debug_std_streams_output_group=true",
+              "--@@rules_rs++rules_rust+rules_rust//cargo/settings:out_dir_volatile_file_basenames=",
+              "--output_groups=streams,out_dir",
+          ]
+          # Round up 2*(25s observed libffi + 17.42s warm validation) to minutes.
+          # The job deadline can cancel this diagnostic sooner.
+          process = subprocess.Popen(command, start_new_session=True)
+          try:
+              print(f"Diagnostic replay exit: {process.wait(timeout=120)}", flush=True)
+          except subprocess.TimeoutExpired:
+              os.killpg(process.pid, signal.SIGKILL)
+              process.wait()
+              print("Diagnostic budget expired; no compiler result established.", flush=True)
+          PY
+          find -H "$output" -type f -path '*libffi-sys-*/*' \
+            \( -name 'libtool' -o -name 'Makefile' -o -name 'config.log' \
+               -o -name '_bs.stdout.log' -o -name '_bs.stderr.log' \) \
+            -print | while IFS= read -r diagnostic; do
+            echo "$diagnostic"
+            grep -E '^(AR|AR_FLAGS|ARFLAGS|RANLIB|CC|CFLAGS|LDFLAGS|old_archive_cmds|oldobjs|pic_object|non_pic_object|TARGET_OBJ|am_libffi.*OBJECTS|libffi.*OBJECTS)[[:space:]]*=|libtool: (compile|link|install):|llvm-ar|ranlib|libffi(_convenience)?\.a|checking.*(archiver|static)|error:' "$diagnostic" || true
+          done
+          find -H "$output" -type f -path '*libffi-sys-*/*' -name '*.lo' \
+            -print | while IFS= read -r object; do
+            echo "$object"
+            grep -E '^(pic_object|non_pic_object)=' "$object" || true
+          done
+
   e2e:
     name: E2E Tests
     strategy:
@@ -78,16 +163,33 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 75 || 60 }}
     steps:
       - uses: actions/checkout@v4
+
+      # setup-bazel hashes BUILD files; this marker refreshes action outputs
+      # without duplicating dependency archives for every source revision.
+      - name: Include the source revision in the action-cache key
+        run: echo "# $(git rev-parse HEAD)" > .git/BUILD.bazel
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
-          repository-cache: true
-          external-cache: true
-          disk-cache: true
+          repository-cache: |
+            - "**/MODULE.bazel"
+            - "**/pnpm-lock.yaml"
+            - "**/Cargo.lock"
+            - .bazelversion
+          disk-cache: shared-ci
+          cache-save: false
+
+      - name: e2e/basic's BUILD files are what Gazelle writes
+        run: |
+          cd e2e/basic
+          [ ! -f pnpm-lock.yaml ] || \
+            bazel run //:pnpm -- install --frozen-lockfile
+          bazel run //:gazelle -- -mode=diff
 
       - name: Build e2e/basic
         run: cd e2e/basic && bazel build //...
@@ -98,88 +200,89 @@ jobs:
   examples:
     name: Examples Build
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     strategy:
       matrix:
         example:
           - basic
           - app
           - react-app
-          - remix-app
-          - tanstack-app
-          - nextjs-app
-        include:
-          # //:app loads its vite_config from the source tree and resolves
-          # @tanstack/react-start there, where a fresh checkout has no node_modules.
-          - example: tanstack-app
-            targets: //... -//:app
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
 
-      # 432 of every example's ~700 actions are the same oxc/Rust + toolchain
-      # prefix, so one key shared by all six legs, not one per leg (10 GB cap).
+      # setup-bazel hashes BUILD files; this marker refreshes action outputs
+      # without duplicating dependency archives for every source revision.
+      - name: Include the source revision in the action-cache key
+        run: echo "# $(git rev-parse HEAD)" > .git/BUILD.bazel
+
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
-          repository-cache: true
-          disk-cache: examples
+          repository-cache: |
+            - "**/MODULE.bazel"
+            - "**/pnpm-lock.yaml"
+            - "**/Cargo.lock"
+            - .bazelversion
+          disk-cache: shared-ci
+          cache-save: false
+
+      - name: The BUILD files of examples/${{ matrix.example }} are Gazelle's
+        run: |
+          cd examples/${{ matrix.example }}
+          [ ! -f pnpm-lock.yaml ] || \
+            bazel run //:pnpm -- install --frozen-lockfile
+          bazel run //:gazelle -- -mode=diff
 
       - name: Build examples/${{ matrix.example }}
-        run: cd examples/${{ matrix.example }} && bazel build -- ${{ matrix.targets || '//...' }}
+        run: cd examples/${{ matrix.example }} && bazel build //...
 
   determinism:
     name: Build Determinism Check
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # setup-bazel hashes BUILD files; this marker refreshes action outputs
+      # without duplicating dependency archives for every source revision.
+      - name: Include the source revision in the action-cache key
+        run: echo "# $(git rev-parse HEAD)" > .git/BUILD.bazel
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
-          repository-cache: true
-          external-cache: true
-          # No disk-cache on purpose: this job builds one target twice from two
-          # empty output bases and compares the bytes, so a cache hit on the
-          # second build would compare it against a copy of the first.
+          cache-save: false
+          repository-cache: |
+            - "**/MODULE.bazel"
+            - "**/pnpm-lock.yaml"
+            - "**/Cargo.lock"
+            - .bazelversion
 
-      # Two output bases are two full toolchain trees; the runner's root disk
-      # does not fit both and /mnt, the ephemeral disk, does.
-      - name: Provision scratch space on the ephemeral disk
+      # Two output bases are two full toolchain trees. /mnt is not a separate
+      # ephemeral disk on this image -- it is a directory on the root filesystem,
+      # same as in `integration-tests` -- so this does not move them off the root
+      # disk; it keeps them out of the checkout and puts their size in `df`.
+      - name: Provision scratch space
         run: |
           sudo mkdir -p /mnt/rules_ts_det
           sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_det
-          df -h /mnt
+          df -h /mnt /
 
-      # Two builds cannot be one action, so this is the one check that stays a
-      # sequence of invocations instead of a target. `info bazel-bin` is asked
-      # for the output path rather than guessing at the bazel-out layout.
-      - name: Build //tests/smoke:hello twice, from two empty output bases
-        run: |
-          for base in a b; do
-            bazelisk --output_base=/mnt/rules_ts_det/$base \
-              build --config=determinism //tests/smoke:hello
-            bazelisk --output_base=/mnt/rules_ts_det/$base \
-              info bazel-bin > /mnt/rules_ts_det/$base.binpath
-          done
-
-      - name: Compare the two outputs byte for byte
-        run: |
-          a="$(cat /mnt/rules_ts_det/a.binpath)/tests/smoke/hello.js"
-          b="$(cat /mnt/rules_ts_det/b.binpath)/tests/smoke/hello.js"
-          ls -l -- "$a" "$b"
-          cmp -- "$a" "$b"
-          sha256sum -- "$a"
-          echo "Build is bit-for-bit reproducible."
+      - name: Build //tests/smoke:hello and the four tools twice, from two
+          empty output bases, and compare every file byte for byte
+        run: BAZEL=bazelisk tools/ci/check_determinism.sh /mnt/rules_ts_det
 
   integration-tests:
-    # 18 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
+    # 16 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
     # once, so this was never serial -- but one runner only has so many cores,
-    # which is what kept the lane at 1164s and on the critical path. These legs
-    # spread it over four runners.
+    # which is what kept the lane on the critical path. These legs spread it
+    # over two runners.
     name: Integration Tests (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     strategy:
       # As in `examples`: one leg going red must not cancel the others, or a
       # single flaky nested Bazel hides the state of the rest of the suite.
@@ -187,20 +290,29 @@ jobs:
       matrix:
         # One name per `test:ci-integration-<name>` config in //.bazelrc, which
         # is where the tag filter behind each leg lives. `core` is the
-        # complement of the other three, so a test added with no shard tag runs
+        # complement of the other, so a test added with no shard tag runs
         # there rather than nowhere; check_integration_shards.sh (in the `test`
         # job) fails if these three sources ever disagree.
-        shard: [nextjs-tanstack, remix-svelte, npm, core]
+        shard: [npm, core]
     steps:
       - uses: actions/checkout@v4
+
+      # setup-bazel hashes BUILD files; this marker refreshes action outputs
+      # without duplicating dependency archives for every source revision.
+      - name: Include the source revision in the action-cache key
+        run: echo "# $(git rev-parse HEAD)" > .git/BUILD.bazel
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
-          repository-cache: true
-          external-cache: true
-          disk-cache: true
+          repository-cache: |
+            - "**/MODULE.bazel"
+            - "**/pnpm-lock.yaml"
+            - "**/Cargo.lock"
+            - .bazelversion
+          disk-cache: shared-ci
+          cache-save: false
 
       # Each nested Bazel keeps its own output base and together they need tens
       # of GB. /mnt is no longer a separate ephemeral disk on this image -- it
@@ -214,30 +326,40 @@ jobs:
         run: |
           sudo mkdir -p /mnt/rules_ts_it
           sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_it
+          mkdir -p "$HOME/.cache/bazel-repo"
+          ln -s "$HOME/.cache/bazel-repo" /mnt/rules_ts_it/repository_cache
           df -h /mnt /
 
-      # /mnt is recreated every run, so without this the suite fetches ~4GB
-      # every time -- and it is what makes running the tests concurrently safe
-      # rather than harmful: cold, they would all miss this cache at once and
-      # all download the same artifacts. Content-addressed, so a stale restore
-      # is a miss and never a wrong answer.
-      #
-      # One key for all four legs, deliberately: the caches they would build
-      # separately overlap almost entirely, and only the first leg to finish
-      # gets to save one (the others log "already exists" and move on). Four
-      # legs starting cold do not reintroduce the problem this cache solves --
-      # that one is several nested Bazel servers racing for ONE repository cache
-      # directory, and a leg on its own machine shares that directory with
-      # nobody. Cold legs cost four independent fetches of a subset each, and
-      # `restore-keys` means a cold start needs a MODULE.bazel change first.
-      - uses: actions/cache@v6
+      # Each shard saves its complete cache; immutable shared keys let the
+      # faster shard prevent the slower shard from saving its native outputs.
+      - uses: actions/cache/restore@v6
+        id: nested-cache
         with:
           path: |
-            /mnt/rules_ts_it/repository_cache
             /mnt/rules_ts_it/disk_cache
-          key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock') }}
+            /mnt/rules_ts_it/bazelisk
+            /mnt/rules_ts_it/pnpm
+          key: nested-bazel-${{ runner.os }}-${{ matrix.shard }}-${{ github.sha }}
           restore-keys: |
-            nested-bazel-${{ runner.os }}-
+            nested-bazel-${{ runner.os }}-${{ matrix.shard }}-
+
+      # bazelisk takes no cross-process lock, so on a cold cache every test
+      # fetches Bazel at the same instant -- measured: 7 of the 9 core tests,
+      # even sharing one BAZELISK_HOME. One fetch here serialises that to a
+      # single download, which is what keeps a failed cache restore from
+      # turning a runner's DNS blip into a red leg. Warm, it is a no-op.
+      #
+      # The version comes from MODULE.bazel because that is the one the nested
+      # wrapper bakes into USE_BAZEL_VERSION; .bazelversion is the fallback and
+      # the two agree today. If they ever drift, this primes the wrong binary
+      # and the tests fetch their own again -- slower, never wrong.
+      - name: Prime the nested bazelisk cache
+        run: |
+          mkdir -p /mnt/rules_ts_it/bazelisk
+          declared=$(grep -oP 'bazel_binaries\.download\(version = "\K[^"]+' MODULE.bazel || true)
+          BAZELISK_HOME=/mnt/rules_ts_it/bazelisk \
+            USE_BAZEL_VERSION="${declared:-$(cat .bazelversion)}" \
+            bazelisk --version
 
       # The tests carry "cpu:2", not "exclusive", so Bazel already runs as many
       # as this runner has cores for; the config picks which of them this leg
@@ -250,8 +372,8 @@ jobs:
             --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it 2>&1 \
             | tee "${RUNNER_TEMP}/integration.log"
 
-      # Bazel intermittently fails to stage a node_modules tree into the
-      # sandbox -- "[unix_jni.cc:281] <path> (No such file or directory)" for a
+      # Bazel intermittently fails to stage a store tree or a declared link
+      # into the sandbox -- "[unix_jni.cc:281] <path> (No such file or directory)" for a
       # directory inside its own output base, on a different path each time. It
       # has never reproduced outside CI, so the state at the moment of failure
       # is the evidence that is missing: whether the path is absent, a symlink,
@@ -276,6 +398,19 @@ jobs:
             ls -ld "$cur"
             ls -la "$cur" | head -40
           done
+
+      # A timed-out cold build still produces valid content-addressed outputs;
+      # saving them prevents the next run from repeating the same cold timeout.
+      - uses: actions/cache/save@v6
+        if: >-
+          ${{ !cancelled() && steps.nested-cache.outcome == 'success' &&
+              steps.nested-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            /mnt/rules_ts_it/disk_cache
+            /mnt/rules_ts_it/bazelisk
+            /mnt/rules_ts_it/pnpm
+          key: ${{ steps.nested-cache.outputs.cache-primary-key }}
 
   lint:
     name: Linting & Code Quality
@@ -321,7 +456,8 @@ jobs:
         run: |
           go vet ./gazelle/... ./tests/... ./ts/... \
             ./tools/changelog/... ./tools/copy_to_workspace/... \
-            ./tools/launcher/... ./tools/release/...
+            ./tools/launcher/... ./tools/lcov_merger/... ./tools/release/... \
+            ./tools/toolpack/...
 
       # docs.yml builds the site only on push to main, so until now a PR that
       # broke the nav or a page reference was caught after it had already merged.

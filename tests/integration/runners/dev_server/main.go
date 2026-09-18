@@ -9,8 +9,6 @@ func main() {
 		Name:         "dev_server",
 		WorkspaceRel: "tests/integration/dev_server",
 	}, func(it *harness.IT) {
-		// `bazel run //:dev` is deliberately not run: it would start a real Vite
-		// dev server and block.
 		it.MustBazel("build", "//:dev")
 		it.Pass("bazel build //:dev")
 

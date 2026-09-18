@@ -1,0 +1,66 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//tests/vitest:vitest_config.bzl", "vitest_config")
+load("//ts:defs.bzl", "ts_test")
+load(":wrangler_config_tests.bzl", "data_shadow_test", "wrangler_config_runfiles_test")
+
+# The go_test is hand-named, so the Go language would add a second target for
+# the same source.
+# gazelle:exclude *_test.go
+
+ts_test(
+    name = "worker_test",
+    size = "medium",
+    srcs = [
+        "raw.d.ts",
+        "worker.test.ts",
+    ],
+    config = "//tests/workers_nested:vitest_config",
+    coverage_provider = "istanbul",
+    node_modules = "//tests/workers:node_modules",
+    tsconfig = "//tests/workers_nested:worker_tsconfig",
+    wrangler_config = "//tests/workers_nested:wrangler.jsonc",
+    deps = [
+        "//tests/workers_nested:worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
+    ],
+)
+
+wrangler_config_runfiles_test(
+    name = "wrangler_config_runfiles_test",
+    target_under_test = ":worker_test",
+)
+
+# The same file in `data` as well; asserted to fail at analysis, so manual.
+ts_test(
+    name = "data_shadow",
+    srcs = ["data_shadow.test.ts"],
+    data = ["//tests/workers_nested:wrangler.jsonc"],
+    node_modules = "//tests/workers:node_modules",
+    tags = ["manual"],
+    wrangler_config = "//tests/workers_nested:wrangler.jsonc",
+    deps = ["@npm_workers//:cloudflare_vitest-pool-workers"],
+)
+
+data_shadow_test(
+    name = "data_shadow_test",
+    target_under_test = ":data_shadow",
+)
+
+vitest_config(
+    name = "worker_test_config",
+    testonly = True,
+    test = ":worker_test",
+)
+
+go_test(
+    name = "config_root_test",
+    size = "small",
+    srcs = ["config_root_test.go"],
+    data = [
+        ":worker_test_config",
+        "//tests/workers:worker_test_config",
+    ],
+    deps = ["//tests/verify"],
+)

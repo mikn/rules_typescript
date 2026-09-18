@@ -89,14 +89,16 @@ func TestHMRLatency(t *testing.T) {
 	tmp := t.TempDir()
 	ws := filepath.Join(tmp, "ws")
 	mkdir(t, filepath.Join(ws, "bazel-bin"))
+	appRoot := filepath.Join(ws, "tests", "dev_server")
+	mkdir(t, appRoot)
 
 	// hot.ts is the file the benchmark saves, and it declares itself an HMR
 	// boundary so a server that can send a scoped update does. app.ts imports it
 	// so that a server which only tracks changes to modules it has served has
 	// both of them: requesting the importer is not enough, since neither server
 	// transforms a module before the client asks for it.
-	write(t, filepath.Join(ws, hotFile), hotModule(0))
-	write(t, filepath.Join(ws, "app.ts"),
+	write(t, filepath.Join(appRoot, hotFile), hotModule(0))
+	write(t, filepath.Join(appRoot, "app.ts"),
 		"import { revision } from \"./"+hotFile+"\";\nexport { revision };\n")
 
 	var extraArgs []string
@@ -118,13 +120,13 @@ func TestHMRLatency(t *testing.T) {
 	// The first edit pays for whatever the server does once: a watcher settling,
 	// a transform pipeline warming up. It is reported rather than averaged in,
 	// because it is not what the next hour of editing costs.
-	cold := hmrEdit(t, srv, sock, base, ws, 1)
+	cold := hmrEdit(t, srv, sock, base, appRoot, 1)
 	t.Logf("cold first edit: notify %s, served %s (%s)", cold.notify, cold.served, cold.kind)
 
 	var notify, served []time.Duration
 	kinds := map[string]int{}
 	for i := 0; i < iterations; i++ {
-		e := hmrEdit(t, srv, sock, base, ws, i+2)
+		e := hmrEdit(t, srv, sock, base, appRoot, i+2)
 		notify = append(notify, e.notify)
 		served = append(served, e.served)
 		kinds[e.kind]++

@@ -6,7 +6,7 @@ directory is a dep, never a src: srcs declares one output per file at analysis
 time and a directory has no file list to declare from.
 """
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//ts:defs.bzl", "ts_codegen", "ts_compile")
 load(":tree_tests.bzl", "tree_reaches_compile_test")
@@ -19,6 +19,9 @@ package(default_visibility = ["//:__pkg__"])
 # asset target.
 # gazelle:exclude *_test.go
 # gazelle:exclude names.txt
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.tree.json
 
 sh_binary(
     name = "tree_generator",
@@ -35,13 +38,15 @@ ts_codegen(
         "{out}",
     ],
     generator = ":tree_generator",
-    module_name = "#codegen/tree",
     out_dir = "compiled",
 )
 
+# The tsconfig's `paths` sends `#codegen/tree` to ./compiled; the value's bin-dir
+# twin is where the tree is.
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    tsconfig = "tsconfig.tree.json",
     deps = [":tree"],
 )
 
@@ -54,12 +59,21 @@ ts_compile(
     deps = [":tree"],
 )
 
+filegroup(
+    name = "consumer_declarations",
+    srcs = [":consumer"],
+    output_group = "declarations",
+)
+
 go_test(
     name = "tree_output_test",
     size = "small",
     srcs = ["codegen_tree_test.go"],
     data = [
         ":consumer",
+        ":consumer_declarations",
+        ":js_consumer_declarations",
+        ":js_downstream",
         ":tree",
     ],
     deps = ["//tests/verify"],
@@ -72,14 +86,38 @@ tree_reaches_compile_test(
     tree = ":tree",
 )
 
-# One target further out. The tree arrives through :consumer, so dropping :tree
-# from these deps must fail the check naming it -- which is also what pins that
-# a `#` specifier reaches the check rather than being read as a bare fragment.
+# One target further out, importing the tree by the same alias.
 ts_compile(
     name = "downstream",
     srcs = ["downstream.ts"],
+    tsconfig = "tsconfig.tree.json",
     deps = [
         ":consumer",
         ":tree",
     ],
+)
+
+# The paraglide shape: a JavaScript src (allowJs) beside a tree whose `.js`
+# and `.d.ts` sit under the tsconfig's pattern.
+ts_compile(
+    name = "js_consumer",
+    srcs = [
+        "helper.js",
+        "js_consumer.ts",
+    ],
+    tsconfig = "tsconfig.tree.json",
+    deps = [":tree"],
+)
+
+# Reads js_consumer's declarations, so its build runs TsgoDeclare js_consumer.
+ts_compile(
+    name = "js_downstream",
+    srcs = ["js_downstream.ts"],
+    deps = [":js_consumer"],
+)
+
+filegroup(
+    name = "js_consumer_declarations",
+    srcs = [":js_consumer"],
+    output_group = "declarations",
 )

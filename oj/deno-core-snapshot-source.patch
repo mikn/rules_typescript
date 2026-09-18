@@ -1,0 +1,66 @@
+--- a/extensions.rs
++++ b/extensions.rs
+@@ -32,4 +32,6 @@
+   LoadedFromFsDuringSnapshot(&'static str), // <- Path
+ 
++  EmbeddedDuringSnapshot(FastStaticString),
++
+   // Source code was loaded from memory. It's meant to be used if the
+   // embedder is creating snapshots. Files will be loaded from memory
+@@ -49,4 +51,5 @@
+         write!(f, "LoadedFromFsDuringSnapshot({path})")
+       }
++      Self::EmbeddedDuringSnapshot(..) => write!(f, "EmbeddedDuringSnapshot(..)"),
+       Self::LoadedFromMemoryDuringSnapshot(..) => {
+         write!(f, "LoadedFromMemoryDuringSnapshot(..)")
+@@ -99,4 +102,15 @@
+       specifier,
+       code: ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path),
++      _unconstructable_use_new: PhantomData,
++    }
++  }
++
++  pub const fn embedded_during_snapshot(
++    specifier: &'static str,
++    code: FastStaticString,
++  ) -> Self {
++    Self {
++      specifier,
++      code: ExtensionFileSourceCode::EmbeddedDuringSnapshot(code),
+       _unconstructable_use_new: PhantomData,
+     }
+@@ -128,5 +142,6 @@
+       | ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(_)
+       | ExtensionFileSourceCode::Computed(_) => true,
+-      ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(_) => false,
++      ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(_)
++      | ExtensionFileSourceCode::EmbeddedDuringSnapshot(_) => false,
+     }
+   }
+@@ -139,5 +154,6 @@
+     #[allow(deprecated, reason = "needed to match on deprecated variants")]
+     match &self.code {
+-      ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code)
++      ExtensionFileSourceCode::EmbeddedDuringSnapshot(code)
++      | ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code)
+       | ExtensionFileSourceCode::IncludedInBinary(code) => {
+         debug_assert!(
+@@ -154,5 +170,10 @@
+           reason = "load extensions from real fs"
+         )]
+-        let s = std::fs::read_to_string(path)?;
++        let s = std::fs::read_to_string(path).map_err(|error| {
++          std::io::Error::new(
++            error.kind(),
++            format!("extension {} at {path}: {error}", self.specifier),
++          )
++        })?;
+         debug_assert!(
+           s.is_ascii(),
+@@ -1088,5 +1109,5 @@
+   // loaded, file
+   (@item mode=loaded, dir=$dir:expr_2021, specifier=$specifier:expr_2021, file=$file:literal) => {
+-    $crate::ExtensionFileSource::loaded_during_snapshot($specifier, concat!($dir, "/", $file))
++    $crate::ExtensionFileSource::embedded_during_snapshot($specifier, $crate::ascii_str_include!(concat!($dir, "/", $file)))
+   };
+   // included, source

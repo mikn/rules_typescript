@@ -30,7 +30,18 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "%v (target %s)\n", resolverErr, cfg.Label)
 		return 1
 	}
-	plan, err := MakePlan(cfg, resolver, args)
+	shard := Shard{Total: 1}
+	if cfg.Mode == ModeVitest || cfg.Mode == ModeNodeTest {
+		shard, err = parseShard(os.Getenv("TEST_SHARD_INDEX"), os.Getenv("TEST_TOTAL_SHARDS"))
+		if err == nil && !dump {
+			err = advertiseSharding(os.Getenv("TEST_SHARD_STATUS_FILE"))
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
+	plan, err := MakePlan(cfg, resolver, args, shard)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

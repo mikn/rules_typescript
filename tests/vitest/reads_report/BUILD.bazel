@@ -1,0 +1,42 @@
+"""A read outside the runfiles: `bazel run <test> -- --reads` prints the files
+as labels, and the twin that lists them in `data` makes the same read inside
+the sandbox."""
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "workspace_root",
+    srcs = ["workspace_root.ts"],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:types_node"],
+)
+
+# Denied by the sandbox by design; `bazel run :reads_report_test -- --reads`
+# runs it.
+# keep
+ts_test(
+    name = "reads_report_test",
+    srcs = ["reads_report.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    tags = ["manual"],
+    deps = [
+        ":workspace_root",
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)
+
+ts_test(
+    name = "reads_declared_test",
+    srcs = ["reads_declared.test.ts"],
+    data = [
+        "//:MODULE.bazel",
+        "//tests/vitest/reads_report/fixtures:outside.txt",
+    ],
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        ":workspace_root",
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)

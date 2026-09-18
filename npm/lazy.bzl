@@ -54,10 +54,7 @@ a whole-graph decision that one package cannot make about itself:
                         branch may reference it
 """
 
-load(
-    "//npm/private:member_paths.bzl",
-    "member_module_paths",
-)
+load("//npm/private:hoist.bzl", "hoist_settings", "hoisted")
 load(
     "//npm/private:npm_import.bzl",
     "npm_hub",
@@ -66,7 +63,6 @@ load(
 load(
     "//npm/private:npm_translate_lock.bzl",
     "npm_tarball_url",
-    "npmrc_registries",
     "package_name_to_label",
     "parse_importers",
     "parse_patched_dependencies",
@@ -78,7 +74,9 @@ load(
     "snapshot_dir_name",
     "verify_integrity",
     "versioned_label_name",
+    "workspace_registries",
 )
+load("//npm/private:store.bzl", "MEMBER_VERSION", "store_key", "store_target")
 load(
     "//platforms:platforms.bzl",
     "PLATFORMS",
@@ -234,8 +232,8 @@ def _patch_by_package(module_ctx, lock_content, patch_labels):
         )
     return result
 
-def _workspace_link_entry(name, path):
-    """The hub's record of one pnpm `link:` dependency.
+def _member_entry(name, path):
+    """The hub's record of one workspace member.
 
     The member's PATH, not the label of a target inside it: which directory of a
     member holds its target is a Gazelle decision, read from BUILD files that do
@@ -250,30 +248,19 @@ def _workspace_link_entry(name, path):
     """
     return "{name}|{path}".format(name = name, path = path)
 
-def _member_module_paths(module_ctx, workspace_root, path):
-    """The member's directory and what its manifest says its specifiers mean, or "".
-
-    Worked out here rather than shipped as the manifest itself: an `exports` map
-    is ordered -- a resolver tries its conditions in the order they are written --
-    and `json.encode` sorts keys, so the manifest cannot cross into analysis
-    without losing the one thing that makes it readable. The answer can: its order
-    is in lists.
-
-    Empty for a member with no package.json, and for one that says nothing about
-    how it is entered. Both leave npm_workspace_package with the guesses it made
-    before, which is the right answer for a member entered through an index at its
-    root.
-    """
+def _member_manifest(module_ctx, workspace_root, path):
+    """The member's named package.json as text and decoded, or None."""
     manifest = workspace_root.get_child(*(path.split("/") + ["package.json"]))
     if not manifest.exists:
-        return ""
-    decoded = json.decode(module_ctx.read(manifest))
+        return None
+    text = module_ctx.read(manifest)
+    decoded = json.decode(text)
     if type(decoded) != "dict":
-        return ""
-    module_paths = member_module_paths(decoded)
-    if not module_paths:
-        return ""
-    return "{dir}|{json}".format(dir = path, json = json.encode(module_paths))
+        return None
+    name = decoded.get("name")
+    if type(name) != "string" or not name:
+        return None
+    return struct(text = text, decoded = decoded)
 
 def platforms_of_package(pkg):
     """The PLATFORMS keys a published tarball is built for.
@@ -430,6 +417,159 @@ def _check_integrity(packages, pnpm_lock):
         "lockfile with a current pnpm.",
     )
 
+def _beside(module_ctx, pnpm_lock, name):
+    """The text of the file `name` in the lockfile's directory, "" without one;
+    the path is watched either way, so its appearance re-runs the extension."""
+    path = module_ctx.path(pnpm_lock).dirname.get_child(name)
+    if path.exists:
+        return module_ctx.read(path)
+    module_ctx.watch(path)
+    return ""
+
+def lockfile_registries(module_ctx, pnpm_lock, npmrc):
+    return workspace_registries(
+        module_ctx.read(npmrc) if npmrc else "",
+        _beside(module_ctx, pnpm_lock, "pnpm-workspace.yaml"),
+    )
+
+def _store_label(pnpm_lock, key, name):
+    return "@@{}//{}:{}".format(
+        pnpm_lock.repo_name,
+        pnpm_lock.package,
+        store_target(key, name),
+    )
+
+def _snapshot_key(snap):
+    peer_id = peer_suffix_dir_name(snap["peer_suffix"])
+    return store_key(snap["name"], snap["version"], peer_id)
+
+def _hoist_entries(lock, settings, index, member_index):
+    """The graph's `hoist` list: per hoisted name its kind and target, one
+    target when every platform hoists the same one, else one per platform."""
+
+    def ref(target):
+        which, key = target
+        if which == "snapshot":
+            return {"snapshot": index[key]}
+        return {"member": member_index[key]}
+
+    per_platform = {p: hoisted(lock, settings, p) for p in _ALL_PLATFORMS}
+    aliases = {}
+    for found in per_platform.values():
+        aliases.update({alias: True for alias in found})
+    entries = []
+    for alias in sorted(aliases):
+        on = {p: per_platform[p].get(alias) for p in _ALL_PLATFORMS}
+        first = [t for t in on.values() if t != None][0]
+        entry = {"alias": alias, "kind": first[0]}
+        if all([on[p] == first for p in _ALL_PLATFORMS]):
+            entry["target"] = ref(first[1])
+        else:
+            entry["targets"] = {
+                p: ref(t[1])
+                for p, t in on.items()
+                if t != None
+            }
+        entries.append(entry)
+    return entries
+
+def _store_graph(pnpm_lock, graph, importers, settings):
+    """The lockfile's store as data: what `npm_virtual_store` declares.
+
+    Snapshots and members carry their edges as indices into the two lists;
+    an edge the cycle breaker cut is a snapshot's `cut`, a link beside its
+    tree with no dependency behind it, as it is absent from its repository's
+    deps. The hoist is pnpm's over the whole graph, cycles kept.
+
+    Args:
+        pnpm_lock: The lockfile's label.
+        graph: struct(live, platforms_of, repo_of, deps_by_sid, dropped,
+            members): the extension's view of the lockfile, `members` as
+            {member path: npm name} for the members with a manifest.
+        importers: parse_importers() of the lockfile.
+        settings: hoist_settings() of the lockfile package's .npmrc.
+    """
+    live = graph.live
+    sids = sorted(live)
+    index = {sid: i for i, sid in enumerate(sids)}
+    paths = sorted(graph.members)
+    member_index = {path: i for i, path in enumerate(paths)}
+
+    def edge(dep_sid, imported_as):
+        return [index[dep_sid], imported_as]
+
+    snapshots = []
+    for sid in sids:
+        snap = live[sid]
+        entry = {
+            "id": sid,
+            "name": snap["name"],
+            "key": _snapshot_key(snap),
+            "repo": graph.repo_of[sid],
+            "deps": [
+                edge(dep_sid, imported_as)
+                for (dep_sid, imported_as) in graph.deps_by_sid[sid]
+                if not graph.dropped.get(sid, {}).get(dep_sid)
+            ],
+            "cut": [
+                edge(dep_sid, imported_as)
+                for (dep_sid, imported_as) in graph.deps_by_sid[sid]
+                if graph.dropped.get(sid, {}).get(dep_sid)
+            ],
+        }
+        if len(graph.platforms_of[sid]) != len(_ALL_PLATFORMS):
+            entry["platforms"] = graph.platforms_of[sid]
+        snapshots.append(entry)
+
+    members = []
+    for path in paths:
+        importer = importers["importers"].get(path, {"deps": {}, "links": {}})
+        name = graph.members[path]
+        deps = []
+        for dep_name, dep_sid in importer["deps"].items():
+            if dep_sid not in live:
+                continue
+            aliased = live[dep_sid]["name"] != dep_name
+            deps.append(edge(dep_sid, dep_name if aliased else ""))
+        members.append({
+            "name": name,
+            "path": path,
+            "key": store_key(name, MEMBER_VERSION, ""),
+            "deps": deps,
+            "links": [
+                [member_index[linked], alias]
+                for alias, linked in importer["links"].items()
+                if linked in member_index
+            ],
+        })
+
+    lock = struct(
+        snapshots = {
+            sid: struct(
+                children = (
+                    live[sid]["dependencies"].items() +
+                    live[sid]["optionalDependencies"].items()
+                ),
+                platforms = graph.platforms_of[sid],
+            )
+            for sid in sids
+        },
+        importers = [
+            (path, entry["deps"].items(), entry["links"].items())
+            for path, entry in importers["importers"].items()
+        ],
+        members = [(graph.members[path], path) for path in paths],
+    )
+    return {
+        "lockfile": str(pnpm_lock),
+        "repo": pnpm_lock.repo_name,
+        "package": pnpm_lock.package,
+        "platforms": _ALL_PLATFORMS,
+        "snapshots": snapshots,
+        "members": members,
+        "hoist": _hoist_entries(lock, settings, index, member_index),
+    }
+
 def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc):
     """Declares one npm_import per resolved package plus one npm_hub of aliases.
 
@@ -438,10 +578,10 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
         hub_name:     Name of the alias hub repository, conventionally "npm".
         pnpm_lock:    Label of the pnpm-lock.yaml to read.
         patch_labels: Labels of the pnpm patch files named by patchedDependencies.
-        npmrc:        Label of the workspace .npmrc, or None. Read here for the
-                      registry each package's tarball lives on; the credentials in
-                      it are read by npm_import at fetch time instead, because an
-                      extension's output is recorded in MODULE.bazel.lock.
+        npmrc:        Label of the workspace .npmrc, or None. Its registry lines
+                      join pnpm-workspace.yaml's here; its credentials are
+                      npm_import's to read at fetch time, because an extension's
+                      output is recorded in MODULE.bazel.lock.
     """
     lock_content = module_ctx.read(pnpm_lock)
 
@@ -456,12 +596,13 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     workspace_root = module_ctx.path(pnpm_lock).dirname
     for _ in (pnpm_lock.package.split("/") if pnpm_lock.package else []):
         workspace_root = workspace_root.dirname
-    registries = npmrc_registries(module_ctx.read(npmrc)) if npmrc else {}
+    registries = lockfile_registries(module_ctx, pnpm_lock, npmrc)
     parsed = parse_pnpm_lock(lock_content)
     packages = parsed["packages"]
     _check_integrity(packages, pnpm_lock)
     importers = parse_importers(lock_content)
     patches = _patch_by_package(module_ctx, lock_content, patch_labels)
+    settings = hoist_settings(_beside(module_ctx, pnpm_lock, ".npmrc"))
 
     # A snapshot needs its `packages:` entry for the bytes to download, and needs
     # to be buildable on some platform we can name. Platform filtering is a
@@ -583,7 +724,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             platform_deps = platform_deps,
             platforms = _ALL_PLATFORMS,
             types_dep = "@{}//:pkg".format(repo_of[types_sid]) if types_sid else "",
-            is_types_package = snap["name"].startswith("@types/"),
+            store = _store_label(pnpm_lock, _snapshot_key(snap), snap["name"]),
             aliases = {
                 _alias_target_name(alias): alias
                 for alias in sorted(aliases_of_sid.get(sid, {}).keys())
@@ -657,23 +798,56 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             alias_owner[label] = sid
             aliases[label] = "@{}//:{}".format(repo_of[sid], _alias_target_name(alias))
 
-    # A link claims its label outright, as it did when both lived in one dict:
-    # the member IS what that name means, and two targets of one name in the
-    # generated package would not load at all.
-    links = {}
-    link_module_paths = {}
+    # ── Workspace members: one view per member directory ─────────────────────
+    # Every `link:` target and every named importer but the root.
+    candidates = {}
     for name, path in importers["links"].items():
-        if path:
-            label = package_name_to_label(name)
-            links[label] = _workspace_link_entry(name, path)
-            record = _member_module_paths(module_ctx, workspace_root, path)
-            if record:
-                link_module_paths["|{}".format(label)] = record
-            aliases.pop(label, None)
+        if not path:
+            continue
+        if path in candidates and candidates[path] != name:
+            fail(
+                "npm: the workspace member at {} is linked as both '{}' and '{}' in this lockfile, ".format(
+                    path,
+                    candidates[path],
+                    name,
+                ) +
+                "so @{} has no one view of it.".format(hub_name),
+            )
+        candidates[path] = name
+    for path in importers["importers"]:
+        if path != "." and path not in candidates:
+            candidates[path] = None
+
+    members = {}
+    member_manifests = {}
+    member_dirs = {}
+    for path in sorted(candidates):
+        manifest = _member_manifest(module_ctx, workspace_root, path)
+        name = candidates[path]
+        if not name and manifest:
+            name = manifest.decoded["name"]
+        if not name:
+            continue
+        label = package_name_to_label(name)
+        if label in member_dirs:
+            fail(
+                "npm: the workspace members at {} and {} are both named '{}', ".format(
+                    member_dirs[label],
+                    path,
+                    name,
+                ) +
+                "so @{}//:{} cannot mean one of them.".format(hub_name, label),
+            )
+        member_dirs[label] = path
+        members[label] = _member_entry(name, path)
+        if manifest:
+            member_manifests[label] = manifest.text
+
+        # The member IS what that name means; two targets of one name would not load.
+        aliases.pop(label, None)
 
     # ── Per-importer packages: what each workspace member actually declared ───
     importer_aliases = {}
-    importer_links = {}
     for path, entry in importers["importers"].items():
         if path == ".":
             continue
@@ -684,21 +858,30 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             imported_as = dep_name if live[dep_sid]["name"] != dep_name else ""
             importer_aliases["{}|{}".format(path, label)] = _dep_label(dep_sid, imported_as)
             importer_aliases["{}|{}_bin".format(path, label)] = "@{}//:bin".format(repo_of[dep_sid])
-        for dep_name, link_path in entry["links"].items():
-            key = "{}|{}".format(path, package_name_to_label(dep_name))
-            importer_links[key] = _workspace_link_entry(dep_name, link_path)
-            record = _member_module_paths(module_ctx, workspace_root, link_path)
-            if record:
-                link_module_paths[key] = record
-            importer_aliases.pop(key, None)
 
     npm_hub(
         name = hub_name,
         pnpm_lock = pnpm_lock,
         aliases = aliases,
         importer_aliases = importer_aliases,
-        links = links,
-        importer_links = importer_links,
-        link_module_paths = link_module_paths,
+        members = members,
+        member_manifests = member_manifests,
+        store_graph = json.encode(_store_graph(
+            pnpm_lock,
+            struct(
+                live = live,
+                platforms_of = platforms_of,
+                repo_of = repo_of,
+                deps_by_sid = deps_by_sid,
+                dropped = dropped,
+                members = {
+                    path: members[label].partition("|")[0]
+                    for label, path in member_dirs.items()
+                    if label in member_manifests
+                },
+            ),
+            importers,
+            settings,
+        )),
         broken_cycle_edges = ["{} -> {}".format(a, b) for (a, b) in broken],
     )

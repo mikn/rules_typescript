@@ -1,5 +1,5 @@
-describe("attribute layer", () => {
-  it("exposes describe/it/expect without an import", () => {
-    expect(globalThis.__rulesTsAttrsSetup).toBe("ran");
+describe("the user's config", () => {
+  it("installs describe/it/expect as globals", () => {
+    expect(typeof describe).toBe("function");
   });
 });

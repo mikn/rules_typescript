@@ -1,14 +1,4 @@
-load("@rules_typescript//ts:defs.bzl", "json_library")
-
-# The @typescript-eslint packages every source here imports live in their own
-# hub, not the default one: //tests/npm's lockfile is a curated fixture and
-# eslint's closure has no business in it.
-# gazelle:ts_npm_hub npm_eslint
-
-# index-only, so src/ is one package and src/rules/ is part of it. One target
-# per directory makes this a cycle -- the barrel re-exports ./rules and ./rules
-# imports ../utils -- which at file granularity does not exist.
-# gazelle:ts_package_boundary index-only
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
 
 # A stale pnpm install from before this tree was built by Bazel. It is
 # gitignored, so it is invisible in a clean checkout and its BUILD files are
@@ -16,13 +6,55 @@ load("@rules_typescript//ts:defs.bzl", "json_library")
 # gazelle:exclude node_modules
 # gazelle:exclude dist
 
-# The tsup config type-checks only under `module: Preserve` with bundler
-# resolution, which Gazelle cannot infer.
-# gazelle:ts_exclude tsup.config.ts
-# gazelle:ts_exclude vitest.config.ts
+# @npm_eslint is a hub of the plugin's own lockfile, not the one Gazelle
+# writes labels for, so both deps lists and the chain are held by hand.
+ts_compile(
+    name = "eslint-plugin",
+    srcs = [
+        "LICENSE",
+        "README.md",
+        "docs/rules/require-explicit-types.md",
+        "package.json",
+        "package-lock.json",
+        "src/index.ts",
+        "src/rules/require-explicit-types.ts",
+        "src/utils.ts",
+    ],
+    # keep
+    node_modules = "//tests/eslint:node_modules",
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+    # keep
+    deps = ["@npm_eslint//:typescript-eslint_utils"],
+)
 
-json_library(
-    name = "package-lock_json",
-    srcs = ["package-lock.json"],
+ts_test(
+    name = "eslint-plugin_test",
+    srcs = ["src/rules/__tests__/require-explicit-types.test.ts"],
+    config = "vitest.config.ts",
+    # keep
+    node_modules = "//tests/eslint:node_modules",
+    tsconfig = ":tsconfig",
+    visibility = ["//:__pkg__"],
+    # keep
+    deps = [
+        ":eslint-plugin",
+        "@npm_eslint//:typescript-eslint_parser",
+        "@npm_eslint//:typescript-eslint_rule-tester",
+        "@npm_eslint//:typescript-eslint_utils",
+        "@npm_eslint//:vitest",
+    ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    module = "node16",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.ts"],
     visibility = ["//visibility:public"],
 )

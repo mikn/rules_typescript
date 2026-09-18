@@ -1,45 +1,48 @@
-"""Every environment-shaping attribute, and the config layering, in one target.
+"""The vitest runner's config-shaping attribute, and the config layering.
 
-config_layers_test is the checked-in proof that each attribute reaches the
-vitest config and that the layers stack in the documented order; `attrs_test`
-itself proves the `globals` and `setup_files` halves end to end.
+config_layers_test is the checked-in proof that the generated config layers
+Bazel's config, the user's file, `coverage_provider` and the snapshot layer in
+that order; `attrs_test` itself runs on what the user's file sets -- `globals`
+-- so it collects nothing unless the file reached vitest. compile_parity_test
+proves the test compiles its srcs with ts_compile's actions, the declaration
+emit apart.
 """
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_test")
+load(":parity_tests.bzl", "compile_parity_test")
 
 # The go_test is hand-named after the sh_test it replaced, so the Go language
 # would add a second target for the same source.
 # gazelle:exclude *_test.go
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.vitest.json
+
+# keep
 ts_test(
     name = "attrs_test",
-    srcs = [
-        "attrs.test.ts",
-        # Declarations only: nothing imports it, so it is not inferable.
-        "globals.d.ts",  # keep
-    ],
-    config = {"test": {"testTimeout": 20000}},
+    srcs = ["attrs.test.ts"],
+    config = "vitest.config.mts",
     coverage_provider = "v8",
-    coverage_thresholds = {
-        "lines": "0",
-        "perFile": "true",
-    },
-    environment = "node",
-    globals = True,
-    reporters = ["default"],
-    setup_files = [
-        "setup.ts",
-        "globals.d.ts",
-    ],
-    deps = ["@npm//:vitest"],  # keep
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = "tsconfig.vitest.json",
+    visibility = ["//:__pkg__"],
+    deps = ["@npm//:vitest"],
 )
 
 vitest_config(
     name = "attrs_test_config",
     testonly = True,
     test = ":attrs_test",
+)
+
+compile_parity_test(
+    name = "compile_parity_test",
+    size = "small",
+    compile = "//tests/vitest/attrs/parity/compile:parity_compile",
+    test = "//tests/vitest/attrs/parity/test:parity_test",
 )
 
 go_test(
@@ -49,3 +52,6 @@ go_test(
     data = [":attrs_test_config"],
     deps = ["//tests/verify"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

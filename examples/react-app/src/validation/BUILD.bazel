@@ -1,4 +1,4 @@
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
 
 ts_compile(
     name = "validation",
@@ -6,6 +6,8 @@ ts_compile(
         "index.ts",
         "userSchema.ts",
     ],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     deps = ["@npm//:zod"],
 )
@@ -13,9 +15,26 @@ ts_compile(
 ts_test(
     name = "validation_test",
     srcs = ["userSchema.test.ts"],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     deps = [
         ":validation",
+        "@npm//:happy-dom",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:testing-library_dom",
+        "@npm//:testing-library_react",
+        "@npm//:types_react",
+        "@npm//:types_react-dom",
+        "@npm//:vite",
         "@npm//:vitest",
         "@npm//:zod",
     ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
 )

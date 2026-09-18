@@ -1,13 +1,39 @@
-"""`data` puts fixtures a test reads at runtime into the runfiles tree."""
+"""`data` puts fixtures a test reads at runtime into the runfiles tree; a dep's
+data srcs are there too, beside the compiled module that reads them."""
 
-load("//ts:defs.bzl", "ts_test")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
 
 ts_test(
     name = "fixture_test",
     srcs = ["fixture.test.ts"],
     data = ["fixture.txt"],
+    node_modules = "//tests/npm:node_modules",
+    visibility = ["//:__pkg__"],
     deps = [
         "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)
+
+# lib.ts imports the JSON and reads the text file relative to its own URL: the
+# JSON has to be a tsgo input and both have to sit beside lib.js in runfiles.
+ts_compile(
+    name = "lib",
+    srcs = [
+        "lib.ts",
+        "lib_data.json",
+        "lib_note.txt",
+    ],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:types_node"],
+)
+
+ts_test(
+    name = "dep_data_srcs_test",
+    srcs = ["dep_data_srcs.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        ":lib",
         "@npm//:vitest",
     ],
 )

@@ -11,48 +11,62 @@ module(
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
-bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "rules_rs", version = "0.0.111")
+bazel_dep(name = "llvm", version = "0.8.21")
+bazel_dep(name = "zlib", version = "1.3.2")
 bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "toolchain_utils", version = "1.3.0")
 
 bazel_dep(name = "rules_bazel_integration_test", version = "0.37.1", dev_dependency = True)
 
-# Gazelle and rules_go must be non-dev dependencies so that:
-# 1. load() statements in //gazelle:BUILD.bazel (which reference @rules_go//)
-#    resolve correctly when the gazelle package is loaded from a consumer workspace.
-# 2. The go_sdk and go_deps extension calls below (which configure the Go toolchain
-#    and fetch Go module dependencies for the Gazelle binary) propagate transitively
-#    to consumers via bzlmod. Consumers therefore need only:
-#      bazel_dep(name = "gazelle", version = "0.47.0")
-#    and get rules_go, the Go SDK, and Go deps for free.
+# Non-dev, so a consumer's build loads //gazelle:BUILD.bazel and gets rules_go,
+# the Go SDK and the Go deps without declaring them.
 bazel_dep(name = "gazelle", version = "0.47.0")
-bazel_dep(name = "rules_go", version = "0.60.0")
+
+# Gazelle writes this name into the BUILD files of a repository with no
+# MODULE.bazel of its own; the ts extension's Go module repositories are such.
+bazel_dep(
+    name = "rules_go",
+    version = "0.60.0",
+    repo_name = "io_bazel_rules_go",
+)
+
+# go_repository's root BUILD file loads both for the module's package_info.
+bazel_dep(name = "package_metadata", version = "0.0.5")
+bazel_dep(name = "rules_license", version = "1.0.0")
 
 # ─── Rust toolchain ─────────────────────────────────────────────────────────
 
-rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust = use_extension("@rules_rs//rs/toolchains:module_extension.bzl", "toolchains")
 rust.toolchain(
     edition = "2024",
-    versions = ["1.98.0"],
+    version = "1.98.0",
 )
-use_repo(rust, "rust_toolchains")
+use_repo(rust, "default_rust_toolchains")
 
-register_toolchains("@rust_toolchains//:all")
+register_toolchains("@default_rust_toolchains//...", "@llvm//toolchain:all")
 
-# cargo resolves a binary-only crate through artifact-dependencies, which is
-# nightly-gated. These tools run only when the oj_crates repo below is
-# generated; every rust_binary in this module still builds on the stable
-# toolchain pinned above.
-rust_host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-rust_host_tools.host_tools(
-    name = "rust_host_tools_nightly",
-    version = "nightly",
-)
-use_repo(rust_host_tools, "rust_host_tools_nightly")
+osx = use_extension("@llvm//extensions:osx.bzl", "osx")
+
+# Explicit framework tags replace LLVM defaults; keep them alongside OJ's re-export closure.
+osx.frameworks(names = [
+    "CFNetwork",
+    "CoreFoundation",
+    "CoreImage",
+    "CoreServices",
+    "CoreVideo",
+    "Foundation",
+    "Kernel",
+    "Metal",
+    "OSLog",
+    "QuartzCore",
+    "Security",
+    "SystemConfiguration",
+])
 
 # ─── Go toolchain (for Gazelle extension) ────────────────────────────────────
 
-go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk = use_extension("@io_bazel_rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(version = "1.26.1")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
@@ -62,88 +76,246 @@ go_deps.from_file(go_mod = "//gazelle:go.mod")
 # reaches the parsed BUILD file through buildtools directly.
 use_repo(go_deps, "com_github_bazelbuild_buildtools")
 
-# ─── crate_universe (Rust crate dependencies for oxc_cli) ───────────────────
+# ─── The crates oxc-bazel is built from ─────────────────────────────────────
 
-crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
-crate.from_cargo(
-    name = "crates",
-    cargo_lockfile = "//oxc_cli:Cargo.lock",
-    # rules_rust refuses a crate_universe hub without one from a non-root
-    # module: a consumer cannot repin across the module boundary, so the
-    # rendering has to be pinned here. Repin with CARGO_BAZEL_REPIN=1.
-    lockfile = "//oxc_cli:Cargo.Bazel.lock",
-    manifests = ["//oxc_cli:Cargo.toml"],
-)
-
-# oj ships neither an npm package nor a release binary, so cargo is the only
-# channel it can be pinned from. It is a pure binary crate, hence gen_binaries
-# rather than a dep of the manifest above -- whose graph it must stay out of,
-# rolldown being the heaviest thing either tool pulls.
-crate.spec(
-    artifact = "bin",
-    git = "https://github.com/mikn/oj",
-    package = "oj",
-    repositories = ["oj_crates"],
-    rev = "91970c006406fdfcf1909711ab4196f850c97431",
-)
-
-# A git source rather than the crates.io release, because the fixes oj needs to
-# serve a TanStack Start app are not released yet. That rev is upstream main
-# plus one commit per gap and nothing else, and every one of them is open as its
-# own PR upstream:
-#
-#   raphamorim/oj#110  an explicit config path on `oj build`
-#   raphamorim/oj#115  the injected-head-scripts virtual module, without which
-#                      every document request dies in the ESM loader
-#   raphamorim/oj#116  tsr.config.json reaches the route generator, so an app
-#                      whose tree is not at the default path gets one tree
-#   raphamorim/oj#117  package.json "imports" beats the hardcoded src/router,
-#                      so a configured `router.entry` resolves
-#   raphamorim/oj#118  the declare-module footer the framework's own plugin
-#                      appends, so serving leaves a checked-in tree alone
-#   raphamorim/oj#119  --config reaches the Start dev server; without it
-#                      ts_dev_server's port and every other field are ignored
-#   raphamorim/oj#120  OJ_CACHE_DIR, so a dev server writes nothing into the
-#                      workspace it is serving
-#   raphamorim/oj#121  an extraction that produced no values says so instead of
-#                      looking like a config with nothing in it
-#   raphamorim/oj#123  the extractor compares realpaths to decide it is the
-#                      entry module; a symlink anywhere in the path (every path
-#                      under /var on macOS) otherwise makes it skip its own body
-#                      and exit 0 in silence
-#
-# `git diff v0.1.8..<rev>` is the whole of what is carried, and the pin goes back
-# to a plain version once they land in a release. This is a git source rather
-# than crate.annotation(patches = ...)
-# on purpose: an annotation's patches are labels, and crate_universe renders
-# them into the checked-in lockfile already canonicalised. `//oj/patches:x`
-# becomes `@@//oj/patches:x`, which means THIS repo here and the consumer's own
-# repo downstream, so a patched hub can only ever work in one of the two. There
-# is no spelling that works in both -- the root module's canonical name is "",
-# and `@@rules_typescript+` does not resolve here. Drop this block for a plain
-# version pin once the PRs land in a release.
+crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
 crate.annotation(
-    crate = "oj",
-    gen_all_binaries = True,
+    crate = "aws-lc-sys",
+    patch_args = ["-p1"],
+    patches = ["//oj:aws-lc-macos-headers.patch"],
     repositories = ["oj_crates"],
+    version = "0.40.0",
 )
-crate.from_specs(
+crate.annotation(
+    crate = "libsqlite3-sys",
+    patch_args = ["-p1"],
+    patches = ["//oj:sqlite-build-script-path.patch"],
+    repositories = ["oj_crates"],
+    version = "0.38.2",
+)
+crate.annotation(
+    crate = "libz-sys",
+    gen_build_script = "off",
+    repositories = ["oj_crates"],
+    deps = ["@zlib"],
+)
+crate.from_cargo(
+    name = "rules_typescript_crates",
+    cargo_lock = "//oxc_cli:Cargo.lock",
+    cargo_toml = "//oxc_cli:Cargo.toml",
+    platform_triples = [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ],
+)
+use_repo(crate, "rules_typescript_crates")
+
+v8_archives = use_extension("//oj:v8.bzl", "v8_archives")
+use_repo(
+    v8_archives,
+    "oj_v8_darwin_amd64",
+    "oj_v8_darwin_arm64",
+    "oj_v8_linux_amd64",
+    "oj_v8_linux_arm64",
+    "oj_v8_windows_amd64",
+)
+
+crate.annotation(
+    crate = "oj_server",
+    patch_args = ["-p1"],
+    patches = ["//oj:oj-server-file-hmr.patch"],
+    repositories = ["oj_crates"],
+    version = "0.2.1",
+)
+crate.annotation(
+    additive_build_file_content = 'package(features = ["-static_link_cpp_runtimes"])',
+    crate = "oj",
+    gen_binaries = ["oj"],
+    patch_args = ["-p1"],
+    patches = ["//oj:oj-napi-link.patch"],
+    repositories = ["oj_crates"],
+    version = "0.2.1",
+)
+crate.annotation(
+    crate = "cranelift-assembler-x64",
+    patch_args = ["-p1"],
+    patches = ["//oj:cranelift-assembler-isle.patch"],
+    repositories = ["oj_crates"],
+    version = "0.117.2",
+)
+crate.annotation(
+    crate = "cranelift-codegen-meta",
+    patch_args = ["-p1"],
+    patches = ["//oj:cranelift-codegen-isle.patch"],
+    repositories = ["oj_crates"],
+    version = "0.117.2",
+)
+crate.annotation(
+    crate = "oj_deno_napi",
+    gen_build_script = "off",
+    patch_args = ["-p1"],
+    patches = ["//oj:napi-symbol-bytes.patch"],
+    repositories = ["oj_crates"],
+    version = "0.2.2",
+)
+crate.annotation(
+    crate = "deno_napi",
+    gen_build_script = "off",
+    patch_args = ["-p1"],
+    patches = ["//oj:napi-symbol-bytes.patch"],
+    repositories = ["oj_crates"],
+    version = "0.190.0",
+)
+crate.annotation(
+    crate = "libffi-sys",
+    patch_args = ["-p1"],
+    patches = ["//oj:libffi-static-archive.patch"],
+    repositories = ["oj_crates"],
+    version = "4.2.2",
+)
+crate.annotation_select(
+    build_script_env = {"ARFLAGS": "cr"},
+    crate = "libffi-sys",
+    repositories = ["oj_crates"],
+    triples = [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ],
+    version = "4.2.2",
+)
+crate.annotation(
+    crate = "deno_core",
+    patch_args = ["-p1"],
+    patches = ["//oj:deno-core-snapshot-source.patch"],
+    repositories = ["oj_crates"],
+    version = "0.412.0",
+)
+crate.annotation(
+    crate = "deno_runtime",
+    patch_args = ["-p1"],
+    patches = ["//oj:deno-runtime-snapshot-source.patch"],
+    repositories = ["oj_crates"],
+    version = "0.267.0",
+)
+crate.annotation(
+    crate = "oj_deno_runtime",
+    patch_args = ["-p1"],
+    patches = ["//oj:deno-runtime-snapshot-source.patch"],
+    repositories = ["oj_crates"],
+    version = "0.2.2",
+)
+crate.annotation(
+    additive_build_file_content = 'package(features = ["-static_link_cpp_runtimes"])',
+    crate = "deno_snapshots",
+    patch_args = ["-p1"],
+    patches = ["//oj:deno-snapshots-source.patch"],
+    repositories = ["oj_crates"],
+    version = "0.74.0",
+)
+crate.annotation(
+    crate = "deno_features",
+    gen_build_script = "off",
+    repositories = ["oj_crates"],
+    version = "0.56.0",
+)
+crate.annotation(
+    additive_build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")
+cc_import(
+    name = "v8_unwind_archive",
+    static_library = "@llvm//runtimes/libunwind:libunwind.static",
+    target_compatible_with = ["@platforms//os:linux"],
+)
+cc_library(
+    name = "v8_unwind",
+    deps = select({
+        "@platforms//os:linux": [":v8_unwind_archive"],
+        "//conditions:default": [],
+    }),
+)
+""",
+    build_script_env_files = ["//oj:v8_archive_env"],
+    crate = "v8",
+    link_deps = [":v8_unwind"],
+    patch_args = ["-p1"],
+    patches = ["//oj:v8-output-dir.patch"],
+    repositories = ["oj_crates"],
+    version = "150.4.0",
+)
+crate.annotation_select(
+    build_script_data = ["@oj_v8_linux_amd64//file"],
+    build_script_env = {
+        "RUSTY_V8_SRC_BINDING_PATH": "../gen/src_binding_simdutf_release_x86_64-unknown-linux-gnu.rs",
+    },
+    crate = "v8",
+    repositories = ["oj_crates"],
+    triples = ["x86_64-unknown-linux-gnu"],
+    version = "150.4.0",
+)
+crate.annotation_select(
+    build_script_data = ["@oj_v8_linux_arm64//file"],
+    build_script_env = {
+        "RUSTY_V8_SRC_BINDING_PATH": "../gen/src_binding_simdutf_release_aarch64-unknown-linux-gnu.rs",
+    },
+    crate = "v8",
+    repositories = ["oj_crates"],
+    triples = ["aarch64-unknown-linux-gnu"],
+    version = "150.4.0",
+)
+crate.annotation_select(
+    build_script_data = ["@oj_v8_darwin_amd64//file"],
+    build_script_env = {
+        "RUSTY_V8_SRC_BINDING_PATH": "../gen/src_binding_simdutf_release_x86_64-apple-darwin.rs",
+    },
+    crate = "v8",
+    repositories = ["oj_crates"],
+    triples = ["x86_64-apple-darwin"],
+    version = "150.4.0",
+)
+crate.annotation_select(
+    build_script_data = ["@oj_v8_darwin_arm64//file"],
+    build_script_env = {
+        "RUSTY_V8_SRC_BINDING_PATH": "../gen/src_binding_simdutf_release_aarch64-apple-darwin.rs",
+    },
+    crate = "v8",
+    repositories = ["oj_crates"],
+    triples = ["aarch64-apple-darwin"],
+    version = "150.4.0",
+)
+crate.annotation_select(
+    build_script_data = ["@oj_v8_windows_amd64//file"],
+    build_script_env = {
+        "RUSTY_V8_SRC_BINDING_PATH": "../gen/src_binding_simdutf_release_x86_64-pc-windows-msvc.rs",
+    },
+    crate = "v8",
+    repositories = ["oj_crates"],
+    triples = ["x86_64-pc-windows-msvc"],
+    version = "150.4.0",
+)
+crate.from_cargo(
     name = "oj_crates",
-    # A spec-only hub resolves its own manifest, but rules_rust 0.73 reads this
-    # path unconditionally once `lockfile` stops it from repinning.
-    cargo_lockfile = "//oj:Cargo.lock",
-    host_tools = "@rust_host_tools_nightly",
-    lockfile = "//oj:Cargo.Bazel.lock",
+    cargo_lock = "//oj:Cargo.lock",
+    cargo_toml = "//oj:Cargo.toml",
+    platform_triples = [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+    ],
 )
-use_repo(crate, "crates", "oj_crates")
+use_repo(crate, "oj_crates")
 
 # ─── Node.js toolchain (via rules_nodejs) ───────────────────────────────────
 
 node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
 node.toolchain(
-    # The explicit name "nodejs" documents the dependency: _NODEJS_REPO_PLATFORM
-    # in ts/private/runtime.bzl constructs repo labels as "nodejs_<platform>",
-    # which requires this prefix to match.
+    # A default: rules_nodejs keeps the root module's tag of this name over this
+    # one, so a consumer's .nvmrc wins. runtime.bzl's labels expect the name.
     name = "nodejs",
     node_version = "22.23.1",
 )
@@ -159,12 +331,21 @@ use_repo(
 # ─── TypeScript toolchains ──────────────────────────────────────────────────
 
 ts = use_extension("//ts:extensions.bzl", "ts")
+
+# Every fixture ts_compile and ts_test lints under the test hub's oxlint;
+# //tests/lint_real is the proof.
+ts.lint(
+    binary = "@npm//:oxlint_bin",
+    config = "//tests/lint_real:oxlint.json",
+)
 use_repo(
     ts,
+    "lint_config",
     "tsgo_darwin_amd64",
     "tsgo_darwin_arm64",
     "tsgo_linux_amd64",
     "tsgo_linux_arm64",
+    "tsgo_source",
 )
 
 # Toolchain registration is the CONSUMER's responsibility — consumers add:
@@ -185,29 +366,21 @@ register_toolchains(
 
 # ─── npm dependencies ────────────────────────────────────────────────────────
 
-# @npm's name is the consumer's to claim: the extension gives the root module's
-# translate_lock priority for any hub name, so a target here naming @npm resolves
-# into the consumer's lockfile, not this fixture. Non-dev only because //vite's
-# and //ts/private/css's typecheck targets still name it in this module's mapping.
+# @npm is the consumer's to claim (the root module's translate_lock wins the
+# name); non-dev because //vite's typecheck target names it in this module.
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 
-# postcss-modules, which css_module's compile action runs to derive both the
-# scoped-name map and the .d.ts from it, plus the esbuild that bundles //vite's
-# plugin. Non-dev because both of those bundles are consumer API, so a dev-only
-# usage would hide them from every consumer of the rules.
+# The esbuild that bundles //vite's plugin. Non-dev because that bundle is
+# consumer API, so a dev-only usage would hide it from every consumer.
 npm.translate_lock(
-    name = "npm_css",
-    pnpm_lock = "//ts/private/css:pnpm-lock.yaml",
+    name = "npm_esbuild",
+    pnpm_lock = "//vite/esbuild:pnpm-lock.yaml",
 )
 
-# A second hub for the pnpm features that need their own fixture: the main
-# lockfile is copied verbatim into the integration and bootstrap scratch
-# workspaces, which pass no patch files.
-#
-# Nothing outside //tests/npm names @npm_features, so this hub and its patched
-# nanoid have no business in a consumer's MODULE.bazel.lock.
+# The dev hubs: nothing outside this module's tests names them, so no
+# consumer's MODULE.bazel.lock records them.
 npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
 
 # Tailwind v4's own hub. //tests/npm's lockfile is a curated fixture -- its
@@ -217,7 +390,7 @@ npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
 # re-resolving that one.
 npm_dev.translate_lock(
     name = "npm_tailwind",
-    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+    pnpm_lock = "//tests/tailwind/lock:pnpm-lock.yaml",
 )
 
 # The @typescript-eslint packages, which only //eslint-plugin imports. Their
@@ -230,22 +403,25 @@ npm_dev.translate_lock(
 )
 
 # Cloudflare Workers: the vitest pool that runs tests inside workerd, and the
-# wrangler that deploys them. One hub for both, since the pool depends on
-# wrangler and miniflare anyway.
+# wrangler that //tools/codegen:wrangler_types runs; the pool depends on it anyway.
 npm_dev.translate_lock(
     name = "npm_workers",
     pnpm_lock = "//tests/workers:pnpm-lock.yaml",
 )
+
+# pnpm's patches need a lockfile of their own: tests/npm's is copied verbatim
+# into scratch workspaces that pass no patch files.
 npm_dev.translate_lock(
     name = "npm_features",
     patches = [
-        "//tests/npm:patches/@types__ms@2.1.0.patch",
-        "//tests/npm:patches/nanoid@3.3.11.patch",
+        "//tests/npm/features:patches/@types__ms@2.1.0.patch",
+        "//tests/npm/features:patches/nanoid@3.3.11.patch",
+        "//tests/npm/features:patches/zod@3.24.2.patch",
     ],
-    pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
+    pnpm_lock = "//tests/npm/features:pnpm-lock.yaml",
 )
 
-use_repo(npm, "npm", "npm_css", "pnpm")
+use_repo(npm, "npm", "npm_esbuild", "pnpm")
 
 use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind", "npm_workers")
 
@@ -262,4 +438,17 @@ use_repo(
     "bazel_binaries",
     "bazel_binaries_bazelisk",
     "build_bazel_bazel_9_2_0",
+)
+
+# Temporary until upstream ships the sandbox resource-directory fix:
+# https://github.com/hermeticbuild/hermetic-llvm/blob/v0.8.21/toolchain/merged_resource_directory.bzl
+archive_override(
+    module_name = "llvm",
+    integrity = "sha256-fasiVGwpsGh4ahOXO2ms19Y1Q7GYkLFDcukTLXErSD0=",
+    patch_strip = 1,
+    patches = ["//oj:llvm-resource-directory.patch"],
+    remote_patch_strip = 1,
+    remote_patches = {"https://bcr.bazel.build/modules/llvm/0.8.21/patches/module_dot_bazel_version.patch": "sha256-w2NrJjoyIPeejybJd6EHngAPnTVhwS3Cgk/U3ru64wo="},
+    strip_prefix = "hermetic-llvm-0.8.21",
+    urls = ["https://github.com/hermeticbuild/hermetic-llvm/releases/download/v0.8.21/hermetic-llvm-v0.8.21.tar.gz"],
 )

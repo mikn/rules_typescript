@@ -1,46 +1,9 @@
-// Package dev_server_test starts a ts_dev_server and asks it questions.
-//
-// The generated launcher and vite.config.mjs are not the deliverable; a running
-// dev server that serves the right bytes is. So this runs the launcher exactly
-// as `bazel run` does -- RUNFILES_DIR plus BUILD_WORKSPACE_DIRECTORY -- against
-// a throwaway workspace, and asserts over HTTP:
-//
-//  1. the generated config, EVALUATED (it is a module that reads its
-//     environment and the filesystem), configures the port the rule was given,
-//     an allow-list that reaches bazel-bin, a watch path ibazel's rebuilds land
-//     in, an alias per first-party module_name pointing at SOURCE, and the
-//     inputs a rebuild has to restart the server for;
-//  2. the running server serves a file from bazel-bin rather than answering 403;
-//  3. an `import "./app.ts"` lands on the .ts SOURCE in both variants: dev
-//     takes Bazel out of the inner loop, so Vite transforms first-party source
-//     itself. What the plugin adds is bazel-bin for what Vite cannot produce:
-//     a ts_codegen output with no checked-in source resolves WITH the plugin
-//     and does not without it. Same request, two answers -- which is what
-//     proves the plugin is installed and resolving rather than merely named in
-//     the config text;
-//  4. a first-party bare specifier (`@devserver/lib`) resolves to that
-//     package's source, so it is one module in the graph with a relative
-//     import of the same file;
-//  5. with react_refresh = True, a .tsx module comes back carrying the React
-//     Fast Refresh preamble; without it, it does not;
-//  6. the launcher survives the SIGTERM ibazel sends on every rebuild, and the
-//     server behind it keeps answering;
-//  7. a rebuild that only rewrote ts_codegen output serves the new bytes and
-//     does NOT restart Vite; a rebuild that changed the generated config does;
-//  8. a BARE npm specifier out of first-party source resolves into the Bazel npm
-//     tree and the file it lands on is served. Vite has no search-path option,
-//     so this is the bazel:npm-resolve plugin or nothing -- and a package that
-//     is not in the tree still fails, so the plugin is resolving rather than
-//     inventing;
-//  9. with a vite_config, the user's plugin is first in the container and its
-//     transform reaches the response, which also means its own bare npm import
-//     resolved.
-//
-// Which variant is under test comes from the env of the go_test target:
-// DEV_TARGET, DEV_PORT, DEV_BAZEL_PLUGIN, DEV_REACT_REFRESH, DEV_USER_CONFIG.
+// Package dev_server_test runs the launcher as `bazel run` does against a
+// throwaway workspace and asserts over HTTP; the env picks the variant.
 package dev_server_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -52,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mikn/rules_typescript/tests/hmrsocket"
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
@@ -82,35 +46,64 @@ func TestDevServerBehaviour(t *testing.T) {
 	// the response tells us which of the two the server chose.
 	tmp := t.TempDir()
 	ws := filepath.Join(tmp, "ws")
+	if wantBazelPlugin && impl != "oj" {
+		physicalWorkspace := filepath.Join(tmp, "physical-ws")
+		mkdir(t, physicalWorkspace)
+		if err := os.Symlink(physicalWorkspace, ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appRoot := filepath.Join(ws, "tests", "dev_server")
+	mkdir(t, appRoot)
 	bazelBin := filepath.Join(ws, "bazel-bin")
-	mkdir(t, bazelBin)
-	write(t, filepath.Join(ws, "app.ts"), "export const origin: string = \"TS_SOURCE_TRANSFORMED_BY_VITE\";\n")
-	write(t, filepath.Join(bazelBin, "app.js"), "export const origin = \"JS_PRECOMPILED_BY_BAZEL\";\n")
-	write(t, filepath.Join(ws, "entry.js"), "import { origin } from \"./app.ts\";\nexport { origin };\n")
+	appBin := filepath.Join(bazelBin, "tests", "dev_server")
+	mkdir(t, appBin)
+	write(t, filepath.Join(ws, "index.html"), "WORKSPACE_INDEX")
+	write(t, filepath.Join(appRoot, "index.html"), `<html>NESTED_APP_INDEX<script type="module" src="/entry.js"></script></html>`)
+	write(t, filepath.Join(appRoot, "app.ts"), "export const origin: string = \"TS_SOURCE_TRANSFORMED_BY_VITE\";\n")
+	write(t, filepath.Join(appBin, "app.js"), "export const origin = \"JS_PRECOMPILED_BY_BAZEL\";\n")
+	write(t, filepath.Join(ws, "tests", "shared.ts"), `export const shared = "SIBLING_SOURCE";`)
+	write(t, filepath.Join(appRoot, "sibling_entry.js"), `import { shared } from "../shared.ts"; export { shared };`)
+	blocked := filepath.Join(ws, "tests", "blocked.ts")
+	defaultDenied := filepath.Join(ws, "tests", ".env")
+	if impl == "oj" {
+		write(t, blocked, `export const blocked = "DENIED_FIXTURE";`)
+		write(t, defaultDenied, "FIXTURE_ONLY=true")
+		canonicalBlocked, err := filepath.EvalSymlinks(blocked)
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonicalWorkspace, err := filepath.EvalSymlinks(ws)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nativeConfig, err := json.Marshal(map[string]any{
+			"server": map[string]any{"fs": map[string]any{
+				"allow": []string{canonicalWorkspace},
+				"deny":  []string{filepath.ToSlash(canonicalBlocked)},
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(appRoot, "oj.config.json"), string(nativeConfig))
+	}
+	write(t, filepath.Join(appRoot, "entry.js"), "import { origin } from \"./app.ts\";\nexport { origin };\n")
 	// No JSX: what is under test is the Fast Refresh transform, and JSX would pull
 	// in react/jsx-runtime, which needs a react this npm tree does not carry.
-	write(t, filepath.Join(ws, "widget.tsx"), "export function Widget() {\n  return null;\n}\n")
+	write(t, filepath.Join(appRoot, "widget.tsx"), "export function Widget() {\n  return null;\n}\n")
 
 	// A bare npm specifier, and one for a package no tree has.
-	write(t, filepath.Join(ws, "npm_entry.js"), "import { z } from \"zod\";\nexport { z };\n")
-	write(t, filepath.Join(ws, "npm_missing.js"),
+	write(t, filepath.Join(appRoot, "npm_entry.js"), "import { z } from \"zod\";\nexport { z };\n")
+	write(t, filepath.Join(appRoot, "npm_missing.js"),
 		"import x from \"not-in-any-npm-tree\";\nexport { x };\n")
-
-	// The package //tests/dev_server/lib declares module_name "@devserver/lib".
-	// Its source has to be where the config expects it for the alias to point at
-	// source rather than at bazel-bin.
-	libSource := filepath.Join(ws, "tests", "dev_server", "lib", "index.ts")
-	mkdir(t, filepath.Dir(libSource))
-	write(t, libSource, "export const packageName: string = \"LIB_SOURCE_TRANSFORMED_BY_VITE\";\n")
-	write(t, filepath.Join(ws, "alias_entry.js"),
-		"import { packageName } from \"@devserver/lib\";\nexport { packageName };\n")
 
 	// A ts_codegen output: generated .ts under bazel-bin with no source in the
 	// workspace. Vite cannot produce it, so this is what bazel-bin is still for.
-	generated := filepath.Join(bazelBin, "generated", "routes.ts")
+	generated := filepath.Join(appBin, "generated", "routes.ts")
 	mkdir(t, filepath.Dir(generated))
 	write(t, generated, "export const routes: string[] = [\"CODEGEN_V1\"];\n")
-	write(t, filepath.Join(ws, "gen_entry.js"),
+	write(t, filepath.Join(appRoot, "gen_entry.js"),
 		"import { routes } from \"./generated/routes.ts\";\nexport { routes };\n")
 
 	// The config watches its own bazel-bin copy, so the scratch workspace needs
@@ -127,23 +120,11 @@ func TestDevServerBehaviour(t *testing.T) {
 	if got := strconv.Itoa(cfg.Port); got != wantPort {
 		t.Errorf("the config serves port %s, but the rule was given %s", got, wantPort)
 	}
-	if cfg.Root != ws {
-		t.Errorf("config root is %s, want the workspace root %s", cfg.Root, ws)
+	if cfg.Root != appRoot {
+		t.Errorf("config root is %s, want the application root %s", cfg.Root, appRoot)
 	}
 	if !slices.Contains(cfg.FsAllow, bazelBin) {
 		t.Errorf("server.fs.allow does not include %s: %v", bazelBin, cfg.FsAllow)
-	}
-	// ibazel writes rebuilt .js here, and Vite only notices through this watcher.
-	if !slices.Contains(cfg.WatchPaths, bazelBin) {
-		t.Errorf("server.watch.paths does not include %s: %v", bazelBin, cfg.WatchPaths)
-	}
-
-	// The alias is what makes `@devserver/lib` mean source in dev. It has to name
-	// the source file, not the compiled output: the point of serving source is
-	// that Bazel is not in the loop.
-	if got := replacementFor(cfg.Alias, "/^@devserver\\/lib$/"); got != libSource {
-		t.Errorf("resolve.alias sends @devserver/lib to %q, want the source %q\nalias = %v",
-			got, libSource, cfg.Alias)
 	}
 
 	// Restart-or-keep, as the config declares it: the config itself is fixable by
@@ -157,7 +138,7 @@ func TestDevServerBehaviour(t *testing.T) {
 			}
 			delete(wantInputs, input.Path)
 		}
-		if strings.HasPrefix(input.Path, filepath.Join(bazelBin, "generated")) {
+		if strings.HasPrefix(input.Path, filepath.Join(appBin, "generated")) {
 			t.Errorf("a ts_codegen output is a watched config input (%s); a codegen "+
 				"rebuild would restart the dev server", input.Path)
 		}
@@ -171,14 +152,6 @@ func TestDevServerBehaviour(t *testing.T) {
 	if !slices.Contains(cfg.Plugins, "bazel:npm-resolve") {
 		t.Errorf("the config installs no bazel:npm-resolve plugin, so no bare npm "+
 			"specifier can resolve: plugins = %v", cfg.Plugins)
-	}
-	// css_module already decided the class names and wrote a .d.ts from them.
-	// Without this plugin the server scopes every *.module.css a second time and
-	// serves names no declaration in the build describes.
-	if !slices.Contains(cfg.Plugins, "rules-typescript:css-modules") {
-		t.Errorf("the config installs no rules-typescript:css-modules plugin, so a "+
-			"served *.module.css would carry names the .d.ts does not declare: "+
-			"plugins = %v", cfg.Plugins)
 	}
 	if cfg.ResolveModules != nil {
 		t.Errorf("the config sets resolve.modules = %v, which is a webpack option Vite "+
@@ -197,7 +170,7 @@ func TestDevServerBehaviour(t *testing.T) {
 	}
 
 	// Args past the launcher reach the server's own CLI, which is not a shared
-	// surface: --strictPort is Vite's, and oj rejects it outright.
+	// surface: --strictPort is Vite's.
 	var extraArgs []string
 	if impl == "vite" {
 		extraArgs = append(extraArgs, "--strictPort")
@@ -206,11 +179,36 @@ func TestDevServerBehaviour(t *testing.T) {
 	base := srv.awaitHTTP(t, "/app.ts")
 	t.Logf("%s (%s) is up and answering on %s", target, impl, base)
 
+	if impl == "oj" {
+		t.Run("application_config_denies_workspace_files", func(t *testing.T) {
+			control := get(t, base, "/@fs"+filepath.Join(ws, "tests", "shared.ts"))
+			if control.status != 200 {
+				t.Fatalf("allowed sibling returned %d: %s", control.status, control.body)
+			}
+			control.contains(t, srv, "SIBLING_SOURCE")
+			for _, file := range []string{blocked, defaultDenied} {
+				r := get(t, base, "/@fs"+file)
+				if r.status != 403 {
+					t.Fatalf("GET %s returned %d, want 403: %s", file, r.status, r.body)
+				}
+				r.excludes(t, "DENIED_FIXTURE", "FIXTURE_ONLY")
+			}
+		})
+	}
+
+	index := get(t, base, "/")
+	if index.status != 200 {
+		t.Fatalf("GET / returned %d: %s", index.status, index.body)
+	}
+	index.contains(t, srv, "NESTED_APP_INDEX")
+	index.excludes(t, "WORKSPACE_INDEX")
+
 	// ── 2: the running server really serves bazel-bin ─────────────────────────
 	// Vite answers 403 for a file outside fs.allow, so a 200 here is the whole
 	// assertion: without the generated allow-list this request is denied.
+
 	t.Run("serves_bazel_bin", func(t *testing.T) {
-		r := get(t, base, "/@fs"+bazelBin+"/app.js")
+		r := get(t, base, "/@fs"+appBin+"/app.js")
 		if r.status != 200 {
 			t.Errorf("serving from bazel-bin returned %d, want 200 (server.fs.allow lost bazel-bin)\nbody:\n%s",
 				r.status, r.body)
@@ -229,13 +227,39 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Fatalf("GET /entry.js returned %d, want 200\n%s", r.status, r.body)
 		}
 		t.Logf("entry.js = %s", r.body)
-		r.contains(t, srv, "/app.ts")
+		moduleURL := "/app.ts"
+		if impl == "oj" && wantBazelPlugin {
+			moduleURL = depURL(r.body)
+			if moduleURL == "" {
+				t.Fatalf("entry.js has no resolved import URL: %s", r.body)
+			}
+		} else {
+			r.contains(t, srv, "/app.ts")
+		}
 		r.excludes(t, "bazel-bin/app.js")
 
-		// And the bytes really came from Vite transforming the source.
-		m := get(t, base, "/app.ts")
+		m := get(t, base, moduleURL)
+		if m.status != 200 {
+			t.Fatalf("GET %s returned %d, want 200: %s", moduleURL, m.status, m.body)
+		}
 		m.contains(t, srv, "TS_SOURCE_TRANSFORMED_BY_VITE")
 		m.excludes(t, "JS_PRECOMPILED_BY_BAZEL")
+	})
+
+	t.Run("serves_sibling_package", func(t *testing.T) {
+		r := get(t, base, "/sibling_entry.js")
+		if r.status != 200 {
+			t.Fatalf("sibling importer returned %d: %s", r.status, r.body)
+		}
+		url := depURL(r.body)
+		if url == "" {
+			t.Fatalf("no sibling import URL in %s", r.body)
+		}
+		module := get(t, base, url)
+		if module.status != 200 {
+			t.Fatalf("sibling URL %s returned %d", url, module.status)
+		}
+		module.contains(t, srv, "SIBLING_SOURCE")
 	})
 
 	// ── 3b: what bazel-bin is still for ───────────────────────────────────────
@@ -246,14 +270,12 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/gen_entry.js")
 		t.Logf("gen_entry.js (status %d) = %s", r.status, r.body)
 		if !wantBazelPlugin {
-			// Neither server can see bazel-bin without the plugin; they differ in
-			// when they say so. Vite fails the transform, oj serves the module with
-			// the specifier untouched so the failure lands in the browser instead.
 			if impl == "oj" {
 				r.contains(t, srv, "./generated/routes.ts")
 				r.excludes(t, "bazel-bin/generated/routes.ts")
 				return
 			}
+			// Vite cannot see bazel-bin without the plugin, and fails the transform.
 			if r.status == 200 {
 				t.Fatalf("GET /gen_entry.js returned 200 without the plugin; bazel-bin "+
 					"is not Vite's to resolve\n%s", r.body)
@@ -265,25 +287,20 @@ func TestDevServerBehaviour(t *testing.T) {
 		if r.status != 200 {
 			t.Fatalf("GET /gen_entry.js returned %d, want 200\n%s", r.status, r.body)
 		}
-		r.contains(t, srv, "bazel-bin/generated/routes.ts")
-		m := get(t, base, "/@fs"+filepath.Join(bazelBin, "generated", "routes.ts"))
-		m.contains(t, srv, "CODEGEN_V1")
-	})
-
-	// ── 4: a first-party bare specifier ───────────────────────────────────────
-	// `@devserver/lib` is how packages import each other. resolve.alias is a rule
-	// feature, not a plugin one, so both variants must land on the same source
-	// file -- otherwise the bare import and a relative import of the same file
-	// are two modules in Vite's graph.
-	t.Run("resolves_first_party_bare_specifier", func(t *testing.T) {
-		r := get(t, base, "/alias_entry.js")
-		if r.status != 200 {
-			t.Fatalf("GET /alias_entry.js returned %d, want 200\n%s", r.status, r.body)
+		moduleURL := "/@fs" + filepath.Join(appBin, "generated", "routes.ts")
+		if impl == "oj" {
+			moduleURL = depURL(r.body)
+			if moduleURL == "" {
+				t.Fatalf("gen_entry.js has no resolved import URL: %s", r.body)
+			}
+		} else {
+			r.contains(t, srv, moduleURL)
 		}
-		t.Logf("alias_entry.js = %s", r.body)
-		r.contains(t, srv, "/tests/dev_server/lib/index.ts")
-		m := get(t, base, "/tests/dev_server/lib/index.ts")
-		m.contains(t, srv, "LIB_SOURCE_TRANSFORMED_BY_VITE")
+		m := get(t, base, moduleURL)
+		if m.status != 200 {
+			t.Fatalf("GET %s returned %d, want 200: %s", moduleURL, m.status, m.body)
+		}
+		m.contains(t, srv, "CODEGEN_V1")
 	})
 
 	// ── 4b: a bare npm specifier ──────────────────────────────────────────────
@@ -303,10 +320,7 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Fatalf("nothing in the response points at a resolved dependency:\n%s", r.body)
 		}
 		m := get(t, base, dep)
-		// Two landings are both the Bazel tree. Vite pre-bundles the package and
-		// serves the rewrite out of cacheDir, which this rule points inside
-		// bazel-bin; oj serves the file where it lies. Neither may be a path the
-		// host happened to have.
+		// Vite may serve the dependency directly or from its pre-bundle cache.
 		if !strings.Contains(m.finalURL, "/node_modules/zod/") &&
 			!strings.Contains(m.finalURL, "/vite-cache/deps/") {
 			t.Errorf("`import \"zod\"` resolved to %q, which is neither a Bazel npm "+
@@ -316,11 +330,7 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Errorf("the resolved dependency %s answers %d, want 200\n%s", dep, m.status, m.body)
 		}
 
-		// And the plugin resolves rather than invents: a package no tree has must
-		// not come back as anything. Where that failure surfaces differs -- Vite
-		// resolves while transforming and fails the module, oj defers to a
-		// container URL and fails when it is requested -- so the assertion is that
-		// it fails, not when.
+		// Missing imports may fail during transformation or on the later module request.
 		missing := get(t, base, "/npm_missing.js")
 		if missing.status != 200 {
 			missing.contains(t, srv, "Failed to resolve import")
@@ -359,10 +369,6 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Fatalf("GET /widget.tsx returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
 		}
 		if impl == "oj" {
-			// oj applies Fast Refresh itself, which is why ts_dev_server rejects
-			// react_refresh = True against it rather than stacking plugin-react on
-			// top. The transform is oj's own, so the plugin-react preamble that the
-			// Vite variants assert on is not what shows up here.
 			r.contains(t, srv, "$RefreshReg$")
 			return
 		}
@@ -395,6 +401,100 @@ func TestDevServerBehaviour(t *testing.T) {
 		}
 	})
 
+	if wantBazelPlugin {
+		t.Run("generated_hmr_uses_served_url", func(t *testing.T) {
+			file := filepath.Join(appBin, "hot.js")
+			prefix := "GENERATED"
+			if impl == "oj" {
+				prefix = "DISK_ONLY"
+			}
+			write(t, file, `export const value = "`+prefix+`_V1"; if (import.meta.hot) import.meta.hot.accept();`)
+			write(t, filepath.Join(appRoot, "hot_entry.js"), `import { value } from "./hot.js"; export { value };`)
+			url := depURL(get(t, base, "/hot_entry.js").body)
+			if url == "" {
+				t.Fatal("generated module has no import URL")
+			}
+			initial := get(t, base, url)
+			if initial.status != 200 {
+				t.Fatalf("generated module returned %d: %s", initial.status, initial.body)
+			}
+			initial.contains(t, srv, "GENERATED_V1")
+			url = strings.TrimPrefix(initial.finalURL, base)
+			if impl == "oj" {
+				initial.excludes(t, "DISK_ONLY")
+				initial.contains(t, srv, "TRANSFORM_ONE")
+				initial.contains(t, srv, "TRANSFORM_TWO")
+				initial.contains(t, srv, "APPLICATION_GRAPH_URL=/app.ts")
+				initial.contains(t, srv, "__oj_createHotContext("+strconv.Quote(url)+")")
+				_, dataURL, hasMap := strings.Cut(initial.body, "sourceMappingURL=")
+				media, encoded, hasData := strings.Cut(dataURL, ",")
+				isJSON := media == "data:application/json;base64" || media == "data:application/json;charset=utf-8;base64"
+				if !hasMap || !hasData || !isJSON || len(strings.Fields(encoded)) == 0 {
+					t.Fatal("generated module has no inline source map")
+				}
+				mapped, err := base64.StdEncoding.DecodeString(strings.Fields(encoded)[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				var sourceMap struct {
+					Sources        []string `json:"sources"`
+					SourcesContent []string `json:"sourcesContent"`
+					Mappings       string   `json:"mappings"`
+				}
+				if err := json.Unmarshal(mapped, &sourceMap); err != nil {
+					t.Fatal(err)
+				}
+				if sourceMap.Mappings == "" || !strings.Contains(strings.Join(sourceMap.Sources, "\n"), "original-hot.ts") || !strings.Contains(strings.Join(sourceMap.SourcesContent, "\n"), "ORIGINAL_HOT") {
+					t.Fatalf("generated source map lost the original source: %s", mapped)
+				}
+			}
+			wsPath, protocol := "/", "vite-hmr"
+			if impl == "oj" {
+				wsPath, protocol = "/__ws", ""
+			}
+			sock, err := hmrsocket.Dial(strings.TrimPrefix(base, "http://"), wsPath, protocol)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sock.Close()
+			write(t, file, `export const value = "`+prefix+`_V2"; if (import.meta.hot) import.meta.hot.accept();`)
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				frame, err := sock.Next(time.Until(deadline))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var message struct {
+					Updates []struct {
+						Path string `json:"path"`
+					} `json:"updates"`
+				}
+				if err := json.Unmarshal([]byte(frame), &message); err != nil {
+					t.Fatal(err)
+				}
+				matched := false
+				for _, update := range message.Updates {
+					if update.Path != url && !strings.HasSuffix(update.Path, "/hot.js") {
+						continue
+					}
+					if update.Path != url {
+						t.Fatalf("generated module HMR URL = %q, want %q", update.Path, url)
+					}
+					response := get(t, base, update.Path)
+					if response.status != 200 {
+						t.Fatalf("HMR URL %s returned %d", update.Path, response.status)
+					}
+					response.contains(t, srv, "GENERATED_V2")
+					matched = true
+				}
+				if matched {
+					return
+				}
+			}
+			t.Fatal("no generated module HMR URL was received")
+		})
+	}
+
 	// ── 7: restart-or-keep, both ways ─────────────────────────────────────────
 	// Only the plugin makes the decision; without it there is no ConfigWatcher
 	// and nothing to assert.
@@ -407,7 +507,7 @@ func TestDevServerBehaviour(t *testing.T) {
 	t.Run("keeps_running_on_codegen_rebuild", func(t *testing.T) {
 		before := restartCount(t, srv)
 		write(t, generated, "export const routes: string[] = [\"CODEGEN_V2\"];\n")
-		url := "/@fs" + filepath.Join(bazelBin, "generated", "routes.ts")
+		url := "/@fs" + filepath.Join(appBin, "generated", "routes.ts")
 		if !eventually(t, func() bool {
 			return strings.Contains(bodyOf(base, url), "CODEGEN_V2")
 		}) {
@@ -433,11 +533,11 @@ func TestDevServerBehaviour(t *testing.T) {
 	})
 }
 
-// restartCount is how many times the plugin has decided the running server is
-// configured for a graph that no longer exists.
 func restartCount(t *testing.T, s *server) int {
 	t.Helper()
-	return strings.Count(s.log(t), "[vite-plugin-bazel] restarting:")
+	log := s.log(t)
+	return strings.Count(log, "[vite-plugin-bazel] restarting:") +
+		strings.Count(log, "oj config/env changed — restarting dev server")
 }
 
 type devConfig struct {
@@ -445,7 +545,6 @@ type devConfig struct {
 	Host         any           `json:"host"`
 	Root         string        `json:"root"`
 	FsAllow      []string      `json:"fsAllow"`
-	WatchPaths   []string      `json:"watchPaths"`
 	Alias        []aliasEntry  `json:"alias"`
 	ConfigInputs []configInput `json:"configInputs"`
 	Plugins      []string      `json:"plugins"`

@@ -1,0 +1,14 @@
+load("//npm:defs.bzl", "node_modules")
+
+package(default_visibility = ["//tests/npm:__pkg__"])
+
+# The importer app-b: ansi-regex@6 and ansi-styles resolved against it.
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm/features:node_modules",
+    deps = [
+        "@npm_features//app-b:ansi-regex",
+        "@npm_features//app-b:ansi-styles",
+    ],
+)
