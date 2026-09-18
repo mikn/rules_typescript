@@ -4,13 +4,6 @@
 build --incompatible_strict_action_env
 build --nolegacy_external_runfiles
 
-# `Action.execution_info` is behind this flag, and reading it is the only way
-# Starlark can see an action's execution requirements -- which is what
-# //tests/npm:node_modules_not_cached_test asserts, so that the node_modules tree
-# cannot quietly start coming back out of a cache with files missing. The flag
-# only adds API surface; it changes nothing that already builds.
-build --experimental_google_legacy_api
-
 # Type-check on every build (tsgo validation action).
 # This makes type errors fail `bazel build` — the same behaviour as `go build`.
 # Remove this line if you want to skip type-checking (e.g. for faster iteration
@@ -69,17 +62,11 @@ build:ci-integration --verbose_failures
 # still runs and no leg has to be edited to keep it running. The one edit that
 # could drop a test is adding a `-shard-*` term here without adding the matching
 # matrix leg; tools/ci/check_integration_shards.sh fails on exactly that.
-test:ci-integration-nextjs-tanstack --config=ci-integration
-test:ci-integration-nextjs-tanstack --test_tag_filters=shard-nextjs-tanstack
-test:ci-integration-remix-svelte --config=ci-integration
-test:ci-integration-remix-svelte --test_tag_filters=shard-remix-svelte
 test:ci-integration-npm --config=ci-integration
 test:ci-integration-npm --test_tag_filters=shard-npm
 test:ci-integration-core --config=ci-integration
-test:ci-integration-core --test_tag_filters=-shard-nextjs-tanstack,-shard-remix-svelte,-shard-npm
+test:ci-integration-core --test_tag_filters=-shard-npm
 
-# Two output bases, one target, compared byte for byte. Convenience symlinks
-# are off because both builds would otherwise race for the same bazel-bin.
 build:determinism --experimental_convenience_symlinks=ignore
 
 # ── Integration test child workspaces ────────────────────────────────────────
@@ -91,7 +78,7 @@ build:determinism --experimental_convenience_symlinks=ignore
 #
 # Only the older layout needs an entry here: those child workspaces sit directly
 # in tests/integration/<name>/ with a real BUILD.bazel. Prefer the newer
-# tests/integration/npmrc_registry layout -- child workspace under workspace/
+# tests/integration/npm_registries layout -- child workspace under workspace/
 # with a BUILD.bazel.tpl -- which needs no entry at all.
-build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs,tests/integration/oxc_declarations
-query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs,tests/integration/oxc_declarations
+build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/oxc_declarations
+query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/oxc_declarations

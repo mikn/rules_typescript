@@ -24,7 +24,6 @@ ts_codegen(
 ts_compile(
     name = "route_tree_ts",
     srcs = [":route_tree"],
-    declarations = "oxc",
 )
 
 ts_compile(
@@ -36,65 +35,42 @@ ts_compile(
 
 `ts_binary` runs the `.mjs` on the JS runtime toolchain, so the generator is the
 script and nothing else. A generator that imports npm packages at runtime
-additionally takes `node_modules` — see
+additionally takes `node_modules`, and one that resolves a workspace member
+names the member's link target in `deps`; see
 [The environment the generator gets](#the-environment-the-generator-gets).
 
-The generated sources are their own `ts_compile` target, and it does not use the
-default declaration emit — see [Compiling the output](#compiling-the-output).
+The generated sources are their own `ts_compile` target; see
+[Compiling the output](#compiling-the-output).
 
-Gazelle auto-detects Prisma, GraphQL codegen and OpenAPI generators from
-`package.json` and writes the target itself; the `# gazelle:ts_codegen`
-directive is for a generator it does not recognise. See
-[Register a codegen target](../gazelle/directives.md#register-a-codegen-target).
-It writes the `ts_compile` that consumes the output too, named
-`<name>_compile`, and resolves imports of the generated module to it. A
-checked-in file a `ts_codegen` declares as an out is kept out of the package's
-`srcs`, so the two cannot both claim it. A checked-in `*.gen.ts` no rule
-declares is an ordinary source: nothing in the build writes it, and leaving it
-out is a module its importers cannot find. `routeTree.gen.ts` is the exception
--- the Start Vite plugin writes that one. Use
-[`# gazelle:ts_exclude`](../gazelle/directives.md#exclude-generated-files)
-for one you want out anyway.
+A `ts_codegen` is hand-written. Gazelle reads every one in the BUILD files it
+walks and never writes or rewrites one: a `ts_codegen` in a package's BUILD
+file is a dep of every target Gazelle writes there, and the files its `outs`
+declare and everything under a declared `out_dir` are the target's output
+whether or not a local run of the generator left a copy on disk, so none is a
+src, a program reaching an out depends on the target, and an import into the
+tree resolves to it. A checked-in `*.gen.ts` no rule declares is an ordinary
+source, listed by its program like any other; one the program's `exclude`
+names is not.
 
 ## Compiling the Output
 
-A generated file lives in the output tree, and the default emit
-(`declarations = "tsgo"`, `enable_check = True`) cannot take it from there. Two
-failures:
-
-**Checked-in and generated sources in one target fail at analysis.** One tsgo
-declaration emit has one `rootDir`, and those two sets hang off different roots:
+A generated file lives in the output tree, and one tsgo declaration emit has one
+`rootDir`. A target holding generated sources alone hangs off one root, the
+package's directory in `bazel-bin`, and builds under either emitter. Checked-in
+and generated sources in one target hang off two, and fail at analysis under the
+default emit:
 
 ```
-ts_compile: srcs on //src/app:app hang off 2 different roots, and one
+ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
 declaration emit has one rootDir:
   bazel-out/k8-fastbuild/bin/src/app
   src/app
 ```
 
-**Generated sources alone fail inside the tsgo action.** Under that emit
-`outDir` is the package's directory in `bazel-bin`, which is where the generated
-source already is, and TypeScript's implicit `exclude` covers `outDir`, so the
-program comes out empty:
-
-```
-error TS18003: No inputs were found in config file
-'.../route_tree_ts.tsconfig.json'. Specified 'include' paths were
-'["src/routeTree.gen.ts"]' ...
-```
-
-The target holding generated sources picks another emitter:
-
-- **`declarations = "oxc"`** — oxc emits the `.d.ts` syntactically, per file,
-  with no type program, so downstream targets still type-check against the
-  generated code. It requires an explicit type on every export, which the
-  generator's output has to satisfy.
-- **`enable_check = False`** — no type program and therefore no `.d.ts` at all,
-  for generated code whose types nothing downstream consumes. `//tests/codegen`
-  uses it.
-
-`declarations = "oxc"` also lifts the first error, so one target holding both
-sets is expressible: oxc groups its sources by root and runs once per group.
+Put the generated sources in their own target and depend on it, as above.
+`--//ts:declarations=oxc` lifts the error for the whole build: oxc groups its
+sources by root and runs once per group, and the check is a validation action
+that reads any layout.
 
 ## Attributes
 
@@ -105,8 +81,8 @@ sets is expressible: oxc groups its sources by root and runs once per group.
 | `out_dir` | `string` | `""` | A single declared **directory** instead, for a generator that produces a tree it will not enumerate (Prisma's client, say) |
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
-| `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime. Name the target `node_modules` if the generator uses ESM |
-| `module_name` | `string` | `""` | The bare specifier the `out_dir` tree is importable as. Requires `out_dir` |
+| `node_modules` | `label` | `None` | The importer's [`node_modules`](node-modules.md) target, for a generator that imports npm packages at runtime |
+| `deps` | `label_list` | `[]` | Workspace members the generator resolves, as the importer's link targets, `//<importer>:node_modules/<name>` |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
@@ -114,14 +90,12 @@ Both being unset and both being set are separate analysis-time errors. Bazel
 requires every output to be declared at analysis time, so a generator whose
 output set depends on its input is only expressible as `out_dir`.
 
-`module_name` requires `out_dir` — see [A directory of output](#a-directory-of-output).
-
 ## A Directory of Output
 
-A generator whose file names come from its input — one module per message
-bundle, per Prisma model, per GraphQL operation — cannot have its outputs
-declared. `out_dir` declares the directory instead, and the target then carries
-what a `ts_compile` reads a dep through:
+A generator whose file names come from its input (one module per message
+bundle, per Prisma model, per GraphQL operation) cannot have its outputs
+declared. `out_dir` declares the directory instead, and the target carries the
+providers a `ts_compile` reads a dep through:
 
 ```python
 ts_codegen(
@@ -130,40 +104,117 @@ ts_codegen(
     out_dir = "compiled",
     args = ["--project", "{srcs_dir}", "--outdir", "{out}"],
     generator = ":compile_messages",
-    module_name = "#app/messages",
     node_modules = ":node_modules",
 )
 
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
+    tsconfig = "tsconfig.json",
     deps = [":messages"],
 )
 ```
 
-`main.ts` imports `#app/messages`, and the declarations inside the tree type it.
+`main.ts` imports `#app/messages`, which the tsconfig's `paths` sends into the
+tree (`"#app/messages": ["./compiled/index"]`); the rule writes a bazel-bin twin
+of every `paths` value, so the entry reaches the tree the action wrote, and the
+declarations inside it type the import.
 
-**The tree goes in `deps`, never in `srcs`.** `srcs` declares one output per
-input file at analysis time, and a directory has no file list until its action
-has run; putting one there is an analysis-time error naming this attribute. So
-the generator has to emit **compiled** output — `.js` beside `.d.ts` — because
-nothing downstream will compile it. A generator that emits `.ts` sources into a
-tree has no route today.
+The tree goes in `deps`, never in `srcs`. `srcs` declares one output per input
+file at analysis time, and a directory has no file list until its action has
+run; a directory in `srcs` is an analysis-time error naming the attribute. The
+generator has to emit compiled output, `.js` beside `.d.ts`; nothing downstream
+compiles the tree. A generator that emits `.ts` sources into a tree has no
+route today.
 
-`module_name` is the only way to import out of the tree by name. Without it the
-tree is still staged for the consumer's type-check, but no `paths` entry points
-at it and the import does not resolve:
+A `paths` entry is the only way to import out of the tree by name. Without one
+the tree is still staged for the consumer's type-check, but nothing points at it
+and the import does not resolve:
 
 ```
 error TS2307: Cannot find module '#app/messages' or its corresponding type
 declarations.
 ```
 
-A relative import into the tree works too — `./compiled/messages/greeting.js`
-from a source in the same package — and needs no `module_name`. The
-undeclared-import check resolves it against the directory rather than against a
-file list it does not have, so it still names the label when the tree arrives
-only through another dep.
+A relative import into the tree, `./compiled/messages/greeting.js` from a source
+in the same package, needs no entry. The undeclared-import check resolves it
+against the directory, so it still names the label when the tree arrives only
+through another dep.
+
+Gazelle writes the `deps` entry for either spelling. An `out_dir` target is
+indexed by the workspace-relative `out_dir` path a relative or aliased
+specifier reaches it by; a specifier under that root resolves to the target. The
+root is matched as a prefix, after every indexed source has failed to claim the
+specifier. An `outs` target is indexed under no root: its `TsInfo.js` is
+empty, so nothing depends on it for a module, and its outputs are importable
+through the `ts_compile` that names it in `srcs`.
+
+## Cloudflare Worker Bindings
+
+`wrangler types` turns the bindings a worker reads off `env`, declared in its
+wrangler config, into an `Env` interface plus the runtime's own globals
+(`Request`, `Response`, `KVNamespace` and the rest) for the config's
+compatibility date. The ruleset ships that command as a generator,
+`@rules_typescript//tools/codegen:wrangler_types`, so the declaration is a build
+output and no `worker-configuration.d.ts` is checked in:
+
+```python
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_codegen")
+
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:wrangler"],
+    hoist = ":node_modules/.pnpm/node_modules",
+)
+
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--strict-vars=false",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+    visibility = ["//visibility:public"],
+)
+```
+
+The generator takes `--config <basename>`, `--out {out}` and `--srcs {srcs}`,
+then the rest of the `wrangler types` command line as written:
+`--strict-vars=false` types `vars` as `string` rather than their literal values,
+`--env-interface CloudflareBindings` renames the interface,
+`--include-runtime=false` leaves out the runtime half for a program that takes
+it from `@cloudflare/workers-types` (the two are the same declarations, and a
+program holding both gets a duplicate identifier for each), `--env staging`
+picks one environment's bindings. The config is the one src it reads; adding
+the file `main` names to `srcs` puts `Cloudflare.GlobalProps.mainModule` in the
+output and changes nothing else. `build` is removed from the staged copy, at the
+top level and under every `env`: `wrangler types` runs `build.command` before it
+resolves `main` and drops the entry when the command fails, so nothing the
+config names runs in the action and the output is the one a config without the
+block gives. The runtime half comes from booting the `workerd` in
+`node_modules` over loopback: measured with wrangler 4.126.0 in the Bazel
+sandbox, it needs no network and no `CLOUDFLARE_API_TOKEN`, and two runs over
+one config are byte-identical. A worker typed against the output has `lib`
+without DOM and no `@cloudflare/workers-types` in `deps`.
+
+The output has no top-level import or export, so what it declares is global. A
+tsconfig names it in `compilerOptions.types` as `./worker-configuration.d.ts`,
+and the rule rebases the entry to the staged file. Gazelle finds the file among
+this target's `outs` and puts this target, the dep that stages it, in the `deps`
+of every target under that tsconfig. Those targets sit in packages of their own,
+so the `visibility` has to reach them. See
+[a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names);
+`//tests/worker_types` is the worked example; its codegen is `env_types`, since
+`worker_types` is the directory's name and so the `ts_compile`'s.
 
 ## Placeholders in `args`
 
@@ -174,9 +225,9 @@ execroot-relative.
 |---|---|
 | `{srcs_dir}` | the directory of the **first** src |
 | `{srcs}` | every src path, space-separated in one argument |
-| `{out}` | the path of the first declared output — the `out_dir` directory when `out_dir` is set |
+| `{out}` | the path of the first declared output; the `out_dir` directory when `out_dir` is set |
 | `{outs_dir}` | the directory of the first declared output |
-| `{node_modules_dir}` | the npm tree's path; only substituted when `node_modules` is set |
+| `{node_modules_dir}` | the importer's `node_modules` directory; only substituted when `node_modules` is set |
 
 `{srcs_dir}` and `{outs_dir}` are the first entry's directory, not a common
 ancestor. A `glob()` spanning two directories hands the generator one of them; a
@@ -187,32 +238,61 @@ generator taking a list needs a shell wrapper that word-splits it.
 
 ## The Environment the Generator Gets
 
-Three variables the rule sets so a generator script need not know any path:
+The rule sets three variables:
 
 | Variable | When | Value |
 |---|---|---|
 | `NODE_BINARY` | a `js_tool` toolchain is registered | the toolchain node. Set with `setdefault`, so an `env` entry of your own wins |
-| `NODE_PATH` | `node_modules` is set | the tree's directory, for CJS resolution |
+| `NODE_PATH` | `node_modules` is set | the directory, for CJS resolution |
 | `TS_CODEGEN_NODE_MODULES` | `node_modules` is set | the same path, for a script that forks a child process |
 
-**A generator that writes bare ESM imports needs the target named literally
-`node_modules`.** The tree's directory is named after its target, and Node's
-ESM resolver only ever looks in a directory called `node_modules` as it walks
-up — `NODE_PATH` is a CJS mechanism and ESM ignores it. So
-`node_modules = ":codegen_node_modules"` leaves the generator failing at
-runtime:
+The directory is the importer's `node_modules`, so a generator's bare ESM
+import resolves by Node's walk up from the script and a CJS one through
+`NODE_PATH` alike; every link and every store tree the links reach is an input
+of the action.
+
+A workspace member's link is no output of the importer's target but a target of
+its own, `//<importer>:node_modules/<name>`
+([One Link per Name](node-modules.md#one-link-per-name)), and a generator that
+resolves the member names it in `deps`. The link and the member's store tree
+join the action's inputs, and the link sits in the directory `node_modules`
+names, so the member resolves as it does from a file under the importer. A Vite
+build whose entry imports `@lovable.dev/pulse/fonts.css`, a member's exported
+stylesheet:
+
+```python
+ts_codegen(
+    name = "frame_build",
+    srcs = [
+        "vite.config.mts",
+        "//workers/file-viewer/frame:srcs",
+    ],
+    out_dir = "public/v1",
+    args = [
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--config",
+        "vite.config.mts",
+    ],
+    generator = ":vite_build",
+    node_modules = ":node_modules",
+    deps = [":node_modules/@lovable.dev/pulse"],
+)
+```
+
+Without the entry the link is not staged and Rollup stops at the import:
 
 ```
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'consola'
+[vite]: Rollup failed to resolve import "@lovable.dev/pulse/fonts.css" from
+".../workers/file-viewer/frame/src/main.tsx".
 ```
 
-Name the target `node_modules`. One per package is the limit that follows; a
-second npm tree in the same package can only serve a CJS generator.
-
-The shape for a Node generator is a [`ts_binary`](ts-binary.md) whose
-`entry_point` is the script itself. The rule resolves the runtime from the JS
-runtime toolchain and locates the entry through the runfiles library, so nothing
-depends on `node` being on `PATH` and nothing has to read `NODE_BINARY`:
+A Node generator is a [`ts_binary`](ts-binary.md) whose `entry_point` is the
+script. The rule resolves the runtime from the JS runtime toolchain and locates
+the entry through the runfiles library; `node` need not be on `PATH`, and the
+script need not read `NODE_BINARY`:
 
 ```python
 ts_binary(
@@ -222,19 +302,19 @@ ts_binary(
 )
 ```
 
-Sibling modules the entry imports go in `data`, which is what puts them in
-runfiles beside it.
+Sibling modules the entry imports go in `data`; that puts them in runfiles
+beside it.
 
 `NODE_BINARY` still reaches the generator's environment, for a generator that
 forks a child Node process of its own.
 
-A generator that is not a Node program at all — a Go binary, a Rust binary, a
-shell script — is any executable target, `sh_binary` included. `sh_binary`
-carries its own `load`: it is a `rules_shell` rule, not a built-in, and a BUILD
-file that omits the line fails to load with `name 'sh_binary' is not defined`.
-Locate a script inside a shell wrapper with the Bash runfiles library and
-`rlocation`; `"$0.runfiles"` does not exist when Bazel hands the action a
-runfiles manifest instead of a tree:
+A generator that is not a Node program (a Go binary, a Rust binary, a shell
+script) is any executable target, `sh_binary` included. `sh_binary` is a
+`rules_shell` rule, not a built-in, and needs its own `load`; a BUILD file
+without the line fails with `name 'sh_binary' is not defined`. Locate a script
+inside a shell wrapper with the Bash runfiles library and `rlocation`;
+`"$0.runfiles"` does not exist when Bazel hands the action a runfiles manifest
+instead of a tree:
 
 ```bash
 #!/usr/bin/env bash

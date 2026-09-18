@@ -9,9 +9,8 @@ import (
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
 
-// A SUBCOMMAND line reads:
-//
-//	SUBCOMMAND: # ts_compile rule target //src/lib:lib [action 'OxcCompile ...'
+// A SUBCOMMAND line reads
+// "SUBCOMMAND: # ts_compile rule target //src/lib:lib [action 'TsEmit ...".
 var subcommandTarget = regexp.MustCompile(`(?m)^SUBCOMMAND:.* target (//[^ ]+) \[action `)
 
 func executedTargets(log *harness.Log) []string {
@@ -49,8 +48,19 @@ func main() {
 			it.Pass("%s/BUILD.bazel generated", dir)
 		}
 
-		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.MustBazel("build", "//...", "--output_groups=+declarations")
+		it.Pass("bazel build //... --output_groups=+declarations")
+
+		it.Write(it.Path("tools-default/main.js"), "console.log('source launcher works');\n")
+		it.Write(it.Path("tools-default/BUILD.bazel"), `load("@rules_typescript//ts:defs.bzl", "ts_binary")
+
+ts_binary(name = "main", entry_point = "main.js")
+`)
+		launch, err := it.BazelLog("source_launcher.log", "run", "//tools-default:main")
+		if err != nil || !launch.Contains("source launcher works") {
+			launch.Dump()
+			it.Fail("the default consumer launcher did not run the JavaScript program")
+		}
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -62,7 +72,8 @@ func main() {
 		before := it.Read(it.Bin("src/lib/math.d.ts"))
 		it.Replace(it.Path("src/lib/math.ts"), "  return a + b;\n", "  const sum: number = a + b;\n  return sum;\n")
 
-		rebuild, err := it.BazelLog("rebuild.log", "build", "//...", "--subcommands")
+		rebuild, err := it.BazelLog("rebuild.log", "build", "//...", "--subcommands",
+			"--output_groups=+declarations")
 		if err != nil {
 			rebuild.Dump()
 			it.Fail("the incremental rebuild failed")
@@ -94,7 +105,8 @@ func main() {
 			"export function add(a: number, b: number): number {",
 			"export function add(a: number, b: number, c: number = 0): number {")
 
-		api, err := it.BazelLog("api_rebuild.log", "build", "//...", "--subcommands")
+		api, err := it.BazelLog("api_rebuild.log", "build", "//...", "--subcommands",
+			"--output_groups=+declarations")
 		if err != nil {
 			api.Dump()
 			it.Fail("the rebuild after the API change failed")
@@ -107,5 +119,88 @@ func main() {
 			it.Fail("//src/app did not recompile after src/lib's .d.ts changed")
 		}
 		it.Pass("//src/app recompiled once the .d.ts changed")
+
+		strictDeps(it)
 	})
+}
+
+// A type-only import through a `paths` alias reaches a file only a dep's dep
+// owns; the build names that dep, and declaring it is the fix.
+func strictDeps(it *harness.IT) {
+	it.Write(it.Path("strict/hidden.ts"), `export interface Hidden {
+  id: string;
+}
+`)
+	it.Write(it.Path("strict/leaf.ts"), `import type { Hidden } from "./hidden";
+
+export interface Leaf {
+  base: Hidden;
+}
+`)
+	it.Write(it.Path("strict/middle.ts"),
+		`import type { Hidden } from "#strict/hidden";
+import type { Leaf } from "./leaf";
+
+export interface Middle {
+  base: Hidden;
+  leaf: Leaf;
+}
+`)
+	it.Write(it.Path("strict/tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "strict": true,
+    "paths": { "#strict/*": ["./*"] }
+  }
+}
+`)
+	it.Write(it.Path("strict/BUILD.bazel"),
+		`load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "hidden",
+    srcs = ["hidden.ts"],
+)
+
+ts_compile(
+    name = "leaf",
+    srcs = ["leaf.ts"],
+    deps = [":hidden"],
+)
+
+ts_compile(
+    name = "middle",
+    srcs = ["middle.ts"],
+    tsconfig = "tsconfig.json",
+    deps = [":leaf"],
+)
+`)
+
+	log, err := it.BazelLog("strict_deps.log", "build", "//strict:middle")
+	if err == nil {
+		log.Dump()
+		it.Fail("//strict:middle built; middle.ts reaches hidden.d.ts " +
+			"through :leaf alone")
+	}
+	it.Pass("//strict:middle failed to build")
+	if !log.Contains("add //strict:hidden to deps") {
+		log.Dump()
+		it.Fail("the failure does not name //strict:hidden as the dep to add")
+	}
+	var excerpt []string
+	for _, line := range log.Lines() {
+		if strings.Contains(line, "tsaction:") || strings.HasPrefix(line, "  ") {
+			excerpt = append(excerpt, line)
+		}
+	}
+	fmt.Printf("INFO: the failure:\n%s\n", strings.Join(excerpt, "\n"))
+	it.Pass("the failure names //strict:hidden")
+
+	it.Replace(it.Path("strict/BUILD.bazel"),
+		"    deps = [\":leaf\"],\n",
+		"    deps = [\n        \":hidden\",\n        \":leaf\",\n    ],\n")
+	it.MustBazel("build", "//strict:middle")
+	it.Pass("//strict:middle builds with :hidden declared")
 }

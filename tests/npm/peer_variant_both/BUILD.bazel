@@ -1,0 +1,13 @@
+load("//npm:defs.bzl", "node_modules")
+
+package(default_visibility = ["//tests/npm:__pkg__"])
+
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm/features:node_modules",
+    deps = [
+        "@npm_features//:wrap-ansi",
+        "@npm_features//app-a:ansi-styles",
+    ],
+)

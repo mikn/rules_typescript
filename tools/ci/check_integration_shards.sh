@@ -149,7 +149,7 @@ if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
 
-printf 'check_integration_shards: %s integration tests over %s legs, each on exactly one:\n' \
+printf 'check_integration_shards: %s tests in //tests/integration over %s legs, each on exactly one:\n' \
   "$(wc -l < "$work/all" | tr -d ' ')" "$(wc -l < "$work/rc_legs" | tr -d ' ')"
 while read -r shard; do
   printf '  %-24s %s\n' "$shard" "$(wc -l < "$work/leg.$shard" | tr -d ' ')"

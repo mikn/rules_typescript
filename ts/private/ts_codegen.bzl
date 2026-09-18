@@ -15,7 +15,9 @@ Output declaration:
 The generator binary is run as a Bazel build action (not at analysis time), so:
   - All outputs are declared at analysis time via the outs attr
   - The action is fully hermetic and cacheable
-  - Generated files can be fed directly into ts_compile as srcs
+  - A generated .ts is a src of the ts_compile that compiles it; a generated
+    .d.ts or .js is a dep, reached through the consumer's tsconfig (`types`
+    for a declaration, `paths` for an out_dir tree)
 
 Typical patterns:
 
@@ -32,9 +34,11 @@ Typical patterns:
              args = ["--out", "{out}"],
          )
 
-     node_modules on the ts_codegen puts NODE_PATH and TS_CODEGEN_NODE_MODULES
-     in the generator's environment, which is how the script reaches npm
-     packages.
+     node_modules on the ts_codegen, the importer's `node_modules` target,
+     puts NODE_PATH and TS_CODEGEN_NODE_MODULES in the generator's
+     environment, which is how the script reaches npm packages.  A workspace
+     member the generator resolves is the importer's link target in deps,
+     `:node_modules/<member name>`.
 
          ts_binary(name = "gen_schema", entry_point = "generate-schema.mjs")
          ts_codegen(
@@ -54,7 +58,8 @@ Typical patterns:
          sh_binary(name = "legacy_gen", srcs = ["legacy_gen.sh"])
 
   3. A generator this ruleset ships:
-     //tools/codegen:tanstack_routes writes a TanStack Router route tree.
+     //tools/codegen:tanstack_routes writes a TanStack Router route tree, and
+     //tools/codegen:wrangler_types a worker's worker-configuration.d.ts.
 
          ts_codegen(
              name = "route_tree",
@@ -62,30 +67,37 @@ Typical patterns:
              outs = ["routeTree.gen.expected.ts"],
              generator = "@rules_typescript//tools/codegen:tanstack_routes",
              args = ["--out", "{out}", "--srcs", "{srcs}"],
-             node_modules = "//:router_generator_node_modules",
+             node_modules = "//:node_modules",
          )
 
      A route tree has to be checked in -- the routes are typed against it, and
-     one ts_compile cannot hold both it and them -- so pair the target with
-     refresh_workspace_files and diff_test. examples/tanstack-app/src/routes
-     is the worked example.
+     one ts_compile cannot hold both it and them -- so a diff_test beside the
+     target fails when the checked-in copy drifts.
 
 Placeholder substitution in args:
   {srcs_dir}         → execroot-relative directory of the first src file
   {out}              → execroot-relative path of the first declared output
   {outs_dir}         → execroot-relative directory of the first declared output
   {srcs}             → space-separated list of all src file paths
-  {node_modules_dir} → execroot-relative path of the node_modules directory
-                       (only valid when node_modules is set)
+  {node_modules_dir} → execroot-relative path of the importer's node_modules
+                       directory (only valid when node_modules is set)
 
 When node_modules is set, ts_codegen automatically sets:
   NODE_PATH              → node_modules directory (for Node.js CJS resolution)
   TS_CODEGEN_NODE_MODULES → same path (for scripts that fork child processes)
 """
 
-load("//ts/private:providers.bzl", "JsInfo", "TsDeclarationInfo")
+load(
+    "//ts/private:providers.bzl",
+    "NodeModulesInfo",
+    "NpmLinkInfo",
+    "ts_info",
+)
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
-load("//ts/private:ts_compile.bzl", "TsModuleInfo", "label_text")
+
+_DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
+
+_JS_EXTENSIONS = ["js", "mjs", "cjs"]
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
@@ -102,12 +114,6 @@ def _ts_codegen_impl(ctx):
         fail("ts_codegen: either outs or out_dir must be set")
     if has_outs and has_out_dir:
         fail("ts_codegen: outs and out_dir are mutually exclusive; set exactly one")
-    if ctx.attr.module_name and not has_out_dir:
-        fail(
-            "ts_codegen: module_name on {} needs out_dir.\n".format(ctx.label) +
-            "Files declared in outs are sources: a ts_compile takes them in srcs and " +
-            "publishes the name itself, with module_name on that target.",
-        )
 
     # Collect declared output files (or declare a directory).
     if has_out_dir:
@@ -131,18 +137,16 @@ def _ts_codegen_impl(ctx):
     # {srcs}: space-separated list of all source paths.
     srcs_list = " ".join([f.path for f in srcs])
 
-    # Collect node_modules files and compute the node_modules directory path.
-    node_modules_files = []
+    node_modules_files = depset()
     node_modules_dir = ""
     if ctx.attr.node_modules:
-        node_modules_files = ctx.files.node_modules
-        if node_modules_files:
-            first_nm = node_modules_files[0]
-            if first_nm.is_directory:
-                node_modules_dir = first_nm.path
-            else:
-                # Fallback: use the parent of the first file.
-                node_modules_dir = first_nm.dirname
+        node_modules_files = ctx.attr.node_modules[DefaultInfo].files
+        node_modules_dir = ctx.attr.node_modules[NodeModulesInfo].dir
+    member_links = [dep[NpmLinkInfo] for dep in ctx.attr.deps]
+    member_files = depset(
+        [entry.link for entry in member_links],
+        transitive = [entry.store.transitive for entry in member_links],
+    )
 
     # Resolve node as a build tool (for passing NODE_BINARY env).
     js_tool = get_js_tool(ctx)
@@ -179,8 +183,10 @@ def _ts_codegen_impl(ctx):
         action_env.setdefault("NODE_BINARY", runtime_binary.path)
         extra_inputs.append(runtime_binary)
 
-    # Build the full input depset: srcs + node_modules + runtime (if any).
-    inputs = depset(srcs + node_modules_files + extra_inputs)
+    inputs = depset(
+        srcs + extra_inputs,
+        transitive = [node_modules_files, member_files],
+    )
 
     # Run the generator action.
     ctx.actions.run(
@@ -193,44 +199,17 @@ def _ts_codegen_impl(ctx):
         progress_message = "TsCodegen %{label}",
     )
 
+    # A tree is compiled output whole; among declared outs a .d.ts and a .js are
+    # a dep's, while a .ts out is a source for a consumer's srcs.
     files = depset(outs)
-    if not has_out_dir:
-        return [DefaultInfo(files = files)]
-
-    # The same fields a ts_compile's own outputs travel in: nothing downstream
-    # compiles the tree, so what it holds has to already be compiled output.
-    root = out_dir_file.path
-    own_modules = []
-    if ctx.attr.module_name:
-        own_modules.append(struct(
-            module_name = ctx.attr.module_name,
-            label = label_text(ctx.label),
-            declaration_root = root,
-            source_root = root,
-            declared_paths = (),
-        ))
+    if has_out_dir:
+        js, declarations = files, files
+    else:
+        js = depset([f for f in outs if f.extension in _JS_EXTENSIONS])
+        declarations = depset([f for f in outs if f.basename.endswith(_DECLARATION_SUFFIXES)])
     return [
         DefaultInfo(files = files),
-        JsInfo(
-            js_files = files,
-            js_map_files = depset(),
-            transitive_js_files = files,
-            transitive_js_map_files = depset(),
-        ),
-        TsDeclarationInfo(
-            declaration_files = files,
-            transitive_declaration_files = files,
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(),
-        ),
-        TsModuleInfo(
-            module_name = ctx.attr.module_name,
-            label = label_text(ctx.label),
-            declaration_root = root,
-            source_root = root,
-            declared_paths = (),
-            transitive_modules = depset(own_modules),
-        ),
+        ts_info(js = js, declarations = declarations, label = ctx.label),
     ]
 
 # ─── Rule declaration ──────────────────────────────────────────────────────────
@@ -264,6 +243,10 @@ Use this for generators like Prisma that produce many files in a tree
 
 Mutually exclusive with outs. The {out} and {outs_dir} placeholders in
 args resolve to the declared directory path when out_dir is used.
+
+A consumer reaches the tree by relative path or through a `paths` entry in its
+tsconfig whose value names this directory; the bin-dir twin of that value is
+where the tree is.
 """,
             default = "",
         ),
@@ -295,8 +278,8 @@ Supports placeholder substitution:
   {out}              → execroot-relative path of the first declared output file
   {outs_dir}         → execroot-relative directory of the first declared output
   {srcs}             → space-separated list of all src file paths
-  {node_modules_dir} → execroot-relative path of the node_modules directory
-                       (only valid when node_modules is set)
+  {node_modules_dir} → execroot-relative path of the importer's node_modules
+                       directory (only valid when node_modules is set)
 
 Example:
     args = ["--routes-dir", "{srcs_dir}", "--out", "{out}"]
@@ -304,29 +287,27 @@ Example:
             default = [],
         ),
         "node_modules": attr.label(
-            doc = """Optional node_modules target providing npm packages for the generator.
+            doc = """The importer's `node_modules` target, for a generator that
+imports npm packages at runtime.
 
 When set:
-  - The node_modules tree is added to the action's inputs
-  - NODE_PATH is set to the node_modules directory (for CJS resolution)
+  - Every link of the directory and every store tree it reaches is an input
+  - NODE_PATH is set to the directory (for CJS resolution)
   - TS_CODEGEN_NODE_MODULES is set to the same path
   - {node_modules_dir} placeholder is available in args
-
-Use this when the generator script imports npm packages at runtime.
 """,
-            allow_files = True,
+            providers = [NodeModulesInfo],
         ),
-        "module_name": attr.string(
-            doc = """Bare specifier the out_dir tree is importable as.
+        "deps": attr.label_list(
+            doc = """The workspace members the generator resolves, as the
+importer's link targets, `//<importer>:node_modules/<name>`.
 
-Set it and a ts_compile naming this target in deps resolves that specifier to
-the tree, the same route module_name on a ts_compile takes. Leave it unset and
-the tree is staged for the consumer's compile but has no name to import.
-
-Requires out_dir: files declared in outs are sources, and the ts_compile that
-takes them in srcs is what publishes a name for them.
+Each link and the member's store tree join the action's inputs; the link sits
+in the directory `node_modules` names, where the walk up from a file under the
+importer finds it. A published package is the importer's to link in
+`node_modules`.
 """,
-            default = "",
+            providers = [[NpmLinkInfo]],
         ),
         "env": attr.string_dict(
             doc = "Additional environment variables passed to the generator action.",

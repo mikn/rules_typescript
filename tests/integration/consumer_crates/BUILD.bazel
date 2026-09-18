@@ -1,0 +1,44 @@
+"""Integration test: a consumer on another rules_rust and Rust than the
+ruleset's, with a crate_universe hub of its own named `crates`.
+
+The child workspace overrides rules_rust to 0.70.0, the floor
+(COMPATIBILITY.md § rules_rust), registers Rust 1.91.0, builds a ts_compile --
+which reaches oxc-bazel through the crates the ruleset vendors -- asserts both
+versions from the nested Bazel, and lists its own hub. The ruleset declares no
+hub, so `crates` is the consumer's, and no lockfile of the ruleset's is checked
+against the consumer's versions.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy: a real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage.
+
+Its Cargo.Bazel.lock is rendered under its own rules_rust and Rust, so editing
+workspace/Cargo.toml or either version repins it: copy workspace/ elsewhere,
+put this checkout's path where MODULE.bazel says {RULES_TS_ROOT}, rename
+BUILD.bazel.tpl to BUILD.bazel, run
+`CARGO_BAZEL_REPIN=1 bazel query "@crates//:all"` there and copy Cargo.lock
+and Cargo.Bazel.lock back.
+
+  bazel test //tests/integration/consumer_crates:consumer_crates_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "consumer_crates_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:consumer_crates_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

@@ -1,43 +1,5 @@
-// Package dev_server_test starts a ts_dev_server and asks it questions.
-//
-// The generated launcher and vite.config.mjs are not the deliverable; a running
-// dev server that serves the right bytes is. So this runs the launcher exactly
-// as `bazel run` does -- RUNFILES_DIR plus BUILD_WORKSPACE_DIRECTORY -- against
-// a throwaway workspace, and asserts over HTTP:
-//
-//  1. the generated config, EVALUATED (it is a module that reads its
-//     environment and the filesystem), configures the port the rule was given,
-//     an allow-list that reaches bazel-bin, a watch path ibazel's rebuilds land
-//     in, an alias per first-party module_name pointing at SOURCE, and the
-//     inputs a rebuild has to restart the server for;
-//  2. the running server serves a file from bazel-bin rather than answering 403;
-//  3. an `import "./app.ts"` lands on the .ts SOURCE in both variants: dev
-//     takes Bazel out of the inner loop, so Vite transforms first-party source
-//     itself. What the plugin adds is bazel-bin for what Vite cannot produce:
-//     a ts_codegen output with no checked-in source resolves WITH the plugin
-//     and does not without it. Same request, two answers -- which is what
-//     proves the plugin is installed and resolving rather than merely named in
-//     the config text;
-//  4. a first-party bare specifier (`@devserver/lib`) resolves to that
-//     package's source, so it is one module in the graph with a relative
-//     import of the same file;
-//  5. with react_refresh = True, a .tsx module comes back carrying the React
-//     Fast Refresh preamble; without it, it does not;
-//  6. the launcher survives the SIGTERM ibazel sends on every rebuild, and the
-//     server behind it keeps answering;
-//  7. a rebuild that only rewrote ts_codegen output serves the new bytes and
-//     does NOT restart Vite; a rebuild that changed the generated config does;
-//  8. a BARE npm specifier out of first-party source resolves into the Bazel npm
-//     tree and the file it lands on is served. Vite has no search-path option,
-//     so this is the bazel:npm-resolve plugin or nothing -- and a package that
-//     is not in the tree still fails, so the plugin is resolving rather than
-//     inventing;
-//  9. with a vite_config, the user's plugin is first in the container and its
-//     transform reaches the response, which also means its own bare npm import
-//     resolved.
-//
-// Which variant is under test comes from the env of the go_test target:
-// DEV_TARGET, DEV_PORT, DEV_BAZEL_PLUGIN, DEV_REACT_REFRESH, DEV_USER_CONFIG.
+// Package dev_server_test runs the launcher as `bazel run` does against a
+// throwaway workspace and asserts over HTTP; the env picks the variant.
 package dev_server_test
 
 import (
@@ -96,15 +58,6 @@ func TestDevServerBehaviour(t *testing.T) {
 	write(t, filepath.Join(ws, "npm_missing.js"),
 		"import x from \"not-in-any-npm-tree\";\nexport { x };\n")
 
-	// The package //tests/dev_server/lib declares module_name "@devserver/lib".
-	// Its source has to be where the config expects it for the alias to point at
-	// source rather than at bazel-bin.
-	libSource := filepath.Join(ws, "tests", "dev_server", "lib", "index.ts")
-	mkdir(t, filepath.Dir(libSource))
-	write(t, libSource, "export const packageName: string = \"LIB_SOURCE_TRANSFORMED_BY_VITE\";\n")
-	write(t, filepath.Join(ws, "alias_entry.js"),
-		"import { packageName } from \"@devserver/lib\";\nexport { packageName };\n")
-
 	// A ts_codegen output: generated .ts under bazel-bin with no source in the
 	// workspace. Vite cannot produce it, so this is what bazel-bin is still for.
 	generated := filepath.Join(bazelBin, "generated", "routes.ts")
@@ -138,14 +91,6 @@ func TestDevServerBehaviour(t *testing.T) {
 		t.Errorf("server.watch.paths does not include %s: %v", bazelBin, cfg.WatchPaths)
 	}
 
-	// The alias is what makes `@devserver/lib` mean source in dev. It has to name
-	// the source file, not the compiled output: the point of serving source is
-	// that Bazel is not in the loop.
-	if got := replacementFor(cfg.Alias, "/^@devserver\\/lib$/"); got != libSource {
-		t.Errorf("resolve.alias sends @devserver/lib to %q, want the source %q\nalias = %v",
-			got, libSource, cfg.Alias)
-	}
-
 	// Restart-or-keep, as the config declares it: the config itself is fixable by
 	// an in-process restart, a new Vite or a new node binary is not, and no
 	// ts_codegen output is on the list at all -- that is the whole point.
@@ -172,14 +117,6 @@ func TestDevServerBehaviour(t *testing.T) {
 		t.Errorf("the config installs no bazel:npm-resolve plugin, so no bare npm "+
 			"specifier can resolve: plugins = %v", cfg.Plugins)
 	}
-	// css_module already decided the class names and wrote a .d.ts from them.
-	// Without this plugin the server scopes every *.module.css a second time and
-	// serves names no declaration in the build describes.
-	if !slices.Contains(cfg.Plugins, "rules-typescript:css-modules") {
-		t.Errorf("the config installs no rules-typescript:css-modules plugin, so a "+
-			"served *.module.css would carry names the .d.ts does not declare: "+
-			"plugins = %v", cfg.Plugins)
-	}
 	if cfg.ResolveModules != nil {
 		t.Errorf("the config sets resolve.modules = %v, which is a webpack option Vite "+
 			"ignores; whatever it was meant to do is not being done", cfg.ResolveModules)
@@ -197,7 +134,7 @@ func TestDevServerBehaviour(t *testing.T) {
 	}
 
 	// Args past the launcher reach the server's own CLI, which is not a shared
-	// surface: --strictPort is Vite's, and oj rejects it outright.
+	// surface: --strictPort is Vite's.
 	var extraArgs []string
 	if impl == "vite" {
 		extraArgs = append(extraArgs, "--strictPort")
@@ -246,14 +183,7 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/gen_entry.js")
 		t.Logf("gen_entry.js (status %d) = %s", r.status, r.body)
 		if !wantBazelPlugin {
-			// Neither server can see bazel-bin without the plugin; they differ in
-			// when they say so. Vite fails the transform, oj serves the module with
-			// the specifier untouched so the failure lands in the browser instead.
-			if impl == "oj" {
-				r.contains(t, srv, "./generated/routes.ts")
-				r.excludes(t, "bazel-bin/generated/routes.ts")
-				return
-			}
+			// Vite cannot see bazel-bin without the plugin, and fails the transform.
 			if r.status == 200 {
 				t.Fatalf("GET /gen_entry.js returned 200 without the plugin; bazel-bin "+
 					"is not Vite's to resolve\n%s", r.body)
@@ -268,22 +198,6 @@ func TestDevServerBehaviour(t *testing.T) {
 		r.contains(t, srv, "bazel-bin/generated/routes.ts")
 		m := get(t, base, "/@fs"+filepath.Join(bazelBin, "generated", "routes.ts"))
 		m.contains(t, srv, "CODEGEN_V1")
-	})
-
-	// ── 4: a first-party bare specifier ───────────────────────────────────────
-	// `@devserver/lib` is how packages import each other. resolve.alias is a rule
-	// feature, not a plugin one, so both variants must land on the same source
-	// file -- otherwise the bare import and a relative import of the same file
-	// are two modules in Vite's graph.
-	t.Run("resolves_first_party_bare_specifier", func(t *testing.T) {
-		r := get(t, base, "/alias_entry.js")
-		if r.status != 200 {
-			t.Fatalf("GET /alias_entry.js returned %d, want 200\n%s", r.status, r.body)
-		}
-		t.Logf("alias_entry.js = %s", r.body)
-		r.contains(t, srv, "/tests/dev_server/lib/index.ts")
-		m := get(t, base, "/tests/dev_server/lib/index.ts")
-		m.contains(t, srv, "LIB_SOURCE_TRANSFORMED_BY_VITE")
 	})
 
 	// ── 4b: a bare npm specifier ──────────────────────────────────────────────
@@ -303,10 +217,7 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Fatalf("nothing in the response points at a resolved dependency:\n%s", r.body)
 		}
 		m := get(t, base, dep)
-		// Two landings are both the Bazel tree. Vite pre-bundles the package and
-		// serves the rewrite out of cacheDir, which this rule points inside
-		// bazel-bin; oj serves the file where it lies. Neither may be a path the
-		// host happened to have.
+		// Vite may serve the dependency directly or from its pre-bundle cache.
 		if !strings.Contains(m.finalURL, "/node_modules/zod/") &&
 			!strings.Contains(m.finalURL, "/vite-cache/deps/") {
 			t.Errorf("`import \"zod\"` resolved to %q, which is neither a Bazel npm "+
@@ -316,11 +227,7 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Errorf("the resolved dependency %s answers %d, want 200\n%s", dep, m.status, m.body)
 		}
 
-		// And the plugin resolves rather than invents: a package no tree has must
-		// not come back as anything. Where that failure surfaces differs -- Vite
-		// resolves while transforming and fails the module, oj defers to a
-		// container URL and fails when it is requested -- so the assertion is that
-		// it fails, not when.
+		// Missing imports may fail during transformation or on the later module request.
 		missing := get(t, base, "/npm_missing.js")
 		if missing.status != 200 {
 			missing.contains(t, srv, "Failed to resolve import")
@@ -357,14 +264,6 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/widget.tsx")
 		if r.status != 200 {
 			t.Fatalf("GET /widget.tsx returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
-		}
-		if impl == "oj" {
-			// oj applies Fast Refresh itself, which is why ts_dev_server rejects
-			// react_refresh = True against it rather than stacking plugin-react on
-			// top. The transform is oj's own, so the plugin-react preamble that the
-			// Vite variants assert on is not what shows up here.
-			r.contains(t, srv, "$RefreshReg$")
-			return
 		}
 		if !wantReactRefresh {
 			r.excludes(t, "react-refresh", "$RefreshReg$")

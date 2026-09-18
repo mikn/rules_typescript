@@ -1,0 +1,94 @@
+"""jsx: preserve -- a .tsx emits the .jsx tsc names, its JSX for the bundler.
+
+`view` is consumed two ways: `uses_view` is a ts_compile over it, and the test
+runs both through vitest, whose transform takes a `.jsx` and refuses JSX in a
+`.js`. The test file is a `.tsx` too, the shape of a component test.
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.preserve.json
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
+load(":jsx_preserve_tests.bzl", "declared_outputs_test", "member_view_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test is hand-named after the shape the other fixtures use, so the Go
+# language would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+# keep
+ts_config(
+    name = "preserve_tsconfig",
+    src = "tsconfig.preserve.json",
+    jsx = "preserve",
+)
+
+# keep
+ts_compile(
+    name = "jsx_runtime",
+    srcs = ["jsx-runtime.ts"],
+)
+
+# keep
+ts_compile(
+    name = "view",
+    srcs = ["view.tsx"],
+    tsconfig = ":preserve_tsconfig",
+    deps = [":jsx_runtime"],
+)
+
+# keep
+ts_compile(
+    name = "uses_view",
+    srcs = ["uses_view.ts"],
+    tsconfig = ":preserve_tsconfig",
+    deps = [":view"],
+)
+
+# keep
+ts_test(
+    name = "jsx_preserve_test",
+    srcs = ["view.test.tsx"],
+    config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = ":preserve_tsconfig",
+    deps = [
+        ":jsx_runtime",
+        ":uses_view",
+        ":view",
+        "@npm//:vitest",
+    ],
+)
+
+declared_outputs_test(
+    name = "declared_outputs_test",
+    target_under_test = ":view",
+)
+
+# The store of member/: the .jsx at the path its manifest as built names;
+# //tests/npm:member_manifest_test reads that manifest.
+member_view_test(
+    name = "member_view_test",
+    target_under_test = "//tests/npm:node_modules/.pnpm/preserve-view@0.0.0/" +
+                        "node_modules/preserve-view",
+)
+
+filegroup(
+    name = "view_declarations",
+    srcs = [":view"],
+    output_group = "declarations",
+)
+
+go_test(
+    name = "jsx_preserve_output_test",
+    size = "small",
+    srcs = ["jsx_preserve_output_test.go"],
+    data = [
+        ":uses_view",
+        ":view",
+        ":view_declarations",
+    ],
+    deps = ["//tests/verify"],
+)

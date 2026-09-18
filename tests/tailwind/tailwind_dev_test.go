@@ -7,10 +7,6 @@
 // above it to walk up to, so the import resolves nowhere and the dev server
 // answers 500 for that file -- a green `bazel build` and an unstyled page.
 // enhanced-resolve reads NODE_PATH, which is why the launcher sets it.
-//
-// Run against both servers, because the plugin is built on Vite-only APIs -- a
-// ResolvedConfig handed to configResolved, config.createResolver -- and whether
-// another server's plugin host supplies them is not something to assume.
 package tailwind_test
 
 import (

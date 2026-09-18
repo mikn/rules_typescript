@@ -53,7 +53,8 @@ func run(args []string) error {
 Scaffolds a minimal TypeScript workspace that depends on rules_typescript:
 a root BUILD.bazel with a Gazelle target, a src/lib library, and a src/app
 that imports it. Bazelisk (or Bazel ` + minBazelVersion + `+) is the only prerequisite —
-Rust, Go, Node.js and every npm package are fetched by Bazel on first build.
+Rust, Node.js, the ruleset's Go tools and every npm package are fetched by Bazel
+on first build, and a Go SDK under bazel run //:gazelle.
 
 Flags:`)
 		fs.PrintDefaults()
@@ -142,8 +143,9 @@ Next:
   bazel build //...          # compiles and type-checks; fetches toolchains on first run
   bazel run //:gazelle       # regenerates BUILD files from the .ts sources
 
-The only prerequisite is Bazelisk (or Bazel %s+). Rust, Go, Node.js and the npm
-packages are all fetched by Bazel.
+The only prerequisite is Bazelisk (or Bazel %s+). Rust, Node.js, the ruleset's
+Go tools and the npm packages are all fetched by Bazel; a Go SDK under
+bazel run //:gazelle.
 `, rel, minBazelVersion)
 	return nil
 }
@@ -203,6 +205,7 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 `, "the Gazelle entry point"},
 		{"src/BUILD.bazel", "# Package boundary, so //src/... resolves.\n", "keeps src/ a package"},

@@ -1,7 +1,8 @@
 """Integration test: Gazelle roundtrip — delete BUILD files, regenerate, diff, build.
 
 The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
-with the absolute path to the rules_typescript checkout.
+with the absolute path to the rules_typescript checkout. Gazelle lists and the
+build checks with the source-built compiler, registered ahead of the lockfile's.
 """
 
 module(
@@ -20,4 +21,22 @@ local_path_override(
     path = "{RULES_TS_ROOT}",
 )
 
-register_toolchains("@rules_typescript//ts/toolchain:all")
+register_toolchains(
+    "@rules_typescript//ts/toolchain/tsgo_source",
+    "@rules_typescript//ts/tools/tsaction:source_toolchain",
+    "@rules_typescript//tools/launcher:all",
+    "@rules_typescript//ts/toolchain:all",
+)
+
+# The fixture's own lockfile: the runner installs it, Gazelle lists the tree
+# and the hub's store and links are built from the same file.
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+
+# The wrangler generated_worker/'s ts_codegen runs; the runner copies
+# tests/workers/pnpm-lock.yaml into wrangler_lock/, a package of its own.
+npm.translate_lock(
+    name = "npm_workers",
+    pnpm_lock = "//wrangler_lock:pnpm-lock.yaml",
+)
+use_repo(npm, "npm", "npm_workers", "pnpm")

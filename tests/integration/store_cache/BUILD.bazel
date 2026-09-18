@@ -1,0 +1,39 @@
+"""Integration test: a store tree comes back out of the disk cache as files,
+and a test runs in it under the modes CI runs tests in.
+
+The store's cache property cannot be seen from one output base: a tree artifact
+of real files is hashed as files and restored as files, so a fresh output base
+over a populated disk cache executes no NpmStore and the restored tree holds no
+symlink. The runner builds one store target, expunges, builds again and reads
+the process summary and the tree; then it runs the workspace's ts_test under
+--nobuild_runfile_links, under --noenable_runfiles (a manifest-only runfiles
+layout) and, over another fresh output base, under
+--remote_download_outputs=minimal. docs/rules/node-modules.md § The Store.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy: a real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage.
+
+  bazel test //tests/integration/store_cache:store_cache_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "store_cache_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(shard = "npm"),
+    test_runner = "//tests/integration/runners:store_cache_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

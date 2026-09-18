@@ -1,19 +1,4 @@
 #!/usr/bin/env bash
-# bench_declarations.sh — measure declarations = "tsgo" against "oxc".
-#
-# Generates a throwaway workspace with two identical source trees (output paths
-# are derived from source file names, so the same file cannot feed two targets in
-# one package) and rebuilds each tree from a cold action cache.
-#
-# What is actually being compared, per target:
-#   "tsgo": OxcCompile (js) + TsgoDeclare (d.ts + diagnostics)
-#   "oxc" : OxcCompile (js + d.ts) + TsgoCheck (diagnostics, _validation group)
-# tsgo runs once per target either way, so total work should land near parity and
-# the interesting number is the critical path: under "oxc" a consumer can compile
-# against oxc's syntactic .d.ts while checking runs concurrently, whereas under
-# "tsgo" it waits for the declarations. The generated chain is linear and deep so
-# that difference has somewhere to show up.
-#
 # Usage: tools/bench_declarations.sh [PACKAGES] [FILES_PER_PACKAGE] [ITERATIONS]
 set -euo pipefail
 
@@ -47,8 +32,6 @@ echo 'exports_files(["MODULE.bazel"])' > "$WS/BUILD.bazel"
 # package N-1 to build one deep chain rather than a wide fan.
 gen_tree() {
   local root="$1"
-  local mode="$2"
-  local check="${3:-True}"
   for ((p=0; p<PKGS; p++)); do
     local dir="$WS/$root/pkg$p"; mkdir -p "$dir"
     local deps=""
@@ -78,8 +61,6 @@ ts_compile(
     name = "pkg$p",
     srcs = [
 $srcs    ],
-    declarations = "$mode",
-    enable_check = $check,
     deps = [
 $deps
     ],
@@ -89,23 +70,21 @@ EOF
   done
 }
 
-gen_tree tsgo_tree tsgo True
-gen_tree oxc_tree oxc True
-# Third arm: oxc emit with no tsgo run at all. oxc still enforces isolated
-# declarations, so the .d.ts remain complete -- what is given up is type
-# checking of the bodies. This is the only way to avoid a full tsgo run.
-gen_tree oxc_nocheck_tree oxc False
+gen_tree tsgo_tree
+gen_tree oxc_tree
 
 cd "$WS"
 bz() { env -u TEST_TMPDIR "$BAZEL" --output_base="$OB" "$@"; }
 
 echo "corpus: $PKGS packages x $PER_PKG files = $((PKGS*PER_PKG)) files per arm, linear dep chain"
 echo "warming toolchains (oxc is built from Rust source on first use)..."
-bz build //tsgo_tree/... //oxc_tree/... //oxc_nocheck_tree/... >/dev/null 2>&1 || { echo "warmup build FAILED" >&2; bz build //tsgo_tree/... //oxc_tree/... //oxc_nocheck_tree/... 2>&1 | tail -40 >&2; exit 1; }
+bz build //tsgo_tree/... >/dev/null 2>&1 || { echo "warmup build FAILED" >&2; bz build //tsgo_tree/... 2>&1 | tail -40 >&2; exit 1; }
+bz build //oxc_tree/... --@rules_typescript//ts:declarations=oxc >/dev/null 2>&1 || { echo "warmup build FAILED" >&2; bz build //oxc_tree/... --@rules_typescript//ts:declarations=oxc 2>&1 | tail -40 >&2; exit 1; }
 
 SALT=0
-measure() { # arm -> "wall critical"
+measure() { # arm mode -> "wall critical"
   local tree="$1"
+  local mode="$2"
   local log="$OB/bench_$tree.log"
   # Rewrite a salt comment in every source: Bazel invalidates on content
   # digests, so touching mtimes rebuilds nothing.
@@ -113,26 +92,24 @@ measure() { # arm -> "wall critical"
     xargs -0 sed -i "s|^// bench-salt .*|// bench-salt $SALT|"
   local s e
   s=$(date +%s.%N)
-  bz build "//$tree/..." >"$log" 2>&1
+  bz build "//$tree/..." "--@rules_typescript//ts:declarations=$mode" >"$log" 2>&1
   e=$(date +%s.%N)
   local crit
   crit=$(grep -oE "Critical Path: [0-9.]+" "$log" | tail -1 | grep -oE "[0-9.]+" || echo "0")
   printf '%.1f %s' "$(echo "$e - $s" | bc)" "$crit"
 }
 
-printf '\n%-5s %-8s %-20s %-20s %-20s\n' "iter" "load" "tsgo (wall/crit)" "oxc+check (wall/crit)" "oxc no-check (wall/crit)"
+printf '\n%-5s %-8s %-20s %-20s\n' "iter" "load" "tsgo (wall/crit)" "oxc+check (wall/crit)"
 for ((i=1; i<=ITERS; i++)); do
   la=$(cut -d' ' -f1 /proc/loadavg)
   SALT=$((SALT + 1))
-  read -r tw tc <<<"$(measure tsgo_tree)"
-  read -r ow oc <<<"$(measure oxc_tree)"
-  read -r nw nc <<<"$(measure oxc_nocheck_tree)"
-  printf '%-5s %-8s %-20s %-20s %-20s\n' "$i" "$la" "${tw}s / ${tc}s" "${ow}s / ${oc}s" "${nw}s / ${nc}s"
+  read -r tw tc <<<"$(measure tsgo_tree tsgo)"
+  read -r ow oc <<<"$(measure oxc_tree oxc)"
+  printf '%-5s %-8s %-20s %-20s\n' "$i" "$la" "${tw}s / ${tc}s" "${ow}s / ${oc}s"
 done
 echo
 echo "wall = end-to-end rebuild of that arm after touching every source"
 echo "crit = Bazel's reported critical path"
 echo
-echo "tsgo         : OxcCompile (js) + TsgoDeclare (d.ts + diagnostics)"
-echo "oxc+check    : OxcCompile (js + d.ts) + TsgoCheck (diagnostics only)"
-echo "oxc no-check : OxcCompile (js + d.ts) only -- no type checking at all"
+echo "tsgo         : TsEmit (js) + TsgoCheck (diagnostics) + TsgoDeclare (d.ts)"
+echo "oxc+check    : TsEmit (js + d.ts) + TsgoCheck (diagnostics)"

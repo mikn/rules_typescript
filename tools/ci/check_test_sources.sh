@@ -35,16 +35,17 @@ cd "${BUILD_WORKSPACE_DIRECTORY:-$(git rev-parse --show-toplevel)}"
 # that is the intended outcome rather than an accident.
 MANUAL_ONLY=$(
   cat <<'ALLOWLIST'
-# Analysis-only fixtures. They pin that ts_test's `environment` attr is not
-# validated against a fixed list of names; jsdom and edge-runtime are absent
-# from the test lockfile, so the targets are built but cannot be run.
-tests/vitest/environment/edge.test.ts
-tests/vitest/environment/jsdom.test.ts
-# Meant to fail: it misses the coverage threshold its target sets, which is the
-# assertion. //tests/vitest/thresholds:enforcement_test runs it and asserts the
-# failure, so `bazel test //...` running it directly would report a red test for
-# a passing behaviour.
-tests/vitest/thresholds/missed/partial.test.ts
+# Analysis-only fixture. Its ts_test target is asserted to FAIL at analysis --
+# it sets vitest attrs under runner = "//ts/runners:node_test" -- so a target
+# that ran would report a red test for the intended outcome.
+tests/node_test/analysis/attrs.test.ts
+# Analysis-only fixture, asserted to FAIL at analysis: the wrangler config it
+# stages through `wrangler_config` is in its `data` too.
+tests/workers_nested/test/data_shadow.test.ts
+# Denied by the sandbox by design: the read outside the runfiles that
+# `bazel run //tests/vitest/reads_report:reads_report_test -- --reads` names;
+# reads_declared_test makes it with data set.
+tests/vitest/reads_report/reads_report.test.ts
 ALLOWLIST
 )
 

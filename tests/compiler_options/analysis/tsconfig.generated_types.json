@@ -1,0 +1,5 @@
+{
+  "compilerOptions": {
+    "types": ["./generated_in_srcs.d.ts"]
+  }
+}

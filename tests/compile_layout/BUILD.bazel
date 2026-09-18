@@ -1,20 +1,22 @@
 """One ts_compile target whose srcs span two sibling directories, none at the root."""
 
-# The target below has srcs in these directories; a BUILD file in any of them
+# The targets below have srcs in these directories; a BUILD file in any of them
 # would turn it into a package and make those labels cross a package boundary.
 # gazelle:exclude alpha
 # gazelle:exclude beta/deep
+# gazelle:exclude gamma
+# gazelle:exclude delta
 
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//tests:flags.bzl", "ts_under_flags")
 load("//ts:defs.bzl", "ts_compile")
 load(
     ":layout_tests.bzl",
+    "data_srcs_test",
     "declared_outputs_test",
-    "include_entry_test",
-    "mixed_src_packages_test",
-    "oxc_strip_prefix_test",
-    "paths_value_test",
-    "tsconfig_layout_test",
+    "dep_json_inputs_test",
+    "emit_root_test",
+    "transitive_data_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -34,14 +36,57 @@ ts_compile(
         "alpha/three.ts",
         "beta/deep/two.ts",
     ],
-    declaration_map = True,
+)
+
+# Under --//ts:declaration_map, so the maps land at the same depths.
+ts_under_flags(
+    name = "siblings_with_declaration_map",
+    declaration_map = "true",
+    target = ":siblings",
+)
+
+# gamma/ is a package tree as Gazelle lists one: the program's one module beside
+# its manifest, the JSON it imports, and files nothing compiles.
+ts_compile(
+    name = "with_data",
+    srcs = [
+        "gamma/README.md",
+        "gamma/data.json",
+        "gamma/index.ts",
+        "gamma/logo.svg",
+        "gamma/package.json",
+        "gamma/styles.css",
+    ],
+)
+
+ts_compile(
+    name = "uses_gamma",
+    srcs = ["delta/uses_gamma.ts"],
+    deps = [":with_data"],
+)
+
+filegroup(
+    name = "siblings_declarations",
+    srcs = [":siblings_with_declaration_map"],
+    output_group = "declarations",
+)
+
+filegroup(
+    name = "with_data_declarations",
+    srcs = [":with_data"],
+    output_group = "declarations",
 )
 
 go_test(
     name = "layout_test",
     size = "small",
     srcs = ["layout_test.go"],
-    data = [":siblings"],
+    data = [
+        ":siblings_declarations",
+        ":siblings_with_declaration_map",
+        ":with_data",
+        ":with_data_declarations",
+    ],
     deps = ["//tests/verify"],
 )
 
@@ -50,18 +95,22 @@ declared_outputs_test(
     target_under_test = ":siblings",
 )
 
-tsconfig_layout_test(
-    name = "tsconfig_layout_test",
+emit_root_test(
+    name = "emit_root_test",
     target_under_test = ":siblings",
 )
 
-oxc_strip_prefix_test(
-    name = "oxc_strip_prefix_test",
-    target_under_test = ":siblings",
+data_srcs_test(
+    name = "data_srcs_test",
+    target_under_test = ":with_data",
 )
 
-include_entry_test(name = "include_entry_test")
+transitive_data_test(
+    name = "transitive_data_test",
+    target_under_test = ":uses_gamma",
+)
 
-mixed_src_packages_test(name = "mixed_src_packages_test")
-
-paths_value_test(name = "paths_value_test")
+dep_json_inputs_test(
+    name = "dep_json_inputs_test",
+    target_under_test = ":uses_gamma",
+)

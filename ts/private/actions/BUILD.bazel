@@ -1,0 +1,62 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = [
+    "//npm:__subpackages__",
+    "//ts:__subpackages__",
+    "//vite:__subpackages__",
+])
+
+# //tests/api_surface:ts_test_attrs_test reads WORKERS_POOL_ATTRS out of it.
+exports_files(
+    ["workers_pool.bzl"],
+    visibility = ["//tests/api_surface:__pkg__"],
+)
+
+bzl_library(
+    name = "lint",
+    srcs = ["lint.bzl"],
+    deps = ["//ts/private:toolchain"],
+)
+
+bzl_library(
+    name = "manifest",
+    srcs = ["manifest.bzl"],
+    deps = ["//ts/private:toolchain"],
+)
+
+bzl_library(
+    name = "emit",
+    srcs = ["emit.bzl"],
+    deps = ["//ts/private:toolchain"],
+)
+
+bzl_library(
+    name = "tsconfig",
+    srcs = ["tsconfig.bzl"],
+    deps = ["//ts/private:toolchain"],
+)
+
+bzl_library(
+    name = "tsgo",
+    srcs = ["tsgo.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:toolchain",
+    ],
+)
+
+bzl_library(
+    name = "vitest",
+    srcs = ["vitest.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:toolchain",
+        "//ts/private:vite_config",
+    ],
+)
+
+bzl_library(
+    name = "workers_pool",
+    srcs = ["workers_pool.bzl"],
+    deps = ["//ts/private:runtime"],
+)

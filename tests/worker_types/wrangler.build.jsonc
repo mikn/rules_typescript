@@ -1,0 +1,10 @@
+{
+  // wrangler.jsonc plus a `build` whose command fails. `wrangler types` runs
+  // build.command before it resolves `main`; the generator strips the block.
+  "name": "rules-typescript-test-worker-types",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "vars": { "GREETING": "hello" },
+  "kv_namespaces": [{ "binding": "CACHE", "id": "0123456789abcdef0123456789abcdef" }],
+  "build": { "command": "echo WRANGLER_TYPES_RAN_BUILD >&2; exit 1" }
+}

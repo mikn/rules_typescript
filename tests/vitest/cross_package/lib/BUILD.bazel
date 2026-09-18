@@ -1,0 +1,9 @@
+"""Two files no program of their own lists: srcs of the test in ../test."""
+
+exports_files(
+    [
+        "engine.ts",
+        "state.ts",
+    ],
+    visibility = ["//tests/vitest/cross_package/test:__pkg__"],
+)

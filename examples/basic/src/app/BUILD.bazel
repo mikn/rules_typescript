@@ -1,4 +1,4 @@
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
 
 # Application package: compiles index.ts, depending on //src/lib for type info.
 # The dep on :lib means app only sees lib's .d.ts at compile time — this is
@@ -6,6 +6,14 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "app",
     srcs = ["index.ts"],
+    tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     deps = ["//src/lib"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
 )

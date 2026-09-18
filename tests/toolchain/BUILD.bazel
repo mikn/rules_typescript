@@ -1,14 +1,26 @@
 """Toolchain resolution tests.
 
 The target platform under test is windows_amd64 on purpose: this ruleset ships
-a Node.js runtime for it but no compiler binary, so it separates the three
-roles.  oxc and tsgo must still resolve (they run on the exec platform), the
-staged JS runtime must be the Windows one (it runs on the target), and the JS
-runtime used as a build tool must not be.
+a Node.js runtime for it but no compiler, tools or launcher binary, so it
+separates the roles. oxc, tsgo and the tools must still resolve (they run on
+the exec platform), the staged JS runtime must be the Windows one (it runs on
+the target), the JS runtime used as a build tool must not be, and the launcher,
+which runs where the program runs, resolves to nothing: a program for that
+platform fails analysis naming it. The program is a ts_binary: Bazel refuses a
+test rule on a target platform no execution platform matches before any rule
+code runs, and ts_test, ts_binary, ts_dev_server and npm_bin declare their
+launcher through the one function.
 """
 
+load("//ts:defs.bzl", "ts_binary")
+load(":go_mod_tests.bzl", "go_mod_test_suite")
 load(":probe.bzl", "toolchain_probe")
-load(":resolution_test.bzl", "foreign_target_platform_test")
+load(
+    ":resolution_test.bzl",
+    "foreign_target_launcher_test",
+    "foreign_target_platform_test",
+)
+load(":tsgo_lock_tests.bzl", "tsgo_lock_test_suite")
 
 toolchain_probe(
     name = "probe",
@@ -19,3 +31,21 @@ foreign_target_platform_test(
     name = "foreign_target_platform_test",
     target_under_test = ":probe",
 )
+
+ts_binary(
+    name = "launcher_probe",
+    entry_point = "launcher_probe.js",
+)
+
+foreign_target_launcher_test(
+    name = "foreign_target_launcher_test",
+    target_under_test = ":launcher_probe",
+)
+
+# Lockfile-text tests: which compiler ts.tsgo(pnpm_lock = ...) reads out of a
+# pnpm-lock.yaml, and what it refuses.
+tsgo_lock_test_suite(name = "tsgo_lock_tests")
+
+# The go.mod and go.sum readers behind the source-built tsgo: which modules
+# ts/private/tsgo_source pins and what they refuse.
+go_mod_test_suite(name = "go_mod_tests")

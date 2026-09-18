@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+      - "tools-v*"
 
 permissions:
   contents: write
@@ -12,6 +13,7 @@ permissions:
 jobs:
   release:
     name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -143,3 +145,50 @@ jobs:
             The BCR submission should reference these files from this commit.
           branch: bcr-update-${{ needs.release.outputs.version }}
           delete-branch: true
+
+  # Optional prebuilt archives must match the release table before publication.
+  tools:
+    name: Tools Release
+    if: startsWith(github.ref, 'refs/tags/tools-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
+
+      - name: The tag names the table's TOOLS_VERSION
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          lock=ts/private/tools_lock.bzl
+          locked="$(sed -n 's/^TOOLS_VERSION = "\([0-9]*\)"$/\1/p' "$lock")"
+          if [ "$tag" != "tools-v$locked" ]; then
+            echo "ERROR: $tag was pushed, $lock names tools-v$locked"
+            exit 1
+          fi
+
+      - name: Build the four assets and check their SRIs against the table
+        run: BAZEL=bazelisk tools/ci/check_tools_lock.sh --out dist
+
+      - name: Generate attestation
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Create the tools release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          name: ${{ github.ref_name }}
+          body: >-
+            The Go tools of rules_typescript (tsaction, ts_launcher,
+            lcov_merger, copy_to_workspace), one tarball per platform, as
+            ts/private/tools_lock.bzl at this tag names them.
+          generate_release_notes: false
+          draft: false
+          prerelease: false

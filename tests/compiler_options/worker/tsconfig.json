@@ -3,23 +3,15 @@
   "compilerOptions": {
     "composite": false,
     "incremental": false,
-    "lib": [
-      "es2022"
-    ],
     "noEmit": true,
-    "rootDir": ".",
-    "types": [
-      "./worker-configuration.d.ts"
-    ]
+    "rootDir": "."
   },
   "exclude": [],
   "extends": [
-    "../../../tsconfig.json"
+    "../../../tsconfig.json",
+    "./tsconfig.worker.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "index.ts"
   ]

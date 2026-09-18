@@ -68,20 +68,6 @@ func TestResolverWorksFromAManifestAlone(t *testing.T) {
 	}
 }
 
-func TestResolverInTreeJoinsUnderADirectoryArtifact(t *testing.T) {
-	r, real := fakeRunfiles(t, map[string]string{
-		"_main/tests/app/node_modules": dirMarker,
-	})
-	got, err := r.InTree("_main/tests/app/node_modules", "vite/bin/vite.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(real["_main/tests/app/node_modules"], "vite", "bin", "vite.js")
-	if got != want {
-		t.Errorf("InTree = %q, want %q", got, want)
-	}
-}
-
 func TestResolverReportsMissingEntries(t *testing.T) {
 	r, _ := fakeRunfiles(t, map[string]string{"_main/a.js": "x"})
 	if _, err := r.Path("_main/nope.js"); err == nil {

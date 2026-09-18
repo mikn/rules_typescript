@@ -1,4 +1,5 @@
-"""Integration test: declarations = "oxc" must refuse un-annotated exports.
+"""Integration test: declarations = "oxc" must refuse un-annotated exports,
+under the ruleset's source-built compiler, registered ahead of the lockfile's.
 
 The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
 with the absolute path to the rules_typescript checkout.
@@ -18,4 +19,9 @@ local_path_override(
     path = "{RULES_TS_ROOT}",
 )
 
-register_toolchains("@rules_typescript//ts/toolchain:all")
+register_toolchains(
+    "@rules_typescript//ts/toolchain/tsgo_source",
+    "@rules_typescript//ts/tools/tsaction:source_toolchain",
+    "@rules_typescript//tools/launcher:all",
+    "@rules_typescript//ts/toolchain:all",
+)

@@ -1,0 +1,52 @@
+"""Integration test: a consumer on rules_rust 0.70.0 and Rust 1.91.0, with a
+crate_universe hub of its own named `crates`.
+
+Neither version is the ruleset's. The override wins MVS the way a consumer's
+does, so oxc-bazel is built by this workspace's rules_rust from the crates the
+ruleset vendors and by the Rust toolchain registered here.
+
+{RULES_TS_ROOT} is substituted at test runtime with the absolute path to the
+rules_typescript checkout.
+"""
+
+module(
+    name = "test_consumer_crates",
+    version = "0.0.0",
+    compatibility_level = 0,
+)
+
+bazel_dep(name = "rules_typescript", version = "0.0.0")
+local_path_override(
+    module_name = "rules_typescript",
+    path = "{RULES_TS_ROOT}",
+)
+
+register_toolchains(
+    "@rules_typescript//ts/tools/tsaction:source_toolchain",
+    "@rules_typescript//tools/launcher:all",
+    "@rules_typescript//ts/toolchain:all",
+)
+
+bazel_dep(name = "rules_rust", version = "0.70.0")
+single_version_override(
+    module_name = "rules_rust",
+    version = "0.70.0",
+)
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.91.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    lockfile = "//:Cargo.Bazel.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")

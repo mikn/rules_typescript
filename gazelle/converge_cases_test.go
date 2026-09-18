@@ -1,12 +1,15 @@
 package typescript
 
-// The fixtures and mutations convergeGazelle is driven with: one workspace per
-// framework Gazelle generates for, plus a plain TypeScript one.
+// The fixtures and mutations convergeGazelle is driven with: the shapes the
+// package model meets on a workspace, each a tsconfig.json program or more.
 
 import (
+	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -16,11 +19,8 @@ import (
 type convergeMutation struct {
 	kind   string
 	write  map[string]string
+	extend map[string]string // appended to a file that may not exist yet
 	remove []string
-
-	// Workspace paths the app rule's declared inputs must cover after the
-	// mutation: undeclared is absent from the build with nothing failing.
-	stage []string
 }
 
 type convergeCase struct {
@@ -31,51 +31,92 @@ type convergeCase struct {
 
 // ---- fixtures ---------------------------------------------------------------
 
+func writeWorkspace(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, body := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func appendFile(t *testing.T, root, rel, body string) {
+	t.Helper()
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// captureLog collects what the generator writes to the standard logger, which
+// is where Gazelle's own diagnostics go.
+func captureLog(t *testing.T, body func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	flags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(flags)
+	})
+	body()
+	return buf.String()
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, entry := range haystack {
+		if entry == needle {
+			return true
+		}
+	}
+	return false
+}
+
 const (
-	convergeNextPkg = `{
-  "name": "w",
-  "dependencies": {"next": "15.3.4", "react": "19.0.0", "react-dom": "19.0.0"},
-  "devDependencies": {"typescript": "5.8.2", "@types/node": "22.14.0", "@types/react": "19.0.10"}
-}
-`
-	convergeRemixPkg = `{
-  "name": "w",
-  "dependencies": {
-    "@remix-run/dev": "2.17.4",
-    "@remix-run/node": "2.17.4",
-    "@remix-run/react": "2.17.4",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
-  }
-}
-`
-	convergeTanStackPkg = `{
-  "name": "w",
-  "dependencies": {
-    "@tanstack/react-router": "1.166.7",
-    "@tanstack/react-start": "1.166.8",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
-  },
-  "devDependencies": {"vite": "8.2.2"}
-}
-`
-	convergeSveltePkg = `{
-  "name": "w",
-  "type": "module",
-  "devDependencies": {
-    "@sveltejs/kit": "2.46.4",
-    "@sveltejs/vite-plugin-svelte": "6.2.1",
-    "svelte": "5.42.2",
-    "vite": "8.2.2"
-  }
-}
-`
-	convergeSolidPkg = `{"name":"w","dependencies":{"@solidjs/start":"1.0.0","solid-js":"1.9.0"}}` + "\n"
 	convergePlainPkg = `{"name":"w","dependencies":{"zod":"3.24.2"}}` + "\n"
 
-	convergeAliasTsConfig = `{"compilerOptions":{"baseUrl":".","paths":{` +
-		`"@/*":["./src/*"],"@lib/*":["./src/lib/*"],"@ui/*":["./src/ui/*"]}}}` + "\n"
+	// The root's tsconfig.json has no include: refused, and a ts_config only
+	// because src's chain extends it.
+	convergeRootTsConfig = `{"compilerOptions":{"strict":true}}` + "\n"
+
+	convergeSrcTsConfig = `{"extends":"../tsconfig.json",` +
+		`"compilerOptions":{"lib":["es2022"]},"include":["**/*"]}` + "\n"
+
+	convergeAliasTsConfig = `{"compilerOptions":{"lib":["es2022"],"paths":{` +
+		`"@/*":["./src/*"],"@lib/*":["../lib/src/*"]}},` +
+		`"include":["src/**/*","e2e/**/*"]}` + "\n"
+
+	// Appended without its load line: FixLoads writes the file's one load, and
+	// a second, hand-placed one would part the two trees by position alone.
+	convergeWorkerTypesCodegen = `
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
+)
+`
 )
 
 func convergeFixture(t *testing.T, name string) convergeCase {
@@ -89,19 +130,59 @@ func convergeFixture(t *testing.T, name string) convergeCase {
 	return convergeCase{}
 }
 
+// The root links @w/core and declares zod; @w/core declares zod too.
+const convergeMemberLock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      '@w/core':
+        specifier: workspace:*
+        version: link:packages/core
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
+  packages/core:
+    dependencies:
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
+  packages/app: {}
+
+packages:
+
+  zod@3.24.2:
+    resolution: {integrity: sha512-aaa}
+
+snapshots:
+
+  zod@3.24.2: {}
+`
+
 func convergeCases() []convergeCase {
 	return []convergeCase{
 		{
+			// One program under src, its tests and data files with it; the
+			// root's tsconfig.json is the base the program extends.
 			name: "plain",
 			files: map[string]string{
-				"package.json":           convergePlainPkg,
-				"tsconfig.json":          `{"compilerOptions":{"strict":true}}` + "\n",
-				"src/index.ts":           "export * from \"./lib/helper\";\n",
+				"package.json":         convergePlainPkg,
+				"tsconfig.json":        convergeRootTsConfig,
+				"shared/tsconfig.json": includeTs,
+				"shared/util.ts":       "export const util = 1;\n",
+				"src/tsconfig.json":    convergeSrcTsConfig,
+				"src/vitest.config.ts": "export default { test: { globals: true } };\n",
+				"src/index.ts": "export * from \"./lib/helper\";\n" +
+					"export { util } from \"../shared/util\";\n",
 				"src/routes/index.ts":    "export const routes = 1;\n",
 				"src/routes/home.ts":     "export const home = 1;\n",
 				"src/lib/helper.ts":      "export const helper = 1;\n",
 				"src/lib/helper.test.ts": "export const t = 1;\n",
-				"src/lib/helper.doc.ts":  "export * from \"./helper\";\n",
+				"src/lib/tokens.json":    `{"a":1}` + "\n",
+				"src/icons/logo.svg":     "<svg/>\n",
 			},
 			mutations: []convergeMutation{
 				{kind: "add_colocated_module", write: map[string]string{"src/routes/home.data.ts": "export const data = 1;\n"}},
@@ -111,62 +192,79 @@ func convergeCases() []convergeCase {
 				}},
 				{kind: "add_flat_route", write: map[string]string{"src/routes/about.ts": "export const about = 1;\n"}},
 				{kind: "add_nested_route_dir", write: map[string]string{"src/routes/admin/users/list.ts": "export const list = 1;\n"}},
+				// Outside every program: nothing changes.
 				{kind: "add_root_shared_file", write: map[string]string{"version.ts": "export const version = \"1\";\n"}},
 				{kind: "add_shared_dir_no_ts", write: map[string]string{
 					"styles/globals.css": ".a{color:red}\n",
 					"data/config.json":   `{"a":1}` + "\n",
 				}},
 				{kind: "add_shared_dir_with_ts", write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"}},
+				{kind: "add_data_file", write: map[string]string{
+					"src/lib/fixture.snap": "snap\n",
+				}},
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
+				// The config imports a module of its package: config_srcs.
+				{kind: "config_imports_a_module", write: map[string]string{
+					"src/vitest.config.ts": "import { p } from \"./plugins/p\";\n" +
+						"export default { plugins: [p()], test: { globals: true } };\n",
+					"src/plugins/p.ts": "export const p = () => ({ name: \"p\" });\n",
+				}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
-				{kind: "delete_doc", remove: []string{"src/lib/helper.doc.ts"}},
+				{kind: "delete_data_file", remove: []string{"src/lib/tokens.json"}},
+				{kind: "delete_only_sources_in_dir", remove: []string{"src/routes/index.ts", "src/routes/home.ts"}},
+				{kind: "delete_the_tests", remove: []string{"src/lib/helper.test.ts"}},
 			},
 		},
 		{
-			// path_aliases is the one attribute Gazelle owns whose value is a
-			// dict. No fixture declared compilerOptions.paths, so no fixture
-			// generated it, and nothing here asked what a merge does to a dict.
-			name: "path_aliases",
+			// Imports through a tsconfig `paths` alias into another package: the
+			// listing names the file and its owner is the dep.
+			name: "alias_imports",
 			files: map[string]string{
 				"package.json":      convergePlainPkg,
-				"tsconfig.json":     convergeAliasTsConfig,
-				"src/index.ts":      "import { helper } from \"@/lib/helper\";\nexport const a = helper;\n",
-				"src/main.ts":       "export const main = 1;\n",
-				"src/lib/helper.ts": "export const helper = 1;\n",
-				"src/lib/util.ts":   "export const util = 1;\n",
-				"src/ui/button.ts":  "export const button = 1;\n",
+				"lib/tsconfig.json": includeSrc,
+				"lib/src/helper.ts": "export const helper = 1;\n",
+				"lib/src/util.ts":   "export const util = 1;\n",
+				"app/tsconfig.json": convergeAliasTsConfig,
+				"app/src/index.ts": "import { helper } from \"@lib/helper\";\n" +
+					"export const a = helper;\n",
+				"app/src/main.ts": "import { own } from \"@/own\";\n" +
+					"export const main = own;\n",
+				"app/src/own.ts": "export const own = 1;\n",
+				"app/src/main.test.ts": "import type { helper } from " +
+					"\"@lib/helper\";\nexport const t = typeof helper;\n",
+				"app/e2e/smoke.test.ts": "import { own } from \"@/own\";\n" +
+					"export const t = own;\n",
 			},
 			mutations: []convergeMutation{
-				// The alias map gains an entry: the run that recomputes it has
-				// to write the entry, not the map the first run left behind.
+				// An import through the second alias: the run recomputes deps.
 				{kind: "add_alias_import", write: map[string]string{
-					"src/extra.ts": "import { helper } from \"@lib/helper\";\nexport const b = helper;\n",
+					"app/src/extra.ts": "import { util } from \"@lib/util\";\n" +
+						"export const b = util;\n",
 				}},
-				// And loses its last one, which is the attribute going away
-				// rather than a value inside it.
+				// The library's last aliased import goes; the test keeps its own.
 				{kind: "drop_alias_import", write: map[string]string{
-					"src/index.ts": "export const a = 1;\n",
+					"app/src/index.ts": "export const a = 1;\n",
 				}},
 				{kind: "add_alias_import_in_new_dir", write: map[string]string{
-					"src/panel/view.ts": "import { button } from \"@ui/button\";\nexport const v = button;\n",
+					"app/src/panel/view.ts": "import { util } from " +
+						"\"@lib/util\";\nexport const v = util;\n",
 				}},
 				{kind: "add_file_to_existing_target", write: map[string]string{
-					"src/format.ts": "export const format = 1;\n",
+					"app/src/format.ts": "export const format = 1;\n",
 				}},
-				{kind: "delete_alias_importing_file", remove: []string{"src/index.ts"}},
+				{kind: "delete_alias_importing_file", remove: []string{"app/src/index.ts"}},
 			},
 		},
 		{
-			// The standard pnpm workspace-member shape: package.json and
-			// tsconfig.json in the member root, sources one directory down. That
-			// root classifies no source of its own, so generation there used to
-			// stop before anything was written -- and a label naming its
-			// tsconfig had nothing to resolve against.
+			// The pnpm workspace-member shape, sources one directory down; a
+			// member without a tsconfig.json is no package.
 			name: "pnpm_member",
 			files: map[string]string{
 				"package.json":                   convergePlainPkg,
 				"pnpm-workspace.yaml":            "packages:\n  - packages/*\n",
-				"tsconfig.json":                  `{"compilerOptions":{"strict":true}}` + "\n",
+				"pnpm-lock.yaml":                 convergeMemberLock,
+				"node_modules/.modules.yaml":     "hoistPattern:\n  - '*'\n",
+				"tsconfig.json":                  convergeRootTsConfig,
 				"packages/core/package.json":     `{"name":"@w/core","version":"1.0.0"}` + "\n",
 				"packages/core/tsconfig.json":    `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 				"packages/core/src/index.ts":     "export * from \"./util\";\n",
@@ -182,6 +280,11 @@ func convergeCases() []convergeCase {
 					"packages/ui/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx"}}` + "\n",
 					"packages/ui/src/button.ts": "export const button = 1;\n",
 				}},
+				{kind: "add_jsx_member", write: map[string]string{
+					"packages/icons/package.json":  `{"name":"@w/icons","version":"1.0.0"}` + "\n",
+					"packages/icons/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx","jsxImportSource":"preact"}}` + "\n",
+					"packages/icons/src/icon.tsx":  "export const icon: string = <div />;\n",
+				}},
 				{kind: "add_tsconfig_to_member", write: map[string]string{
 					"packages/app/tsconfig.json": `{"compilerOptions":{"strict":false}}` + "\n",
 				}},
@@ -190,233 +293,34 @@ func convergeCases() []convergeCase {
 			},
 		},
 		{
-			name: "next",
+			// A worker: a program over its sources and the declaration its
+			// tsconfig names, a test program extending it, a vitest config.
+			name: "worker",
 			files: map[string]string{
-				"package.json":           convergeNextPkg,
-				"tsconfig.json":          `{"compilerOptions":{"strict":true}}` + "\n",
-				"next.config.mjs":        "export default {};\n",
-				"app/layout.tsx":         "export default function L() { return null; }\n",
-				"app/page.tsx":           "export default function P() { return null; }\n",
-				"app/dashboard/page.tsx": "export default function D() { return null; }\n",
-				"lib/greeting.ts":        "export const hi = 1;\n",
-			},
-			mutations: []convergeMutation{
-				{kind: "add_colocated_module", write: map[string]string{"app/dashboard/chart.tsx": "export const Chart = null;\n"}},
-				{kind: "add_folder_route", write: map[string]string{"app/settings/page.tsx": "export default function S() { return null; }\n"}},
-				{
-					kind:  "add_flat_route",
-					write: map[string]string{"pages/about.tsx": "export default function A() { return null; }\n"},
-					stage: []string{"pages/about.tsx"},
-				},
-				{kind: "add_nested_route_dir", write: map[string]string{"app/dashboard/reports/page.tsx": "export default function R() { return null; }\n"}},
-				{
-					kind:  "add_root_shared_file",
-					write: map[string]string{"version.ts": "export const version = \"1\";\n"},
-					stage: []string{"version.ts"},
-				},
-				{
-					kind:  "add_shared_dir_no_ts",
-					write: map[string]string{"styles/globals.css": ".a{color:red}\n"},
-					stage: []string{"styles/globals.css"},
-				},
-				{
-					kind:  "add_shared_dir_with_ts",
-					write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"},
-					stage: []string{"lib2/extra.ts"},
-				},
-				{kind: "add_file_to_existing_target", write: map[string]string{"lib/format.ts": "export const format = 1;\n"}},
-				{
-					kind:  "add_doc_beside_shared_ts",
-					write: map[string]string{"lib/greeting.doc.ts": "export * from \"./greeting\";\n"},
-					stage: []string{"lib/greeting.doc.ts"},
-				},
-				{
-					kind:  "add_doc_only_dir",
-					write: map[string]string{"gallery/tour.doc.ts": "export * from \"../lib/greeting\";\n"},
-					stage: []string{"gallery/tour.doc.ts"},
-				},
-				{kind: "delete_route", remove: []string{"app/dashboard"}},
-			},
-		},
-		{
-			name: "remix",
-			files: map[string]string{
-				"package.json":               convergeRemixPkg,
-				"index.html":                 "<html></html>\n",
-				"remix-vite.config.mjs":      "export default {};\n",
-				"app/entry.client.tsx":       "export {};\n",
-				"app/root.tsx":               "export default function Root() { return null; }\n",
-				"app/routes/_index.tsx":      "export default function Index() { return null; }\n",
-				"app/routes/panel/route.tsx": "export default function Panel() { return null; }\n",
-				"app/routes/panel/helper.ts": "export const helper = 1;\n",
-				"lib/greeting.ts":            "export const hi = 1;\n",
+				"package.json":        `{"name":"w"}` + "\n",
+				"worker/package.json": `{"name":"worker"}` + "\n",
+				"worker/vitest.config.mts": "export default { test: " +
+					"{ globals: true } };\n",
+				"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+					`"types":["./worker-configuration.d.ts"]},` +
+					`"include":["src/**/*","worker-configuration.d.ts"]}` + "\n",
+				"worker/worker-configuration.d.ts": "declare const WORKER_ENV: string;\n",
+				"worker/wrangler.jsonc":            `{"name":"w","main":"src/handler.ts"}` + "\n",
+				"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+				"worker/test/tsconfig.json": `{"extends":"../tsconfig.json",` +
+					`"compilerOptions":{"types":["../worker-configuration.d.ts"]},` +
+					`"include":["*.ts"]}` + "\n",
+				"worker/test/handler.test.ts": "export const t = WORKER_ENV;\n",
 			},
 			mutations: []convergeMutation{
 				{
-					kind:  "add_colocated_module",
-					write: map[string]string{"app/routes/panel/subtitle.ts": "export const subtitle = 1;\n"},
-					stage: []string{"app/routes/panel/subtitle.ts"},
+					kind:   "replace_declaration_with_codegen",
+					remove: []string{"worker/worker-configuration.d.ts"},
+					extend: map[string]string{"worker/BUILD.bazel": convergeWorkerTypesCodegen},
 				},
-				{
-					kind: "add_folder_route",
-					write: map[string]string{
-						"app/routes/later/route.tsx": "export default function Later() { return null; }\n",
-						"app/routes/later/bit.ts":    "export const bit = 1;\n",
-					},
-					stage: []string{"app/routes/later/route.tsx"},
-				},
-				{
-					kind:  "add_flat_route",
-					write: map[string]string{"app/routes/about.tsx": "export default function About() { return null; }\n"},
-					stage: []string{"app/routes/about.tsx"},
-				},
-				{kind: "add_nested_route_dir", write: map[string]string{"app/routes/panel/nested/thing.ts": "export const thing = 1;\n"}},
-				{
-					kind:  "add_root_shared_file",
-					write: map[string]string{"version.ts": "export const version = \"1\";\n"},
-					stage: []string{"version.ts"},
-				},
-				{
-					kind:  "add_shared_dir_no_ts",
-					write: map[string]string{"styles/globals.css": ".a{color:red}\n"},
-					stage: []string{"styles/globals.css"},
-				},
-				{
-					kind:  "add_shared_dir_with_ts",
-					write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"},
-					stage: []string{"lib2/extra.ts"},
-				},
-				{kind: "add_file_to_existing_target", write: map[string]string{"app/helpers.ts": "export const helpers = 1;\n"}},
-				{kind: "change_entry_imports", write: map[string]string{"app/entry.client.tsx": "import \"zod\";\nexport {};\n"}},
-				{
-					kind:   "rename_entry",
-					write:  map[string]string{"app/bootstrap.tsx": "export {};\n"},
-					remove: []string{"app/entry.client.tsx"},
-				},
-				{kind: "delete_route", remove: []string{"app/routes/panel"}},
-			},
-		},
-		{
-			name: "tanstack",
-			files: map[string]string{
-				"package.json":                  convergeTanStackPkg,
-				"index.html":                    "<html></html>\n",
-				"tanstack-vite.config.mjs":      "export default {};\n",
-				"src/app/main.tsx":              "export {};\n",
-				"src/routes/__root.tsx":         "export const Route = null;\n",
-				"src/routes/index.tsx":          "export const Route = null;\n",
-				"src/routes/users.tsx":          "export const Route = null;\n",
-				"src/routes/settings/index.tsx": "export const Route = null;\n",
-				"src/routes/settings/panel.ts":  "export const panel = 1;\n",
-				"src/lib/params.ts":             "export const params = 1;\n",
-				"src/components/Layout.tsx":     "export const Layout = null;\n",
-			},
-			mutations: []convergeMutation{
-				{
-					kind:  "add_colocated_module",
-					write: map[string]string{"src/routes/-shared.ts": "export const shared = 1;\n"},
-					stage: []string{"src/routes/-shared.ts"},
-				},
-				{
-					kind:  "add_folder_route",
-					write: map[string]string{"src/routes/posts/index.tsx": "export const Route = null;\n"},
-					stage: []string{"src/routes/posts/index.tsx"},
-				},
-				{
-					kind:  "add_flat_route",
-					write: map[string]string{"src/routes/about.tsx": "export const Route = null;\n"},
-					stage: []string{"src/routes/about.tsx"},
-				},
-				{
-					kind:  "add_nested_route_dir",
-					write: map[string]string{"src/routes/admin/users/list.tsx": "export const Route = null;\n"},
-					stage: []string{"src/routes/admin/users/list.tsx"},
-				},
-				{
-					kind:  "add_root_shared_file",
-					write: map[string]string{"version.ts": "export const version = \"1\";\n"},
-					stage: []string{"version.ts"},
-				},
-				{
-					kind:  "add_shared_dir_no_ts",
-					write: map[string]string{"styles/globals.css": ".a{color:red}\n"},
-					stage: []string{"styles/globals.css"},
-				},
-				{
-					kind:  "add_shared_dir_with_ts",
-					write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"},
-					stage: []string{"lib2/extra.ts"},
-				},
-				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
-				{kind: "change_entry_imports", write: map[string]string{"src/app/main.tsx": "import \"zod\";\nexport {};\n"}},
-				{
-					kind:   "rename_entry",
-					write:  map[string]string{"src/app/bootstrap.tsx": "export {};\n"},
-					remove: []string{"src/app/main.tsx"},
-				},
-				{kind: "delete_route", remove: []string{"src/routes/settings"}},
-			},
-		},
-		{
-			name: "sveltekit",
-			files: map[string]string{
-				"package.json":                 convergeSveltePkg,
-				"svelte.config.js":             "export default {};\n",
-				"vite.config.mjs":              "export default {};\n",
-				"src/app.html":                 "<html>%sveltekit.head%</html>\n",
-				"src/routes/+page.svelte":      "<h1>home</h1>\n",
-				"src/routes/+page.server.ts":   "export const load = () => ({});\n",
-				"src/routes/api/+server.ts":    "export const GET = () => new Response();\n",
-				"src/routes/blog/+page.svelte": "<h1>blog</h1>\n",
-				"src/lib/greeting.ts":          "export const hi = 1;\n",
-				"lib/shared.ts":                "export const shared = 1;\n",
-			},
-			mutations: []convergeMutation{
-				{kind: "add_colocated_module", write: map[string]string{"src/routes/api/helpers.ts": "export const helpers = 1;\n"}},
-				{kind: "add_folder_route", write: map[string]string{"src/routes/about/+page.svelte": "<h1>about</h1>\n"}},
-				{kind: "add_flat_route", write: map[string]string{"src/routes/+layout.svelte": "<slot />\n"}},
-				{kind: "add_nested_route_dir", write: map[string]string{"src/routes/blog/[slug]/+page.svelte": "<h1>post</h1>\n"}},
-				{
-					kind:  "add_root_shared_file",
-					write: map[string]string{"version.ts": "export const version = \"1\";\n"},
-					stage: []string{"version.ts"},
-				},
-				{
-					kind: "add_shared_dir_no_ts",
-					write: map[string]string{
-						"static/favicon.svg": "<svg></svg>\n",
-						"styles/globals.css": ".a{color:red}\n",
-					},
-					stage: []string{"static/favicon.svg", "styles/globals.css"},
-				},
-				{
-					kind:  "add_shared_dir_with_ts",
-					write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"},
-					stage: []string{"lib2/extra.ts"},
-				},
-				{kind: "add_file_to_existing_target", write: map[string]string{"lib/format.ts": "export const format = 1;\n"}},
-				{kind: "delete_route", remove: []string{"src/routes/blog"}},
-			},
-		},
-		{
-			name: "solidstart",
-			files: map[string]string{
-				"package.json":         convergeSolidPkg,
-				"src/app.tsx":          "export default function App() { return null; }\n",
-				"src/routes/index.tsx": "export default function Index() { return null; }\n",
-				"src/routes/about.tsx": "export default function About() { return null; }\n",
-				"src/lib/greeting.ts":  "export const hi = 1;\n",
-			},
-			mutations: []convergeMutation{
-				{kind: "add_colocated_module", write: map[string]string{"src/routes/index.data.ts": "export const data = 1;\n"}},
-				{kind: "add_folder_route", write: map[string]string{"src/routes/posts/index.tsx": "export default function P() { return null; }\n"}},
-				{kind: "add_flat_route", write: map[string]string{"src/routes/contact.tsx": "export default function C() { return null; }\n"}},
-				{kind: "add_nested_route_dir", write: map[string]string{"src/routes/admin/users/list.tsx": "export default function L() { return null; }\n"}},
-				{kind: "add_root_shared_file", write: map[string]string{"version.ts": "export const version = \"1\";\n"}},
-				{kind: "add_shared_dir_no_ts", write: map[string]string{"styles/globals.css": ".a{color:red}\n"}},
-				{kind: "add_shared_dir_with_ts", write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"}},
-				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
-				{kind: "delete_route", remove: []string{"src/routes/about.tsx"}},
+				{kind: "add_a_test_beside_the_sources", write: map[string]string{
+					"worker/src/handler.test.ts": "export const t = WORKER_ENV;\n",
+				}},
 			},
 		},
 	}
@@ -424,9 +328,10 @@ func convergeCases() []convergeCase {
 
 // ---- the property ----------------------------------------------------------
 
-// For every framework and for a plain workspace: generate, mutate, generate
-// again, and require what one generation over the mutated tree produces.
+// For every fixture workspace: generate, mutate, generate again, and require
+// what one generation over the mutated tree produces.
 func TestConvergeAfterMutation(t *testing.T) {
+	requireTsgo(t)
 	for _, tc := range convergeCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, mut := range tc.mutations {
@@ -444,7 +349,6 @@ func runConvergeCase(t *testing.T, tc convergeCase, mut convergeMutation) {
 	applyMutation(t, scratch, mut)
 	captureLog(t, func() { convergeGazelle(t, scratch) })
 	want := convergeSnapshot(t, scratch)
-	wantInputs := collectAppInputs(t, scratch)
 
 	twoRun := t.TempDir()
 	writeWorkspace(t, twoRun, tc.files)
@@ -452,7 +356,6 @@ func runConvergeCase(t *testing.T, tc convergeCase, mut convergeMutation) {
 	applyMutation(t, twoRun, mut)
 	logged := captureLog(t, func() { convergeGazelle(t, twoRun) })
 	got := convergeSnapshot(t, twoRun)
-	gotInputs := collectAppInputs(t, twoRun)
 
 	diff := snapshotDiff(want, got)
 	switch {
@@ -466,18 +369,14 @@ func runConvergeCase(t *testing.T, tc convergeCase, mut convergeMutation) {
 			"from-scratch checkout and an incremental one disagree:\n%s", tc.name, mut.kind, diff)
 	}
 
-	for _, staged := range mut.stage {
-		if gotInputs.covers(staged) {
-			continue
-		}
-		t.Errorf("%s/%s: %s is not among the declared inputs of %s, so the build never sees it "+
-			"(from scratch: covered=%v; after generate/mutate/generate: covered=false)",
-			tc.name, mut.kind, staged, orNone(gotInputs.rule), wantInputs.covers(staged))
-	}
-
 	if dangling := danglingLabels(t, twoRun); len(dangling) > 0 {
 		t.Errorf("%s/%s left %d label(s) no target satisfies, which fails analysis for the whole workspace:\n      %s",
 			tc.name, mut.kind, len(dangling), strings.Join(dangling, "\n      "))
+	}
+	if crossing := crossesPackageBoundary(t, twoRun); len(crossing) > 0 {
+		t.Errorf("%s/%s left %d src(s) under another package, which fails "+
+			"analysis for the whole workspace:\n      %s",
+			tc.name, mut.kind, len(crossing), strings.Join(crossing, "\n      "))
 	}
 }
 
@@ -485,6 +384,9 @@ func applyMutation(t *testing.T, root string, mut convergeMutation) {
 	t.Helper()
 	if len(mut.write) > 0 {
 		writeWorkspace(t, root, mut.write)
+	}
+	for rel, body := range mut.extend {
+		appendFile(t, root, rel, body)
 	}
 	for _, rel := range mut.remove {
 		if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
@@ -505,13 +407,6 @@ func indentLog(logged string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func orNone(s string) string {
-	if s == "" {
-		return "(no app rule at the workspace root)"
-	}
-	return s
-}
-
 // ---- hand-authored values in Gazelle-managed attributes ---------------------
 
 // The generators recompute these attributes from the tree on every run, so a
@@ -528,13 +423,11 @@ type handAuthoredCase struct {
 	kind   string
 	target string
 	attr   string
-	shape  string // "list", "glob" or "scalar"
+	shape  string // "list" or "scalar"
 	value  string
 }
 
-const handVendorPackage = `# gazelle:ts_ignore
-
-filegroup(
+const handVendorPackage = `filegroup(
     name = "vendor_hand",
     srcs = ["legacy.js"],
     visibility = ["//visibility:public"],
@@ -542,68 +435,23 @@ filegroup(
 `
 
 func handAuthoredCases() []handAuthoredCase {
-	vendor := map[string]string{
-		"vendor/BUILD.bazel": handVendorPackage,
-		"vendor/legacy.js":   "export const legacy = 1;\n",
-	}
 	return []handAuthoredCase{
 		{
-			workspace: "next", kind: "next_build", target: "app",
-			attr: "staging_srcs", shape: "list", value: "//vendor:vendor_hand",
-			extra: vendor,
+			workspace: "plain", pkg: "src", kind: "ts_compile", target: "src",
+			attr: "srcs", shape: "list", value: "legacy.js",
+			extra: map[string]string{"src/legacy.js": "export const legacy = 1;\n"},
 		},
 		{
-			workspace: "next", kind: "next_build", target: "app",
-			attr: "srcs", shape: "glob", value: "content/**",
-			extra: map[string]string{"content/post.mdx": "# post\n"},
+			workspace: "plain", pkg: "src", kind: "ts_compile", target: "src",
+			attr: "visibility", shape: "list", value: "//vendor:__pkg__",
+			extra: map[string]string{
+				"vendor/BUILD.bazel": handVendorPackage,
+				"vendor/legacy.js":   "export const legacy = 1;\n",
+			},
 		},
 		{
-			workspace: "next", kind: "next_build", target: "app",
-			attr: "config", shape: "scalar", value: "custom.next.config.mjs",
-			drop:  []string{"next.config.mjs"},
-			extra: map[string]string{"custom.next.config.mjs": "export default {};\n"},
-		},
-		{
-			workspace: "next", kind: "next_build", target: "app",
-			attr: "tsconfig", shape: "scalar", value: "tsconfig.build.json",
-			extra: map[string]string{"tsconfig.build.json": `{"compilerOptions":{"strict":true}}` + "\n"},
-		},
-		{
-			workspace: "next", kind: "node_modules", target: "node_modules",
-			attr: "deps", shape: "list", value: "@npm//:sharp",
-		},
-		{
-			workspace: "next", kind: "next_dev_server", target: "dev",
-			attr: "node_modules", shape: "scalar", value: ":dev_only_nm",
-		},
-		{
-			workspace: "remix", kind: "ts_bundle", target: "app_remix",
-			attr: "staging_srcs", shape: "list", value: "//vendor:vendor_hand",
-			extra: vendor,
-		},
-		{
-			workspace: "remix", kind: "node_modules", target: "node_modules",
-			attr: "deps", shape: "list", value: "@npm//:sharp",
-		},
-		{
-			workspace: "tanstack", kind: "ts_bundle", target: "app",
-			attr: "staging_srcs", shape: "list", value: "//vendor:vendor_hand",
-			extra: vendor,
-		},
-		{
-			workspace: "tanstack", pkg: "src/routes", kind: "filegroup", target: "sources",
-			attr: "srcs", shape: "list", value: "//vendor:vendor_hand",
-			extra: vendor,
-		},
-		{
-			workspace: "sveltekit", kind: "sveltekit_build", target: "app",
-			attr: "srcs", shape: "glob", value: "content/**",
-			extra: map[string]string{"content/post.md": "# post\n"},
-		},
-		{
-			workspace: "sveltekit", kind: "sveltekit_build", target: "app",
-			attr: "svelte_config", shape: "scalar", value: "svelte.config.mjs",
-			extra: map[string]string{"svelte.config.mjs": "export default {};\n"},
+			workspace: "plain", pkg: "src", kind: "ts_compile", target: "src",
+			attr: "tsconfig", shape: "scalar", value: "//:tsconfig_build",
 		},
 	}
 }
@@ -611,6 +459,7 @@ func handAuthoredCases() []handAuthoredCase {
 // TestHandAuthoredAttrValue pins both halves of the contract: a value carrying
 // "# keep" survives the next run, and one without it is replaced out loud.
 func TestHandAuthoredAttrValue(t *testing.T) {
+	requireTsgo(t)
 	fixtures := map[string]convergeCase{}
 	for _, tc := range convergeCases() {
 		fixtures[tc.name] = tc
@@ -701,16 +550,6 @@ func handAuthorAttr(t *testing.T, root string, hc handAuthoredCase, keep bool) {
 	const indent = "    "
 	var replacement []string
 	switch hc.shape {
-	case "glob":
-		glob, ok := rule.ParseGlobExpr(target.Attr(hc.attr))
-		if !ok {
-			t.Fatalf("%s(%s).%s is not a glob() call", hc.kind, hc.target, hc.attr)
-		}
-		replacement = []string{
-			indent + hc.attr + " = glob([",
-			handListLines(append(glob.Patterns, hc.value), hc.value, keep, indent),
-			indent + "]),",
-		}
 	case "scalar":
 		if keep {
 			replacement = append(replacement, indent+"# keep")
@@ -760,8 +599,7 @@ func replaceAttrLines(lines []string, attr string, replacement []string) []strin
 		}
 		depth := 0
 		for j := i; j < len(lines); j++ {
-			// Braces too: path_aliases is a dict, and counting only brackets
-			// ends the assignment at its opening line.
+			// Braces too, so a dict value ends where its brace closes.
 			depth += strings.Count(lines[j], "[") + strings.Count(lines[j], "(") +
 				strings.Count(lines[j], "{")
 			depth -= strings.Count(lines[j], "]") + strings.Count(lines[j], ")") +
@@ -801,9 +639,6 @@ func declaredAttrValues(t *testing.T, root string, hc handAuthoredCase) []string
 		if r.Kind() != hc.kind || r.Name() != hc.target {
 			continue
 		}
-		if glob, ok := rule.ParseGlobExpr(r.Attr(hc.attr)); ok {
-			return glob.Patterns
-		}
 		return attrValues(r, hc.attr)
 	}
 	return nil
@@ -816,4 +651,117 @@ func buildFileText(t *testing.T, root, pkg string) string {
 		return "(no BUILD file)"
 	}
 	return string(data)
+}
+
+// ---- a tsconfig `types` entry ----------------------------------------------
+
+// A path-shaped `types` entry is a dep on the target staging the file: the
+// ts_compile holding a checked-in declaration, or the ts_codegen writing it.
+func TestTypesEntryIsADepOnTheTargetStagingIt(t *testing.T) {
+	requireTsgo(t)
+	fixture := convergeFixture(t, "worker")
+	var mutation convergeMutation
+	for _, mut := range fixture.mutations {
+		if mut.kind == "replace_declaration_with_codegen" {
+			mutation = mut
+		}
+	}
+	if mutation.kind == "" {
+		t.Fatal("the worker fixture lost its replace_declaration_with_codegen mutation")
+	}
+
+	// The test program names the declaration the worker's package owns.
+	checkedIn := t.TempDir()
+	writeWorkspace(t, checkedIn, fixture.files)
+	captureLog(t, func() { convergeGazelle(t, checkedIn) })
+	r := onlyRuleOfKind(t, checkedIn, "worker/test", "ts_test")
+	if deps := r.AttrStrings("deps"); !contains(deps, "//worker") {
+		t.Errorf("%s(%s) in //worker/test has deps = %v, want //worker: the "+
+			"target holding worker-configuration.d.ts is what stages the "+
+			"declaration the tsconfig names in `types`:\n%s",
+			r.Kind(), r.Name(), deps,
+			indent(buildFileText(t, checkedIn, "worker/test")))
+	}
+	for _, pkg := range []string{"worker", "worker/test"} {
+		for _, r := range loadRules(t, checkedIn, pkg) {
+			if r.Kind() != "ts_compile" && r.Kind() != "ts_test" {
+				continue
+			}
+			for _, attr := range attrsBeyondTheRule(r) {
+				t.Errorf("%s(%s) in //%s carries %s while the declaration is "+
+					"checked in; the tsconfig names it and the rule reads the "+
+					"tsconfig:\n%s", r.Kind(), r.Name(), pkg, attr,
+					indent(buildFileText(t, checkedIn, pkg)))
+			}
+		}
+	}
+	requireNoTsConfigTypesFilegroup(t, checkedIn)
+
+	// Both programs name a declaration only the codegen writes.
+	generated := t.TempDir()
+	writeWorkspace(t, generated, fixture.files)
+	applyMutation(t, generated, mutation)
+	captureLog(t, func() { convergeGazelle(t, generated) })
+	for _, program := range []struct{ pkg, kind, want string }{
+		{"worker", "ts_compile", ":worker_types"},
+		{"worker/test", "ts_test", "//worker:worker_types"},
+	} {
+		r := onlyRuleOfKind(t, generated, program.pkg, program.kind)
+		if deps := r.AttrStrings("deps"); !contains(deps, program.want) {
+			t.Errorf("%s(%s) in //%s has deps = %v, want %s: the codegen is what "+
+				"stages the declaration the tsconfig names in `types`:\n%s",
+				r.Kind(), r.Name(), program.pkg, deps, program.want,
+				indent(buildFileText(t, generated, program.pkg)))
+		}
+		for _, attr := range attrsBeyondTheRule(r) {
+			t.Errorf("%s(%s) in //%s carries %s = %v; the rule has no such attribute:\n%s",
+				r.Kind(), r.Name(), program.pkg, attr, attrValues(r, attr), indent(buildFileText(t, generated, program.pkg)))
+		}
+	}
+	requireNoTsConfigTypesFilegroup(t, generated)
+	if dangling := danglingLabels(t, generated); len(dangling) > 0 {
+		t.Errorf("the codegen dep left %d label(s) no target satisfies:\n      %s", len(dangling), strings.Join(dangling, "\n      "))
+	}
+	if crossing := crossesPackageBoundary(t, generated); len(crossing) > 0 {
+		t.Errorf("%d src(s) sit under another package:\n      %s",
+			len(crossing), strings.Join(crossing, "\n      "))
+	}
+}
+
+// attrsBeyondTheRule is every attribute on r that ts_compile and ts_test do not
+// have: srcs, deps, tsconfig, visibility and a ts_test's config are theirs.
+func attrsBeyondTheRule(r *rule.Rule) []string {
+	own := map[string]bool{"name": true, "srcs": true, "deps": true, "tsconfig": true, "visibility": true, "config": true}
+	var beyond []string
+	for _, key := range r.AttrKeys() {
+		if !own[key] {
+			beyond = append(beyond, key)
+		}
+	}
+	sort.Strings(beyond)
+	return beyond
+}
+
+func onlyRuleOfKind(t *testing.T, root, pkg, kind string) *rule.Rule {
+	t.Helper()
+	var found []*rule.Rule
+	for _, r := range loadRules(t, root, pkg) {
+		if r.Kind() == kind {
+			found = append(found, r)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("//%s holds %d %s rules, want one:\n%s", pkg, len(found), kind, indent(buildFileText(t, root, pkg)))
+	}
+	return found[0]
+}
+
+func requireNoTsConfigTypesFilegroup(t *testing.T, root string) {
+	t.Helper()
+	for _, pkg := range convergePackages(t, root) {
+		if ruleNamed(loadRules(t, root, pkg), "filegroup", "tsconfig_types") != nil {
+			t.Errorf("//%s writes filegroup(tsconfig_types); a program reaches a checked-in declaration through the target that owns it and a generated one through the codegen:\n%s",
+				pkg, indent(buildFileText(t, root, pkg)))
+		}
+	}
 }

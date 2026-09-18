@@ -10,7 +10,10 @@ Design note: when both the root workspace and rules_typescript register a repo
 with the same name (e.g. "npm"), the root workspace wins.  This lets consumers
 provide their own pnpm-lock.yaml while rules_typescript ships a default lockfile
 for its own tests.  Non-root registrations for a name are silently skipped when
-the root module has already claimed that name.
+the root module has already claimed that name. A non-root module's hub that
+does fill in serves that module's own targets (`@npm_esbuild` for
+`//vite:vite_plugin_bazel`): its store sits in that module's lockfile package,
+and a link never crosses a repository (docs/rules/node-modules.md § The Store).
 """
 
 load("//npm:lazy.bzl", "declare_lazy_npm_repos")
@@ -37,6 +40,21 @@ def _npm_impl(module_ctx):
         for lock_tag in mod.tags.translate_lock:
             if lock_tag.name not in claimed:
                 claimed[lock_tag.name] = lock_tag
+
+    lockfile_of = {}
+    for name, lock_tag in claimed.items():
+        lock = lock_tag.pnpm_lock
+        package = "@@{}//{}".format(lock.repo_name, lock.package)
+        if package in lockfile_of:
+            fail(
+                "npm: {} and {} name lockfiles in one package, {}: ".format(
+                    lockfile_of[package],
+                    lock,
+                    package,
+                ) + "two lockfiles in one package would share one store " +
+                "(node_modules/.pnpm). Move one into a package of its own.",
+            )
+        lockfile_of[package] = lock_tag.pnpm_lock
 
     for name, lock_tag in claimed.items():
         declare_lazy_npm_repos(
@@ -74,9 +92,9 @@ _translate_lock_tag = tag_class(attrs = {
         doc = """The alias hub's repository name, which is also what use_repo takes and what
 BUILD labels spell (`@npm//:react`).
 
-One call per lockfile: a workspace translating several gets one hub each, and a
-package's imports resolve into exactly one of them -- which Gazelle needs telling
-per package, with `# gazelle:ts_npm_hub <name>`. Only the root module's
+One call per lockfile: a workspace translating several gets one hub each;
+Gazelle writes labels into `@npm`, the root lockfile's hub, and a target that
+resolves into another hub is hand-written. Only the root module's
 registration for a name takes effect; a non-root module's is skipped, which is
 what lets a consumer supply its own lockfile under the name rules_typescript uses
 for its own tests.""",
@@ -84,21 +102,25 @@ for its own tests.""",
     "pnpm_lock": attr.label(mandatory = True, allow_single_file = True),
     "npmrc": attr.label(
         allow_single_file = True,
-        doc = """The workspace .npmrc, when packages come from anywhere but registry.npmjs.org.
+        doc = """The workspace .npmrc, when it names a registry or a credential.
 
-A pnpm lockfile records name@version and integrity and says nothing about the
-registry, so a private or scoped registry is unreachable without this file:
+A pnpm lockfile records name@version and integrity and no registry. The
+extension reads the registry map the way pnpm does: this file's `registry=` and
+`@scope:registry=` lines, then the `registries:` block and `registry:` of the
+pnpm-workspace.yaml beside the lockfile, which needs no label because pnpm keeps
+it there. A workspace whose registries are all in pnpm-workspace.yaml passes
+nothing here:
 
     npm.translate_lock(
         pnpm_lock = "//:pnpm-lock.yaml",
         npmrc = "//:.npmrc",
     )
 
-`registry=` and `@scope:registry=` are read by the extension. Credentials
-(`//host/:_authToken=`, `//host/:_auth=`) are NOT: they are read by each package's
-own fetch, because the extension's result is written to MODULE.bazel.lock, which
-is committed. `${VAR}` interpolation is resolved at fetch time from the
-environment, which is how a token stays out of the workspace entirely.
+Credentials (`//host/:_authToken=`, `//host/:_auth=`) are NOT read by the
+extension: each package's own fetch reads them, and pnpm's `auth` setting,
+`PNPM_CONFIG__AUTH`, from its environment, because the extension's result is
+written to MODULE.bazel.lock, which is committed. `${VAR}` in this file is
+resolved at fetch time from the environment.
 
 `~/.npmrc` is deliberately not consulted. Bazel cannot make a file outside the
 workspace an input, so reading it would mean one lockfile and one lock fetching

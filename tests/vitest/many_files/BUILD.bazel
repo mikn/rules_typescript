@@ -1,0 +1,41 @@
+"""vitest collects the run by its own glob over the root the launcher staged,
+the program's compiled files alone, so a thousand test files start as one
+does: the launcher names no file and the generated config's include is one
+pattern. The config's `include` names the sources, which sit in the runfiles
+beside the compiled files, and is not read: each test asserts it runs
+compiled. one_file_test carries the thousand sources as data, so the two
+runfiles trees are of a size and the two starts differ by the collection."""
+
+load("//ts:defs.bzl", "ts_test")
+
+_N = 1000
+
+genrule(
+    name = "tests",
+    outs = ["t{}.test.ts".format(i) for i in range(_N)],
+    cmd = """for f in $(OUTS); do
+  printf '%s\\n' 'import { expect, it } from "vitest";' '' \\
+    'it("runs the compiled file", () => {' \\
+    '  expect(import.meta.url.endsWith(".test.js")).toBe(true);' \\
+    '});' > "$$f"
+done""",
+)
+
+# keep
+ts_test(
+    name = "many_files_test",
+    srcs = [":tests"],
+    config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
+)
+
+ts_test(
+    name = "one_file_test",
+    size = "small",
+    srcs = ["one.test.ts"],
+    config = "vitest.config.mjs",
+    data = [":tests"],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
+)

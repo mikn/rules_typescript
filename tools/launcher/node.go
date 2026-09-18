@@ -23,23 +23,42 @@ func planNode(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error
 		plan.setEnv("RUNFILES_DIR", r.Dir())
 	}
 
+	// A temp directory, not the runfiles tree: the runfiles tree is read-only
+	// for tools inside action sandboxes and immutable after `bazel run`.
+	scratch := ""
+	tempDir := func() (string, error) {
+		if scratch != "" {
+			return scratch, nil
+		}
+		tmp, err := os.MkdirTemp("", "ts_launcher_nm")
+		if err != nil {
+			return "", err
+		}
+		scratch = tmp
+		plan.Cleanup = func() { _ = os.RemoveAll(tmp) }
+		plan.UseExec = false
+		return tmp, nil
+	}
+
 	if n.NodeModules != "" {
-		if dir, err := r.Path(n.NodeModules); err == nil {
-			if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
-				plan.prependPath("NODE_PATH", dir)
+		root := r.Dir()
+		if root == "" {
+			if root, err = tempDir(); err != nil {
+				return nil, err
 			}
+		}
+		chain := []string{n.NodeModules}
+		_, err = installNodeModules(r, plan, root, cfg.Workspace, chain)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	if len(n.OptionalDeps) > 0 {
-		// A temp directory, not the runfiles tree: the runfiles tree is read-only
-		// for tools inside action sandboxes and immutable after `bazel run`.
-		tmp, err := os.MkdirTemp("", "ts_launcher_nm")
+		tmp, err := tempDir()
 		if err != nil {
 			return nil, err
 		}
-		plan.Cleanup = func() { _ = os.RemoveAll(tmp) }
-		plan.UseExec = false
 		for _, dep := range n.OptionalDeps {
 			if err := linkPackage(r, tmp, dep); err != nil {
 				return nil, err

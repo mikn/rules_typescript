@@ -16,13 +16,19 @@ pnpm add react react-dom --lockfile-only
 ```
 
 `--lockfile-only` updates the lockfile without creating a `node_modules/`
-directory. No `node_modules/` exists in the source tree; Bazel materialises one
-inside the sandbox for the targets that need it.
+directory. Build actions use Bazel’s npm store: the build
+declares pnpm's virtual store and each importer's links into it
+([node_modules](../rules/node-modules.md)), and a target resolves through the
+importer chain, in the sandbox and in a test's runfiles. Gazelle and the editor read checkout `node_modules`, so run `pnpm install` before generating BUILD files or using the editor
+([IDE Setup](../getting-started/ide-setup.md#npm-packages)).
 
-A `pnpm-lock.yaml` is the only npm input these rules read — there is no npm or
-yarn lockfile path — so this step is not optional. The pnpm that writes it can
-be: the extension downloads its own, and `bazel run //:pnpm` runs that one
-without a system install. See [Hermetic pnpm](#hermetic-pnpm).
+A `pnpm-lock.yaml` is the only npm input these rules read; there is no npm or
+yarn lockfile path. A pnpm of your own writes the first one. Every edit after
+that can go through the pnpm the extension downloads, `bazel run //:pnpm`: the
+extension reads the lockfile when a command first reaches a repository it
+declares, so with `npm.translate_lock` declared and no file at the label, a
+target that needs no `@npm` package still builds, and `bazel run //:pnpm`
+fails in the read. See [Hermetic pnpm](#hermetic-pnpm).
 
 **Step 2.** Add to `MODULE.bazel`:
 
@@ -32,10 +38,10 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-`"npm"` is the alias hub your labels spell. `"pnpm"` is required too: the next
-`bazel run //:gazelle` writes `ts_pnpm` and `ts_add_package` targets into your
-root `BUILD.bazel` as soon as a `pnpm-lock.yaml` exists, and both name `@pnpm`.
-Without the repo, `bazel build //...` stops before it builds anything:
+`"npm"` is the alias hub your labels spell. `"pnpm"` is the hermetic pnpm the
+`ts_pnpm` and `ts_add_package` targets in your root `BUILD.bazel` run; write
+them by hand, and take the repo when you do, or `bazel build //...` stops
+before it builds anything:
 
 ```
 ERROR: no such package '@@[unknown repo 'pnpm' requested from @@ (did you mean
@@ -44,7 +50,9 @@ mean 'npm'?)]' could not be resolved: No repository visible as '@pnpm' from
 main repository and referenced by '//:pnpm'
 ```
 
-Nothing runs those two targets on your behalf. See
+Gazelle lists each `tsconfig.json` with tsgo over the checkout, which resolves
+a bare specifier through `node_modules/`, so the checkout is installed once
+(`bazel run //:pnpm -- install`) before the first run. See
 [Hermetic pnpm](#hermetic-pnpm).
 
 **Step 3.** Reference packages in BUILD files:
@@ -69,31 +77,35 @@ ts_compile(
 - Scoped packages (`@scope/name`) become `scope_name`: drop the `@`, replace `/`
   with `_`.
 - Hyphens are kept as-is.
-- A bare label means the **root importer's own resolution** where the lockfile
+- A bare label means the root importer's own resolution where the lockfile
   gives one, and the highest version otherwise. A package resolved at several
   versions also gets a version-suffixed label per version, so one can be pinned.
 - A `workspace:*` link resolves to a target in your own repository. See
   [workspace links](#workspace-links).
+- A target resolves a name to its importer's resolution: the link of the
+  nearest lockfile importer at or above it that declares the name. A version
+  another importer declares, or one only a dependency's closure carries, is
+  not the target's to import, and naming it in `deps` fails analysis.
 
 ## Adding Dependencies
 
 ```bash
-pnpm add zod --lockfile-only   # updates pnpm-lock.yaml only — no node_modules
-bazel run //:gazelle           # Gazelle sees the new import, adds @npm//:zod
+bazel run //:pnpm -- add zod   # updates pnpm-lock.yaml and installs it
+bazel run //:gazelle           # tsgo lists the import; Gazelle adds @npm//:zod
 bazel build //...              # Bazel fetches just that package's closure
 ```
 
-`pnpm` is needed only to edit the lockfile. It is not needed at build time, test
-time, or on CI.
+`pnpm` edits the lockfile and installs the checkout Gazelle lists. It is not
+needed at build time, test time, or on CI.
 
 ## Hermetic pnpm
 
-The extension downloads a standalone pnpm binary whether or not you ask for one,
-so lockfile edits need no system install. Gazelle has already written the two
-macros:
+The extension downloads a standalone pnpm binary whether or not one is asked
+for, so lockfile edits need no system install. Write the two macros into the
+root `BUILD.bazel`:
 
 ```python
-# BUILD.bazel — what `bazel run //:gazelle` writes beside a root pnpm-lock.yaml
+# BUILD.bazel
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 
 ts_pnpm(name = "pnpm")
@@ -104,8 +116,8 @@ ts_add_package(
 )
 ```
 
-The `@pnpm` repo they need came from Step 2. `npm.pnpm()` only pins which version
-is downloaded; leaving it out gets a default, not nothing:
+The `@pnpm` repo they need came from Step 2. `npm.pnpm()` pins which version is
+downloaded; without it a default version is used:
 
 ```python
 # MODULE.bazel
@@ -121,11 +133,11 @@ bazel run //:pnpm -- add zod --lockfile-only
 bazel run //:add_package -- zod          # appends --lockfile-only for you
 ```
 
-`pnpm_lock` is the hub this target edits, spelled exactly as its
-`npm.translate_lock()` spells it; pnpm is pointed at that label's directory with
-`--dir`. It is required: a `pnpm add` with no hub resolves against the workspace
-root and writes a `package.json` and `pnpm-lock.yaml` there. Declaring a label
-also makes a missing lockfile, or one this package cannot see, a build error.
+`pnpm_lock` is the hub this target edits, spelled as its `npm.translate_lock()`
+spells it; pnpm is pointed at that label's directory with `--dir`. It is
+required: a `pnpm add` with no hub resolves against the workspace root and
+writes a `package.json` and `pnpm-lock.yaml` there. Declaring a label also makes
+a missing lockfile, or one this package cannot see, a build error.
 
 A workspace with several hubs gets one target per hub, named after it:
 
@@ -139,12 +151,18 @@ ts_add_package(
 Both targets `cd` to `$BUILD_WORKSPACE_DIRECTORY` first, so they edit the source
 tree. The wrapper is a bash script, so it does not run on Windows.
 
+Both macros take `pnpm_repo_name`, default `"pnpm"`: the repository holding the
+binary, which `npm.pnpm(name = ...)` declares under the same default. Only the
+root module's `npm.pnpm()` tag is read; a non-root module's is ignored. Every
+workspace in this repository, the examples and the integration workspaces
+included, uses the default name, and no test renames it.
+
 ### Which Lockfile the Wrapper Edits
 
 Extra `pnpm add` flags are passed through. Three checks keep the rewrite inside
 the hub, one per route pnpm has to that setting.
 
-- **Flags.** Four spellings are rejected outright, because an appended
+- **Flags.** Four spellings are rejected, because an appended
   `--lockfile-dir` would lose to an earlier `--lockfile-directory`:
 
   ```
@@ -159,17 +177,17 @@ the hub, one per route pnpm has to that setting.
   unset. The match is broad, so `NPM_CONFIG_REGISTRY` goes along with
   `NPM_CONFIG_LOCKFILE_DIR`; a mixed-case `Npm_Config_lockfile_dir` survives it.
 - **Outcome.** The wrapper lists every `pnpm-lock.yaml` in the tree before and
-  after the run. Any new one outside the hub is **deleted and the target exits
-  non-zero**, which covers the mixed-case environment names and any other route
-  to the same setting.
+  after the run. Any new one outside the hub is deleted and the target exits
+  non-zero, which covers the mixed-case environment names and any other route to
+  the same setting.
 
-Two more refusals before pnpm runs at all: no `PNPM_HUB_DIR` (the target was not
+Two more refusals before pnpm runs: no `PNPM_HUB_DIR` (the target was not
 generated by `ts_add_package`), and no `package.json` beside the hub's lockfile,
 which pnpm would create.
 
 To edit another hub, run that hub's own target.
 
-## More than One Hub
+## More Than One Hub
 
 A workspace can translate several lockfiles. Each one is its own alias hub, named
 by `npm.translate_lock`'s `name` attr, and that name is what `use_repo` takes and
@@ -187,18 +205,17 @@ use_repo(npm, "npm", "npm_tools", "pnpm")
 deps = ["@npm_tools//:eslint"]
 ```
 
-Split a lockfile when a closure has no business in the tree an app's tests
-resolve against (eslint's, say), or when a lockfile is a curated fixture no
-`pnpm add` should regenerate. The cost is two lockfiles to keep in step, and a
-package resolved in both is fetched twice. One root lockfile is the default
+A second lockfile keeps a closure (eslint's, say) out of the tree an app's tests
+resolve against, or keeps a curated fixture out of `pnpm add`'s reach. It costs
+two lockfiles to keep in step, and a package resolved in both is fetched twice.
+One root lockfile is the default
 ([Monorepo Layout](monorepo.md#single-pnpm-lockfile)).
 
 Three things follow from a second hub:
 
-- **Gazelle has to be told**, per package, which hub that tree's imports come
-  from: `# gazelle:ts_npm_hub npm_tools`. Otherwise generated deps name `@npm`,
-  which for those packages is a label that does not exist. See
-  [More than one npm hub](../gazelle/directives.md#more-than-one-npm-hub).
+- **Gazelle writes `@npm` alone.** Every npm label it writes names the hub of
+  the root `pnpm-lock.yaml` it reads. A package whose imports come from another
+  hub writes its `deps` by hand under `# keep`.
 - **One `ts_add_package` target per hub.** pnpm rewrites whichever lockfile it
   resolves against, so the hub belongs in the command a person types:
 
@@ -218,8 +235,26 @@ Three things follow from a second hub:
 ## Private and Scoped Registries
 
 A pnpm lockfile records a package's `name@version` and its integrity, and no
-registry anywhere. `.npmrc` is the only record, so a workspace whose packages
-come from somewhere other than `registry.npmjs.org` has to pass it:
+registry anywhere. pnpm keeps the registry map in two files, and the extension
+reads the same two:
+
+- `pnpm-workspace.yaml` beside the lockfile: its `registries:` block (`default`
+  and `@scope` keys) and a top-level `registry:`. Found by position, as pnpm
+  finds it; nothing names it in `MODULE.bazel`.
+- `.npmrc`, passed as `npmrc`: its `registry=` and `@scope:registry=` lines.
+
+```yaml
+# pnpm-workspace.yaml
+registries:
+  default: https://npm.example.com/artifactory/api/npm/npm-virtual/
+  "@acme": https://npm.acme.test/
+```
+
+```
+# .npmrc
+registry=https://npm.example.com/          # the default for everything
+@acme:registry=https://npm.example.com/    # the default for one scope
+```
 
 ```python
 npm.translate_lock(
@@ -228,47 +263,76 @@ npm.translate_lock(
 )
 ```
 
-Two kinds of line decide a URL, and they are the only lines the extension reads:
+Use an indented `registries:` mapping with `default` or `@scope` keys, as above.
+A `registries:` value written as a flow mapping (including `{}`) or YAML alias
+is unsupported and fails with a diagnostic; expand it into the block form.
+An absent or empty block is allowed.
 
-```
-registry=https://npm.example.com/          # the default for everything
-@acme:registry=https://npm.example.com/    # the default for one scope
-```
+The order is pnpm's (`@pnpm/config`, pnpm 11.19.0): the `.npmrc` lines, then
+`registries:`, then `registry:`, the later setting winning a key. A value with a
+`${VAR}` in `pnpm-workspace.yaml` is dropped, as pnpm drops it from a project's
+file. A scoped package's tarball is
+`<registry>/@scope/name/-/name-<version>.tgz` on its scope's registry, or the
+default's. A `tarball:` in the lockfile's `resolution:` is an absolute URL pnpm
+already resolved, and it wins over every setting.
 
-A `tarball:` in the lockfile's `resolution:` is an absolute URL pnpm already
-resolved, and it wins over both.
+### Credentials
 
-**Credentials are read at fetch time instead.** The extension's result is
-serialised into the committed `MODULE.bazel.lock`, so a token that reached an
-attribute would be a token in git. Each package's own fetch reads the `.npmrc`
-again for `//host/path/:_authToken=` or `:_auth=`; what lands in the lock is the
-file's label.
+Credentials are read at fetch time, never by the extension: the extension's
+result is serialised into the committed `MODULE.bazel.lock`, so a token in an
+attribute would be a token in git. Each package's own fetch reads two sources,
+as pnpm does:
 
-```
-//npm.example.com/:_authToken=${NPM_TOKEN}
-```
+- `PNPM_CONFIG__AUTH` (or `pnpm_config__auth`) in the fetch environment, pnpm's
+  `auth` setting: a JSON object keyed by registry URL, then by scope -- `"@"`
+  for every package on that registry, `"@acme"` for one scope -- with
+  `authToken` its one field. Reading it registers the variable, so a changed
+  token refetches; no file holds it.
 
-`${VAR}` is expanded from the fetch environment, and changing the variable
-refetches, because reading it registers it. Credentials are keyed by
-`//host/path/` with the **longest** matching prefix winning, so a registry
-mounted on a path (an Artifactory repo, say) carries its own token without
-claiming the whole host.
+  ```bash
+  export PNPM_CONFIG__AUTH='{
+    "https://npm.acme.test": {"@acme": {"authToken": "..."}}
+  }'
+  ```
 
-Two limits:
+- the `.npmrc`'s `//host/path/:_authToken=` or `:_auth=` line, `${VAR}` expanded
+  from the fetch environment. What lands in the lock is the file's label.
 
-- **`~/.npmrc` is not consulted, and cannot be.** It lies outside the workspace,
-  so Bazel cannot make it an input; `${VAR}` covers the part that legitimately
-  varies per machine.
+  ```
+  //npm.example.com/:_authToken=${NPM_TOKEN}
+  ```
+
+For one URL the fetch sends the `auth` entry for the package's scope on the
+longest registry prefixing the URL; without one, the unscoped credential on the
+longest prefix, the `auth` setting's `"@"` entry over the `.npmrc`'s on one
+registry. Credentials are keyed by `//host/path/`, so a registry mounted on a
+path (an Artifactory repo, say) carries its own token without claiming the whole
+host, and a token granted to one port stays off another.
+
+pnpm 11 ignores a `${VAR}` credential in a project's `.npmrc` (the file is
+committed, and the value could reach an attacker's registry), so a workspace it
+installs keeps the token in `PNPM_CONFIG__AUTH`; the fetch reads the same
+variable.
+
+Three limits:
+
+- **`~/.npmrc` is not consulted.** It lies outside the workspace, so Bazel
+  cannot make it an input; the environment covers what varies per machine.
 - **`username` / `_password` fail** with a message naming the file and the scope.
   npm stores `_password` base64-encoded and Starlark cannot decode it (there is
   no `chr()`). Use `_authToken`, which `npm config set //host/:_authToken`
-  writes, or `_auth`, which is the same base64 blob.
+  writes, or `_auth`, the same base64 blob.
+- **A scope only the `auth` setting names is fetched from the default
+  registry.** pnpm takes a scope's registry from the setting's key as well; the
+  extension reads the two files alone, because the variable holds the token and
+  an extension's inputs are recorded in the lock. Put the mapping in
+  `pnpm-workspace.yaml`.
 
 ## Patched Dependencies
 
 pnpm's `patchedDependencies` used to be ignored silently: the `packages:`
-integrity in the lockfile is the byte-identical upstream tarball, so a patched
-package was fetched **unpatched**.
+integrity in the lockfile is the upstream tarball's, so a patched package was
+fetched unpatched.
 
 Patches are passed as labels: the paths pnpm keeps in `pnpm-workspace.yaml`
 cannot be turned into labels by an extension, because a path like
@@ -284,7 +348,7 @@ npm.translate_lock(
 Each file is matched to its lockfile entry by filename, pnpm's own convention
 from `pnpm patch-commit`: `<name with / replaced by __>@<version>.patch`.
 
-Every pairing is **verified while the extension evaluates**, so a patch nothing
+Every pairing is verified while the extension evaluates, so a patch nothing
 currently depends on is checked too. Four failures, each naming the label:
 
 - **the label resolves to no readable file.** Resolving the label also forces
@@ -302,8 +366,7 @@ currently depends on is checked too. Four failures, each naming the label:
 !!! warning "A patch file whose name starts with `@`"
     `exports_files(glob(["*.patch"]))` cannot export it: `glob()` prefixes `:`
     onto such a result and `exports_files` rejects that as a target name, which
-    fails the whole package — every patch in it, not just the scoped one. List
-    those files literally:
+    fails the whole package and every patch in it. List those files literally:
 
     ```python
     exports_files(["@acme__diffs@1.3.1.patch", "nanoid@3.3.11.patch"])
@@ -312,9 +375,9 @@ currently depends on is checked too. Four failures, each naming the label:
 ## Integrity
 
 Every `packages:` entry has to carry an integrity the download can be checked
-against. A package whose `resolution:` has none used to be fetched with **no
-verification at all**. That is now a hard error, raised **while the extension
-evaluates**, so an entry nothing currently depends on is checked too:
+against. A package whose `resolution:` has none used to be fetched with no
+verification. That is now a hard error, raised while the extension evaluates, so
+an entry nothing currently depends on is checked too:
 
 ```
 npm: entries in //:pnpm-lock.yaml whose `resolution:` carries no usable integrity:
@@ -329,16 +392,16 @@ fetch turns it into a checksum error naming a URL.
 Three lockfile shapes cannot satisfy it, all dependencies with no published
 tarball: a git dependency (`{commit, repo, type: git}`), a
 `file:` dependency on a local directory (`{directory, type: directory}`), and a
-remote tarball pnpm could not hash (`{tarball}` with no `integrity`). The first
-two already failed, with a worse message: with no `tarball:` key the registry URL
-is fabricated from the name and the fetch 404s. Depend on such a package as a
+remote tarball pnpm could not hash (`{tarball}` with no `integrity`). Without
+the check the first two fail later: with no `tarball:` key the registry URL is
+built from the name and the fetch 404s. Depend on such a package as a
 workspace member (a `link:` entry, which becomes a target in your own repository;
 see [workspace links](#workspace-links)) or vendor its files.
 
-There is **no opt-out**. The check belongs at extension evaluation, and a module
+There is no opt-out: the check runs at extension evaluation, and a module
 extension cannot read build flags.
 
-## catalogs, overrides and packageExtensions
+## `catalogs`, `overrides` and `packageExtensions`
 
 pnpm resolves all three at every use site before writing the lockfile, so they
 need no support and have none. `catalog:` specifiers, `overrides` (both plain and
@@ -348,78 +411,119 @@ the extension reads.
 
 ## Platform-Specific Packages
 
-A package whose `os`/`cpu` fields exclude your platform — `@rollup/rollup-linux-x64-gnu`
-on a Mac, say — is not part of your build, and there is nothing to configure.
+A package whose `os`/`cpu` fields exclude the platform
+(`@rollup/rollup-linux-x64-gnu` on a Mac, say) is not part of the build; there
+is nothing to configure.
 
-Native sidecars still work: a bin script that resolves an optional dependency at
-runtime (`oxlint` → `@oxlint/linux-x64-gnu`) gets it in its runfiles, even though
-the two are no longer sibling directories inside one repository.
+A bin script that resolves an optional dependency at runtime (`oxlint` →
+`@oxlint/linux-x64-gnu`) gets it in its runfiles, though the two are not sibling
+directories inside one repository.
 
-## Where a package's type declarations come from
+## Where a Package's Type Declarations Come From
 
-Each package target carries one declaration entry point: the file the package's
-own metadata designates, read in the order a resolver reads it. That entry is
-what the `ts_compile` boundary type-checks against and what the
-[IDE tsconfig](../getting-started/ide-setup.md) puts in `compilerOptions.paths`.
+From the package's own `package.json`, read by tsgo where the package sits in
+the store, `node_modules/.pnpm/<key>/node_modules/<name>/`, reached through the
+importer's link. Nothing here reads `exports`, `types`,
+`typings` or `main` for it. tsgo walks the tree as it walks a pnpm install --
+the `exports` map in its own key order with the conditions as written, then
+`typings` and `types`, then `main`, then the root index -- and a
+`compilerOptions.types` entry or a `/// <reference types>` directive resolves
+through the same tree by TypeScript's type-reference rules. So
+`import type { TraceItem } from "@cloudflare/workers-types"` resolves to that
+package's `index.ts`, a module, and `"types": ["@cloudflare/workers-types"]`
+to its `index.d.ts`, a global script, as they do under `tsc`; an `exports`
+subpath (`@cloudflare/vitest-pool-workers/types`) and a one-star pattern
+(`"./*": "./dist/esm/*"`) resolve because tsgo reads the map itself.
 
-1. **`exports`, in the map's own key order.** Node and TypeScript try conditions
-   as they are written, so a package that writes `require` before `import` means
-   that. The walk descends `types`, `typings`, `node`, `import`, `require` and
-   `default`, follows array fallbacks, and understands the conditions-only
-   shorthand (a map with no `.`-prefixed keys is itself the root entry) and a
-   plain string. A leaf naming `.js`, `.mjs` or `.cjs` resolves to the
-   declaration beside it: `./dist/node/index.js` → `./dist/node/index.d.ts`.
-2. **Top-level `typings`, then `types`,** the order
-   `readPackageJsonTypesFields` reads them in, including the extensionless form
-   (`"typings": "dist/index"` → `dist/index.d.ts`). This is where a package with
-   no `exports` publishes its declarations, and where **every `@types/*` package**
-   publishes them.
+A `.ts` module entry sits under `node_modules/<name>/` and is a library file to
+TypeScript: type-checked, never emitted, outside the `rootDir` check. See
+[the node_modules chain](../rules/ts-compile.md#the-node_modules-chain).
 
-Every candidate is checked against the extracted package before it is used, so a
-manifest naming a `.d.ts` it does not actually ship falls through to the next
-candidate. Six `@babel/helper-*` resolutions in this repository's own lockfile
-designate a `lib/index.d.ts` their tarball does not contain.
-
-!!! note "`paths` for subpaths is rooted at the entry's directory"
-    A package designating `dist/index.d.ts` gets `pkg/*` → `dist/*`. Importing
-    `pkg/sub` where the subpath's declarations sit somewhere other than beside the
-    entry will not resolve in the editor, even though the build is fine.
-
-## What a workspace member is imported as
+## What a Workspace Member Is Imported As
 
 A `workspace:*` dependency resolves to a `link:` in the lockfile, and the hub
-target for it is where the member's npm name lives. That target reads the
-member's own `package.json` too, and every specifier it declares becomes a
-`paths` entry in each consumer's generated tsconfig:
+writes one `npm_workspace_package` view per workspace member -- every `link:`
+target and every importer whose `package.json` has a `name`, one view per member
+directory -- at `@npm//:<name>`; each importer that links the member holds a
+`node_modules_member` target, `//<importer>:node_modules/<name>`, which a
+target names in `deps`. An importer that declares the member's name with a
+version instead of `workspace:` installs the published package of that name,
+and a target under it names the importer-scoped label,
+`@npm//npm-packages/lovite:lovable-tagger`, not the view. The view is that
+member as an npm package: its store tree,
+`node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`, holds the
+member's `package.json` as built beside the member's `.js`, `.js.map` and
+`.d.ts` at the paths the manifest names. "As built" is one rewrite, done by the
+member's `ts_compile` over the `package.json` in its `srcs` and written as
+`<name>.package.json` beside the src, which stays staged as written
+(`tsaction manifest`, under the `jsx` its tsconfig declares): every source-file
+target under `main`, `module`, `browser`, `exports` and `imports` names the
+emitted file -- the `.js`, or the `.jsx` for a `.tsx` under `jsx: "preserve"`
+([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve))
+-- and every `types`, `typings` or `exports` `types` condition names the
+`.d.ts`, key order kept, so an `exports` condition map is read in the order it
+was written. A member that sets no `type` is ESM.
 
-| the manifest says | `paths` gets |
+| the member's manifest says | the link's manifest says |
 |---|---|
-| `exports: {".": "./entry.ts"}` | `pkg` → `entry.d.ts` |
-| `exports: {"./button": "./components/controls/button/index.ts"}` | `pkg/button` → `components/controls/button/index.d.ts` |
-| `exports: {"./icons/*": "./icons/components/*.tsx"}` | `pkg/icons/*` → `icons/components/*.d.ts` |
-| `exports: {"./internal/*": null}` | nothing: not exported designates nothing |
-| `exports: {"./theme.css": "./theme.css"}` | nothing: no compiler emits a declaration from it |
-| `main: "./schema.ts"`, no `exports` | `pkg` → `schema.d.ts` |
+| `exports: {".": "./src/index.ts"}` | `exports: {".": "./src/index.js"}` |
+| `exports: {"./wire": "./src/wire/index.ts"}` | `exports: {"./wire": "./src/wire/index.js"}` |
+| `exports: {".": {"types": "./src/index.ts", "default": "./src/index.ts"}}` | `{"types": "./src/index.d.ts", "default": "./src/index.js"}`, in that order |
+| `exports: {"./icons/*": "./icons/components/*.tsx"}` | `exports: {"./icons/*": "./icons/components/*.js"}` |
+| the same, the member's `ts_config` declaring `jsx = "preserve"` | `exports: {"./icons/*": "./icons/components/*.jsx"}` |
+| `main: "./schema.ts"`, no `exports` | `main: "./schema.js"` |
+| `exports: {"./theme.css": "./theme.css"}` | unchanged: no source file |
 
-The field order is the one above under
-[Where a package's type declarations come from](#where-a-packages-type-declarations-come-from):
-`exports` first, then `typings`, `types` and `main`. `module` is not read --
-it is a bundler convention that no TypeScript resolution mode consults.
+tsc maps a `.js` or `.jsx` target to the `.d.ts` beside it, node runs the `.js`
+and vite transforms the `.jsx`, so one manifest serves the type check and the
+run: `import { frame } from
+"@acme/canvas-sdk/wire"` resolves for tsgo to `src/wire/index.d.ts` and for
+vitest to `src/wire/index.js`, both under the tree. The tree's root is the
+member's directory under `bazel-bin`, where the compiling target's outputs hang
+off, whichever directory holds that target. A member whose directory holds no
+`package.json` with a `name` gets a comment in the hub and no view; two members
+of one name, or one directory linked under two names, fail the extension.
 
-Entries point at the **declarations** Bazel emits, under the compiling target's
-output directory first and the source tree second, never at the member's
-sources: a `paths` entry naming a `.ts` would put the member's uncompiled files
-in the consumer's program and check them against the consumer's options.
+The tree holds the member's data srcs too, at their package-relative paths
+beside the `.js` that reads them: a member whose module imports `./banner.json`
+answers `import { tagline } from "shared"` from the tree alone. The
+`package.json` src is staged as written, and the manifest as built takes its
+place where a reader holds the emit: the store tree copies it as
+`package.json`, and a dependent's program root lays it at the member's path
+over the src. A test inside the member imports the member by name -- a
+self-reference, which tsc, node and Vite resolve through the nearest
+`package.json`'s `name` and `exports` -- with the member's `ts_compile` as its
+dep and no link: tsgo reaches the `.d.ts` through the manifest as built in the
+program root; at run time the runfiles hold the src as written, so the name
+lands on the source its `exports` name, which vitest transforms as the
+checkout's vitest does and the node:test hook maps to the compiled sibling
+([Files at Run Time](../rules/ts-test.md#files-at-run-time)). A test that
+reads its `package.json` as data reads what the checkout has. The
+link target forwards the view's `TsInfo` and `NpmPackageInfo`; a consumer
+reaches the member's files in the store, as it reaches any npm package's.
+`ts_test` names the closure's workspace members in `test.server.deps.inline`:
+vitest runs a module under
+`node_modules` in node unless a pattern names it, and a member's emitted `.js`
+keeps its sources' extensionless relative imports, which node's loader rejects
+and vite resolves; under pnpm a linked member is inlined because its realpath
+lies outside `node_modules`.
 
-The guesses a member used to get -- `pkg` → `<root>/index.d.ts` and `pkg/*` →
-`<root>/*` -- stay behind every declared entry rather than being replaced, so a
-manifest that names a file this build does not produce resolves exactly as it
-did before anything read it.
-
-!!! note "Conditions outside the resolver set are not followed"
-    The walk descends `types`, `typings`, `node`, `import`, `require` and
-    `default`. A member whose entry sits behind `browser`, `development` or
-    `production` alone designates nothing and keeps the guesses.
+The tree holds the member's own files and nothing outside them, so a member's
+file names another package by its package name. A relative path that leaves
+the member (`../../../../web/shared/lib/proto/x.ts` from
+`packages/app-mcp/src/generated/`) resolves under pnpm alone, where
+`node_modules/<name>` is a symlink to the member's directory and node resolves
+the importer to its real path first. Here the member is its files in the store
+tree, and tsgo and both runners resolve a package's file at its realpath there,
+so the path lands beside the other store trees, where the file is not:
+the run fails with `Cannot find module`, and tsgo reports `TS2307`
+in the member's `.d.ts` under `--//ts:lib_check` and, without it, widens every
+name the file re-exported to `any`. A `.ts` subpath into a member with no
+`exports` map (`web/shared/lib/proto/x.ts`, the shape an application package
+is imported by) resolves as the member's emitted files do: tsgo maps the `.ts`
+to the `.d.ts` beside it, and the runners map it to the `.js`
+([`.ts` Specifiers](../rules/ts-test.md#ts-specifiers)).
+`//packages/by-name-member` is the example.
 
 ## Bin Scripts
 
@@ -477,106 +581,99 @@ deps = ["@npm//:shared"]     # → //packages/shared:shared, importable as "shar
 itself. It is a generated rule and not an `alias`: Bazel resolves an alias before
 any rule implementation runs, so `ts_compile` would see no record of the name.
 
-The target a `link:` entry points at is **looked up, not derived**. A member is a
-directory, and which directory inside it holds the target that compiles it is a
-Gazelle decision: the default boundary mode gives every directory holding sources
-its own package, `# gazelle:ts_package_boundary tsconfig` rolls the subtree up
-into the directory holding `tsconfig.json`, and `# gazelle:ts_target_name`
-renames the result. So the hub walks from the directories the member's own
-manifest designates an entry point in up to the member's root, and takes the
-innermost one that declares a target of that name:
-
-```text
-link:packages/shared, main: src/index.ts
-  packages/shared/src/BUILD.bazel declares :src     →  //packages/shared/src:src
-  only packages/shared/BUILD.bazel declares :shared →  //packages/shared:shared
-```
-
-The entry points come from `main`, `module` and `exports["."]` -- all three, so a
-member that declares only an exports map (`{".": "./src/index.ts"}`, or a
-condition map under it) is walked from `src/` as well. A condition outside
-`types`/`typings`/`node`/`import`/`require`/`default`, and a target holding a
-`*`, are not followed.
-
-That target has to be visible to the hub repository, so
-`visibility = ["//visibility:public"]`. A `ts_compile` gets the npm name
-attached. A member with no declarations, such as a `css_module` or an
-`asset_library`, is forwarded as it is and carries no name.
+The target a `link:` entry points at is `//<member>:<basename>`, the
+`ts_compile` Gazelle writes for the member's own `tsconfig.json`
+(`//packages/shared:shared` for `link:packages/shared`), and the hub reads the
+member's BUILD file to see that it declares one. That target has to be visible
+to the hub repository, so `visibility = ["//visibility:public"]`. The view
+forwards its providers and describes it as an npm package named by the
+lockfile.
 
 !!! warning "A member whose target is not declared gets no hub target"
-    If no candidate directory declares a target of the member's name, the hub
-    declares nothing for that name and writes a comment saying so where the
+    If the member's BUILD file declares no target of the member's basename, the
+    hub declares nothing for that name and writes a comment saying so where the
     label would have been. `@npm//:<member>` then fails as an undeclared target
-    for whatever asks for it. That covers a member with no `BUILD.bazel` at all
-    **and** one whose `BUILD.bazel` declares something else -- a lone
-    `ts_config`, say. Neither earns a label: a label naming a target Bazel
-    cannot resolve fails analysis for everything that reaches the hub, not just
-    for the member. Run Gazelle, or write the member's target by hand.
+    for whatever asks for it. That covers a member with no `BUILD.bazel`, one
+    whose `BUILD.bazel` declares something else (a lone `ts_config`, say), and
+    a member whose program is a `tsconfig.json` above it (at `packages/`, not
+    at `packages/shared/`), which gives it no target of its own. A label naming
+    a target Bazel cannot resolve fails analysis for everything that reaches
+    the hub, not just for the member. Give the member its `tsconfig.json` and
+    run Gazelle, or write the target by hand.
 
-    The lookup covers the member's own subtree only. A boundary that rolls a
-    member up into a directory **above** it -- a `tsconfig.json` at
-    `packages/` rather than at `packages/shared/` -- leaves the member with no
-    target of its own, and the hub reports it the same way.
-
-A workspace member is staged into `node_modules` like any other package, so a
-`ts_test` or `ts_binary` that lists `@npm//:shared` can import it at run time and
-not only type-check against it. Its own npm dependencies come along; a generated
-`package.json` marks it ESM. Node falls back to `index.js` at the package root,
-so a member whose entry point is named something else is resolvable in the
-compiler and not in Node.
-
-!!! note "The IDE tsconfig still reads `module_name`"
-    The checked-in tsconfig is generated by an aspect over your `ts_compile`
-    graph, and it takes a bare specifier from the `module_name` attribute. A
-    member with none builds fine and resolves in Bazel, but its bare import will
-    not resolve in the editor. Set `module_name` there too if that matters.
+A workspace member is a store tree like any other package, so a `ts_test` or
+`ts_binary` that lists the importer's link target, `//:node_modules/shared`,
+can import it at run time and not only type-check against it. Its own npm dependencies come along, and its
+`package.json` is the member's own with source-file targets rewritten to the
+emitted files, so the entry and every `exports` subpath resolve at run time as
+they do for the check; see
+[what a workspace member is imported as](#what-a-workspace-member-is-imported-as).
+In the editor the checkout's `node_modules` holds pnpm's link to the member, and
+the generated tsconfig writes no `paths` key for it.
 
 ## node_modules Targets
 
-For test and dev-server targets that need a real `node_modules` directory on
-disk:
+Every lockfile importer's package holds a `node_modules` target, its declared
+npm packages linked into the store, and a `node_modules_member` per member it
+links; Gazelle writes both from the lockfile's `importers:`. The root
+importer's names `hoist`, the lockfile's `:node_modules/.pnpm/node_modules`;
+every other importer's names `parent`, the importer above's target:
 
 ```python
-load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
 
 node_modules(
     name = "node_modules",
     deps = ["@npm//:vitest", "@npm//:react"],
+    hoist = ":node_modules/.pnpm/node_modules",
+)
+
+node_modules_member(
+    name = "node_modules/shared",
+    member = "@npm//:shared",
 )
 ```
 
-This builds a `node_modules` tree in the sandbox holding exactly those packages
-and their transitive dependencies. `ts_test` does it for you from its `deps`. See
-[Testing with vitest](testing.md).
-
-The tree places **every** resolution a closure made, not one per name. A name's
-primary resolution keeps the flat top-level directory; any other one gets its
-bytes once under `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, with
-a relative link from each dependent that resolved to it. A resolution is name,
-version and peer set: pnpm resolves a package once per distinct peer set, and
-those outcomes have different dependency edges. Declaring two resolutions of
-one name directly on one target is an error. See
+`ts_codegen`, `ts_binary` and `ts_dev_server` take the importer's target and
+stage its links and every store tree they reach; `ts_compile` and `ts_test`
+name it in `node_modules` and resolve each npm dep along it and its `parent`s
+([The Chain](../rules/node-modules.md#the-chain)). See
+[Testing with vitest](testing.md) and
 [node_modules](../rules/node-modules.md#the-layout).
+
+Beside them, every lockfile's package declares pnpm's virtual store:
+`npm_virtual_store(name = "node_modules/.pnpm")`, loaded from the hub's
+`defs.bzl`, is one cached tree of real files per snapshot at
+`node_modules/.pnpm/<key>/node_modules/<name>`, its dependency links declared
+symlinks beside it, a tree per workspace member, and pnpm's hidden hoist; every
+package target carries its store as `NpmPackageInfo.store`. See
+[The Store](../rules/node-modules.md#the-store).
 
 ## One Repository per Package
 
-A single repository for the whole lockfile cannot fetch lazily: it reads `bin`
-and `exports` out of each extracted `package.json` to generate targets, so
-nothing can be emitted until everything is downloaded.
+The extension does the whole-graph analysis the lockfile text alone supports
+(platform filtering, which version a bare label means, `@types` pairing, cycle
+breaking, alias naming, patch routing) and declares one repository per package.
+Each package reads its own `package.json` and writes its own BUILD file, so
+Bazel fetches on demand, fetches independent repositories in parallel, caches
+and invalidates per package, and a malformed tarball fails only its own package.
+A single repository for the whole lockfile reads `bin` and `exports` out of each
+extracted `package.json` to generate targets, so nothing can be emitted until
+everything is downloaded.
 
-The extension instead does the whole-graph analysis the lockfile text alone
-supports — platform filtering, which version a bare label means, `@types`
-pairing, cycle breaking, alias naming, patch routing — and declares one
-repository per package. Each package reads its own `package.json` and writes its
-own BUILD file, so Bazel fetches on demand, fetches independent repositories in
-parallel, caches and invalidates per package, and a malformed tarball fails only
-its own package.
+Inside its repository a package sits under `node_modules/<name>/`, so every path
+the rules write for it -- an action input, an exec path such as
+`external/+npm+npm__zod__4_1_5/node_modules/zod/index.d.ts` -- carries a
+`node_modules` segment. TypeScript classifies a file by that segment: under one
+it is a library file, type-checked and never emitted; under none it is project
+source, emit-eligible and checked against `rootDir`. The store tree is copied
+from the package root.
 
-One measurement, made while both layouts still existed: building one vitest test
-target from an empty output base against a real 2731-package lockfile went from
-392s and 2.9 GB of `external/` to 66s and 415 MB, fetching 138 packages —
-vitest's transitive closure — out of 2731. The single-repository implementation
-has since been deleted, so the comparison cannot be re-run from this tree.
+One measurement, made while both layouts existed: building one vitest test
+target from an empty output base against a 2731-package lockfile went from 392s
+and 2.9 GB of `external/` to 66s and 415 MB, fetching 138 packages (vitest's
+transitive closure) out of 2731. The single-repository implementation has since
+been deleted, so the comparison cannot be re-run from this tree.
 
 To count the package targets one target reaches, without building anything:
 
@@ -584,7 +681,7 @@ To count the package targets one target reaches, without building anything:
 bazel query 'kind(ts_npm_package, deps(//path/to:my_test))' | wc -l
 ```
 
-That is very nearly the set of repositories Bazel would fetch: a package present
+That is close to the set of repositories Bazel would fetch: a package present
 under an npm alias name contributes a second target in the same repository. On
 this repository's own lockfile `//tests/vitest:math_test` reaches 113 targets in
 113 repositories.

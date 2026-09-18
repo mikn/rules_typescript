@@ -18,4 +18,6 @@ local_path_override(
     path = "{RULES_TS_ROOT}",
 )
 
-register_toolchains("@rules_typescript//ts/toolchain:all")
+register_toolchains(
+    "@rules_typescript//ts/toolchain:all",
+)

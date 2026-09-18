@@ -1,6 +1,9 @@
 """JavaScript in srcs: staged as-is, and part of the type program."""
 
-load("@rules_go//go:def.bzl", "go_test")
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.checkjs.json
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
@@ -15,7 +18,7 @@ ts_compile(
         "main.ts",
         "math.js",
     ],
-    compiler_options = {"checkJs": True},
+    tsconfig = "tsconfig.checkjs.json",
 )
 
 # No TypeScript at all: oxc gets nothing to do, and the declarations tsgo emits
@@ -28,12 +31,22 @@ ts_compile(
     ],
 )
 
+filegroup(
+    name = "declarations",
+    srcs = [
+        ":app",
+        ":flavours",
+    ],
+    output_group = "declarations",
+)
+
 go_test(
     name = "js_sources_test",
     size = "small",
     srcs = ["js_sources_test.go"],
     data = [
         ":app",
+        ":declarations",
         ":flavours",
     ],
     deps = ["//tests/verify"],

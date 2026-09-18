@@ -12,22 +12,18 @@ Both targets are `manual`: they exist to be analysed, and nothing outside
 
 load("//ts:defs.bzl", "ts_compile")
 
-# The module_name is here rather than on `root` because a private target's bare
-# specifier is the one an editor can learn no other way.
+# A private target's package is the one an editor can learn no other way: its
+# fragment is the only place it is written down.
 ts_compile(
     name = "leaf",
     srcs = ["index.ts"],
-    module_name = "@acme/leaf",
     tags = ["manual"],
     visibility = ["//visibility:private"],
 )
 
-# The alias is here so a fragment carries all three record kinds; its directory
-# holds this target's own srcs, which is what path_aliases requires.
 ts_compile(
     name = "root",
     srcs = ["root.ts"],
-    path_aliases = {"@frag/": "tests/lsp/fragment_fixture/"},
     tags = ["manual"],
     visibility = ["//tests/lsp:__pkg__"],
     deps = [":leaf"],

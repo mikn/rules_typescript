@@ -1,0 +1,103 @@
+"""A worker typed against the worker-configuration.d.ts Bazel generates.
+
+The project tsconfig names the declaration in `types`, and the file exists
+nowhere in the source tree, so the entry resolves to a dep's output: the
+ts_codegen running `wrangler types`, named for what it writes because the
+directory's name is the ts_compile's.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_codegen", "ts_compile", "ts_config")
+
+package(default_visibility = ["//:__pkg__"])
+
+# keep
+node_modules(
+    name = "node_modules",
+    hoist = "//tests/workers:node_modules/.pnpm/node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_codegen(
+    name = "env_types",
+    srcs = [
+        "src/index.ts",
+        "wrangler.jsonc",
+    ],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--strict-vars=false",
+    ],
+    generator = "//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+)
+
+# The same config plus a `build` whose command fails. `wrangler types` runs
+# build.command before it resolves `main`; the test pins that the action does not.
+ts_codegen(
+    name = "env_types_build",
+    srcs = [
+        "src/index.ts",
+        "wrangler.build.jsonc",
+    ],
+    outs = ["worker-configuration.build.d.ts"],
+    args = [
+        "--config",
+        "wrangler.build.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--strict-vars=false",
+    ],
+    generator = "//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+)
+
+ts_compile(
+    name = "worker_types",
+    srcs = [
+        "src/index.ts",
+        "worker_types_test.go",
+        "wrangler.build.jsonc",
+        "wrangler.jsonc",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":env_types",
+        ":env_types_build",
+    ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+)
+
+build_test(
+    name = "worker_types_builds_test",
+    targets = [":worker_types"],
+)
+
+# The Env half is read out of the config, and the runtime half is what the
+# compatibility date in it selects.
+go_test(
+    name = "worker_types_test",
+    size = "small",
+    srcs = ["worker_types_test.go"],
+    data = [
+        ":env_types",
+        ":env_types_build",
+    ],
+    deps = ["//tests/verify"],
+)

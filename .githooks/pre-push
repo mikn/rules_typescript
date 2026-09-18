@@ -11,7 +11,7 @@
 # Untracked files count. That is the shape of #74 and #75 -- a new source file
 # that was never `git add`ed -- and .gitignore already covers the untracked
 # things a worktree really does carry (bazel-* symlinks, node_modules, .bazel/,
-# .oj-cache, target/, .claude/).
+# target/, .claude/).
 #
 # Advisory only: it runs from `git push` in a checkout that has been pointed at
 # this directory (`git config core.hooksPath .githooks`, see CONTRIBUTING.md),

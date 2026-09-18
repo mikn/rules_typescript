@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@acme/jsx",
+    "paths": {
+      "@acme/jsx/*": ["./*"]
+    }
+  }
+}

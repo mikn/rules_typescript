@@ -3,19 +3,15 @@
   "compilerOptions": {
     "composite": false,
     "incremental": false,
-    "jsx": "preserve",
     "noEmit": true,
-    "rootDir": ".",
-    "target": "es2017"
+    "rootDir": "."
   },
   "exclude": [],
   "extends": [
-    "../../../tsconfig.json"
+    "../../../tsconfig.json",
+    "./tsconfig.legacy.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "legacy.ts"
   ]

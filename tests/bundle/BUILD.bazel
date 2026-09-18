@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
@@ -28,6 +28,15 @@ ts_binary(
     format = "esm",
 )
 
+filegroup(
+    name = "declarations",
+    srcs = [
+        ":app",
+        ":lib",
+    ],
+    output_group = "declarations",
+)
+
 go_test(
     name = "bundle_output_test",
     size = "small",
@@ -35,6 +44,7 @@ go_test(
     data = [
         ":app",
         ":bundle",
+        ":declarations",
         ":lib",
     ],
     deps = ["//tests/verify"],

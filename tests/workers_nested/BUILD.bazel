@@ -1,0 +1,46 @@
+load("//ts:defs.bzl", "ts_compile", "ts_config")
+
+# The monorepo shape: package.json, the vitest config and the wrangler config at
+# the worker root, the tests in test/ as a package of their own.
+package(default_visibility = ["//visibility:public"])
+
+# The worker has its srcs in src/; a BUILD file there would turn it into a
+# package and make those labels cross a package boundary.
+# gazelle:exclude src
+
+# A ts_compile baseline, not data: it is named by the tsconfig attr.
+# gazelle:exclude tsconfig.worker.json
+
+# The worker's and its test's options: `webworker` is in no set `target`
+# implies, and the two programs are checked against the same lib.
+ts_config(
+    name = "worker_tsconfig",
+    src = "tsconfig.worker.json",
+)
+
+exports_files([
+    "package.json",
+    "wrangler.jsonc",
+])
+
+# keep
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mjs"],
+    visibility = ["//visibility:public"],
+)
+
+# The compiled worker's bare import resolves from the root: no node_modules sits
+# above its realpath. Its data srcs reach a test's runfiles, wrangler.jsonc too.
+ts_compile(
+    name = "worker",
+    srcs = [
+        "src/greeting.txt",
+        "src/index.ts",
+        "src/text.d.ts",
+        "wrangler.jsonc",
+    ],
+    node_modules = "//tests/workers:node_modules",
+    tsconfig = ":worker_tsconfig",
+    deps = ["@npm_workers//:zod"],
+)

@@ -1,4 +1,4 @@
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
 
 ts_compile(
     name = "components",
@@ -7,6 +7,8 @@ ts_compile(
         "Counter.tsx",
         "index.ts",
     ],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     deps = [
         "//src/hooks",
@@ -17,10 +19,27 @@ ts_compile(
 ts_test(
     name = "components_test",
     srcs = ["Button.test.tsx"],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     deps = [
         ":components",
         "//src/hooks",
+        "@npm//:happy-dom",
         "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:testing-library_dom",
+        "@npm//:testing-library_react",
+        "@npm//:types_react",
+        "@npm//:types_react-dom",
+        "@npm//:vite",
         "@npm//:vitest",
+        "@npm//:zod",
     ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
 )

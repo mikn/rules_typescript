@@ -1,0 +1,15 @@
+"""A config's `test.include` is written for the sources, `**/*.test.ts`, which
+are in the runfiles beside the compiled `.js`; the generated config sets its
+own include over the compiled files and reads none of the config's, so each
+test runs once, compiled."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "config_include_test",
+    srcs = ["include.test.ts"],
+    config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
+)
