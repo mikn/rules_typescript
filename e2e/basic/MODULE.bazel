@@ -18,11 +18,11 @@ local_path_override(
     path = "../..",
 )
 
-# ─── npm repo (created by rules_typescript, imported here) ───────────────────
-# rules_typescript's npm extension creates @npm from tests/npm/pnpm-lock.yaml.
-# We import it here so @npm//vitest and similar labels resolve in this workspace.
+# ─── npm dependencies from pnpm-lock.yaml ────────────────────────────────────
+# Run `pnpm install` in this directory to update pnpm-lock.yaml.
 
 bazel_dep(name = "gazelle", version = "0.47.0")
 
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
-use_repo(npm, "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")

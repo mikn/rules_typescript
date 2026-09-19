@@ -1,0 +1,4 @@
+packages:
+  - configured
+  - packages/shared
+  - pooled

@@ -1,0 +1,4 @@
+# Integration test workspace for oxc_declarations.
+
+# The whole tree emits declarations with oxc, from syntax alone.
+build --@rules_typescript//ts:declarations=oxc

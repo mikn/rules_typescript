@@ -23,6 +23,11 @@ importers:
       wrangler:
         specifier: 4.126.0
         version: 4.126.0(@cloudflare/workers-types@5.20260825.1)
+      # //tests/workers_nested's worker imports it: a runtime dep of a worker,
+      # declared where pnpm would need it declared.
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
 packages:
 

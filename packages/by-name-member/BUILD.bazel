@@ -1,0 +1,37 @@
+"""A workspace member whose file imports a sibling member by its package name
+and a `.ts` subpath, `subpath-member/src/value.ts`: the emit keeps the
+specifier, and the run resolves it to the compiled file the tree holds, as it
+resolves a relative `.ts` specifier. //tests/npm runs it on both runners.
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.ts_extensions.json
+
+load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# The importer packages/by-name-member: one `link:`, no package.
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+)
+
+# keep
+node_modules_member(
+    name = "node_modules/subpath-member",
+    member = "@npm//:subpath-member",
+)
+
+# keep
+ts_compile(
+    name = "by-name-member",
+    srcs = [
+        "package.json",
+        "src/index.ts",
+    ],
+    node_modules = ":node_modules",
+    tsconfig = "tsconfig.ts_extensions.json",
+    visibility = ["//visibility:public"],
+    deps = [":node_modules/subpath-member"],
+)

@@ -1,4 +1,7 @@
-"""jsx_import_source: the non-React JSX runtime (Solid, Preact, ...)."""
+"""jsxImportSource: the non-React JSX runtime (Solid, Preact, ...)."""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.jsx.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
@@ -8,15 +11,14 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "jsx_runtime",
     srcs = ["jsx-runtime.d.ts"],
-    module_name = "@acme/jsx",
 )
 
-# Without jsx_import_source, react-jsx resolves "react/jsx-runtime" and this is
-# TS2307. With it, <div /> is typed by @acme/jsx's own JSX namespace.
+# Without jsxImportSource, react-jsx resolves "react/jsx-runtime" (TS2307); with
+# it, <div /> is typed by @acme/jsx, sent to the dep by the tsconfig's `paths`.
 ts_compile(
     name = "view",
     srcs = ["view.tsx"],
-    jsx_import_source = "@acme/jsx",
+    tsconfig = "tsconfig.jsx.json",
     deps = [":jsx_runtime"],
 )
 

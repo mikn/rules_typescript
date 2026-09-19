@@ -1,4 +1,5 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//crate_universe:defs.bzl", "crates_vendor", "render_config")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 
 rust_binary(
     name = "oxc-bazel",
@@ -6,16 +7,32 @@ rust_binary(
     edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
-        "@crates//:clap",
-        "@crates//:miette",
-        "@crates//:oxc_allocator",
-        "@crates//:oxc_codegen",
-        "@crates//:oxc_diagnostics",
-        "@crates//:oxc_isolated_declarations",
-        "@crates//:oxc_parser",
-        "@crates//:oxc_semantic",
-        "@crates//:oxc_span",
-        "@crates//:oxc_transformer",
-        "@crates//:rayon",
+        "@rules_typescript_crates//:clap",
+        "@rules_typescript_crates//:miette",
+        "@rules_typescript_crates//:oxc_allocator",
+        "@rules_typescript_crates//:oxc_codegen",
+        "@rules_typescript_crates//:oxc_diagnostics",
+        "@rules_typescript_crates//:oxc_isolated_declarations",
+        "@rules_typescript_crates//:oxc_parser",
+        "@rules_typescript_crates//:oxc_semantic",
+        "@rules_typescript_crates//:oxc_span",
+        "@rules_typescript_crates//:oxc_transformer",
+        "@rules_typescript_crates//:rayon",
     ],
+)
+
+rust_test(
+    name = "oxc-bazel_test",
+    crate = ":oxc-bazel",
+)
+
+crates_vendor(
+    name = "crates_vendor",
+    cargo_lockfile = ":Cargo.lock",
+    manifests = [":Cargo.toml"],
+    mode = "remote",
+    render_config = render_config(regen_command = "tools/vendor_crates.sh"),
+    repository_name = "rules_typescript_crates",
+    tags = ["manual"],
+    vendor_path = "crates",
 )

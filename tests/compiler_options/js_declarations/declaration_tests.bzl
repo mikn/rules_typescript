@@ -1,0 +1,52 @@
+"""Analysis-time proof of what a .d.mts in srcs is: a declaration, and the one."""
+
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//ts:defs.bzl", "TsInfo")
+
+_PKG = "tests/compiler_options/js_declarations/"
+
+_CHECKED_IN = ["esm.d.mts", "legacy.d.cts"]
+
+def _declarations_of(env):
+    return analysistest.target_under_test(env)[TsInfo].declarations.to_list()
+
+def _passes_declarations_through_impl(ctx):
+    env = analysistest.begin(ctx)
+    declared = [f.short_path for f in _declarations_of(env)]
+    for name in _CHECKED_IN:
+        asserts.true(
+            env,
+            _PKG + name in declared,
+            "{} is passed through as this target's own declaration: {}".format(name, declared),
+        )
+    return analysistest.end(env)
+
+passes_declarations_through_test = analysistest.make(_passes_declarations_through_impl)
+
+# TypeScript keeps the higher-priority extension of a .mjs / .d.mts pair, so the
+# .mjs leaves the program; nothing is written at its declared .d.mts path.
+def _one_declaration_per_module_impl(ctx):
+    env = analysistest.begin(ctx)
+    for name in _CHECKED_IN:
+        found = [f for f in _declarations_of(env) if f.short_path == _PKG + name]
+        asserts.equals(env, 1, len(found), "{}: one declaration for the module".format(name))
+        asserts.true(
+            env,
+            len(found) == 1 and found[0].is_source,
+            "{} is the checked-in file, not tsgo's emit for the JavaScript".format(name),
+        )
+    groups = analysistest.target_under_test(env)[OutputGroupInfo]
+    generated = [
+        f.short_path
+        for f in groups.declarations.to_list()
+        if not f.is_source and f.basename in _CHECKED_IN
+    ]
+    asserts.equals(
+        env,
+        [],
+        generated,
+        "no generated twin of a checked-in declaration in the output group",
+    )
+    return analysistest.end(env)
+
+one_declaration_per_module_test = analysistest.make(_one_declaration_per_module_impl)

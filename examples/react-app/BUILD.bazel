@@ -1,24 +1,35 @@
-"""Root BUILD file for the examples/react-app workspace.
-
-Demonstrates:
-  - Gazelle for auto-generating BUILD files from TypeScript sources
-  - ts_binary to bundle the application entry point
-  - React + @types/react npm dep pairing
-  - TSX compilation with oxc
-
-Run `bazel run //:gazelle` to regenerate BUILD files from TypeScript sources.
-Run `bazel build //...` to compile all packages (+ tsx, + @types/react types).
-Run `bazel test //...` to run the vitest test suite.
-Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
-"""
-
 load("@gazelle//:def.bzl", "gazelle")
-load("@rules_typescript//ts:defs.bzl", "ts_binary")
+load("@npm//:defs.bzl", "npm_virtual_store")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_config", "ts_pnpm")
 
-# Run "bazel run //:gazelle" to auto-generate BUILD files.
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
+)
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+ts_pnpm(name = "pnpm")
+
+# The root importer: the chain every target here resolves its npm deps through.
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:happy-dom",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:testing-library_dom",
+        "@npm//:testing-library_react",
+        "@npm//:types_react",
+        "@npm//:types_react-dom",
+        "@npm//:vite",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
 )
 
 # Bundle the application entry point into a single ESM file.
@@ -27,4 +38,10 @@ ts_binary(
     entry_point = "//src/app",
     format = "esm",
     sourcemap = True,
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
 )

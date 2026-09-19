@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "jsx": "preserve",
+        "jsxImportSource": "preact",
+        "module": "nodenext",
+        "paths": {
+            "@app/*": [
+                "src/*"
+            ],
+            "#lib": [
+                "lib/index.ts"
+            ]
+        },
+        "strict": true,
+        "target": "esnext",
+        "typeRoots": [
+            "../base/typings"
+        ],
+        "moduleResolution": "nodenext",
+        "moduleDetection": "force"
+    },
+    "files": [
+        "../../../../pkg/src/b.ts"
+    ]
+}

@@ -1,24 +1,5 @@
-/**
- * resolution_parity_test.mjs — one module graph, two resolution modes.
- *
- *   node resolution_parity_test.mjs <vite_plugin_bazel.mjs>
- *
- * Serving first-party source in dev and pre-compiled .js in prod means the same
- * import specifier travels two different code paths, and the failure mode of
- * that is "works under `bazel run //:dev`, fails under ts_bundle". Two suites
- * that each pass prove nothing about it. So this builds ONE fixture graph on
- * disk -- checked-in source, its bazel-bin output, an npm package -- and asserts
- * that each specifier lands on the same MODULE IDENTITY in both modes:
- * the same workspace-relative path, extension and root stripped.
- *
- * What differs is who transforms it (`precompiled`), which is asserted too.
- *
- * The alias table is the one `ts_dev_server` generates from TsModuleInfo, and it
- * is applied identically in both modes, because `resolve.alias` is honoured by
- * `vite dev` and `vite build` alike. Its shape is load-bearing: an exact-match
- * RegExp for the package plus a string prefix for subpaths, because a string
- * `find` in Vite's alias plugin also matches everything under it.
- */
+// One fixture graph, two resolution modes: each specifier must land on the same
+// module in dev and build. A RegExp alias: a string `find` matches by prefix.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

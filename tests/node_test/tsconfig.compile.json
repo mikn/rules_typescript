@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@shared/*": ["./shared/*"]
+    },
+    "types": ["node", "./staged/ambient.d.ts"]
+  }
+}

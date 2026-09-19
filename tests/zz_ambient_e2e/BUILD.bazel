@@ -1,9 +1,11 @@
-"""Scratch: the exact shape Gazelle now generates for an ambient .d.ts."""
+"""An ambient declaration in both targets' srcs: the test program has the
+worker's globals."""
 
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 
 package(default_visibility = ["//:__pkg__"])
 
+# keep
 ts_compile(
     name = "zz_ambient_e2e",
     srcs = [
@@ -13,12 +15,14 @@ ts_compile(
     visibility = ["//visibility:public"],
 )
 
+# keep
 ts_test(
     name = "zz_ambient_e2e_test",
     srcs = [
         "worker.test.ts",
         "worker-configuration.d.ts",
     ],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":zz_ambient_e2e",
         "@npm//:vitest",

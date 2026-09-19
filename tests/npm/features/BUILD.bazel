@@ -1,0 +1,37 @@
+load("@npm_features//:defs.bzl", "npm_virtual_store")
+load("//npm:defs.bzl", "node_modules", "node_modules_member")
+
+package(default_visibility = ["//tests/npm:__pkg__"])
+
+# @npm_features is translated from this lockfile; nothing here builds it.
+exports_files(["pnpm-lock.yaml"])
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+# The root importer: its declared names, two of them aliases, beside .pnpm.
+# keep
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    visibility = ["//tests/npm:__subpackages__"],
+    deps = [
+        "@npm_features//:ms-alias",
+        "@npm_features//:styles-alias",
+        "@npm_features//:types_ms",
+        "@npm_features//:types_node",
+        "@npm_features//:zod",
+    ],
+)
+
+[
+    node_modules_member(
+        name = "node_modules/" + member,
+        member = "@npm_features//:" + member,
+    )
+    for member in [
+        "boundary-member",
+        "exports-member",
+        "leaf-member",
+        "ws-linked",
+    ]
+]

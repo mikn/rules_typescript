@@ -1,0 +1,28 @@
+"""A workspace member no root importer links: pnpm's hidden hoist alone holds
+its name at the root, `node_modules/.pnpm/node_modules/hoisted-member`, and
+its compile walks up to the root's node_modules through its own importer --
+the shape of a monorepo's members, which the root links none of."""
+
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# The importer packages/hoisted-member: zod, its one declared package.
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    deps = ["@npm//packages/hoisted-member:zod"],
+)
+
+# @npm//:hoisted-member is the hub's view of this target.
+# keep
+ts_compile(
+    name = "hoisted-member",
+    srcs = [
+        "index.ts",
+        "package.json",
+    ],
+    node_modules = ":node_modules",
+    visibility = ["//visibility:public"],
+    deps = ["@npm//packages/hoisted-member:zod"],
+)

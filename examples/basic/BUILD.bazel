@@ -1,17 +1,10 @@
-"""Root BUILD file for the basic example workspace.
-
-Demonstrates ts_binary bundling with cross-package dependencies.
-Run `bazel build //...` to compile all packages.
-Run `bazel run //:gazelle` to auto-generate BUILD files from TypeScript sources.
-"""
-
 load("@gazelle//:def.bzl", "gazelle")
-load("@rules_typescript//ts:defs.bzl", "ts_binary")
+load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_config")
 
-# Run "bazel run //:gazelle" to auto-generate BUILD files.
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 
 # Bundle the app entry point.  This pulls in //src/lib transitively and
@@ -21,4 +14,10 @@ ts_binary(
     entry_point = "//src/app",
     format = "esm",
     sourcemap = True,
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
 )

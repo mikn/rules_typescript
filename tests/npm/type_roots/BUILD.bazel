@@ -1,0 +1,59 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//tests/npm:forest_tests.bzl", "chain_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test is hand-named, so the Go language would add a second target for
+# the same source.
+# gazelle:exclude *_test.go
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.probe.json
+
+# The chain sets a typeRoots pnpm never creates here (no @types declared);
+# bun-types' `/// <reference types="node" />` resolves beside bun-types.
+ts_compile(
+    name = "probe",
+    srcs = ["probe.ts"],
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = "tsconfig.probe.json",
+    deps = [
+        "@npm//:bun-types",
+        "@npm//:types_node",
+    ],
+)
+
+build_test(
+    name = "probe_build_test",
+    targets = [":probe"],
+)
+
+# The dep stays what the program may read: the tsconfig step is handed it.
+chain_test(
+    name = "probe_chain_test",
+    size = "small",
+    chain = ["tests/npm/node_modules"],
+    linked = [
+        "tests/npm/node_modules/@types/node",
+        "tests/npm/node_modules/bun-types",
+    ],
+    target_under_test = ":probe",
+    types_deps = ["node"],
+)
+
+filegroup(
+    name = "probe_tsconfig",
+    testonly = True,
+    srcs = [":probe"],
+    output_group = "tsconfig",
+)
+
+go_test(
+    name = "written_tsconfig_test",
+    size = "small",
+    srcs = ["written_tsconfig_test.go"],
+    data = [":probe_tsconfig"],
+    deps = ["//tests/verify"],
+)

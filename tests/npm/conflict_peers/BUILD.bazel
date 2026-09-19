@@ -1,0 +1,19 @@
+load("//npm:defs.bzl", "node_modules")
+load("//tests/npm:node_modules_tests.bzl", "linked_twice_test")
+
+# Two peer resolutions of one version declared: the same one name twice.
+# keep
+node_modules(
+    name = "node_modules",
+    hoist = "//tests/npm/features:node_modules/.pnpm/node_modules",
+    tags = ["manual"],
+    deps = [
+        "@npm_features//app-a:ansi-styles",
+        "@npm_features//app-b:ansi-styles",
+    ],
+)
+
+linked_twice_test(
+    name = "linked_twice_test",
+    target_under_test = ":node_modules",
+)

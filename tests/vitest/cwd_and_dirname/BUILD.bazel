@@ -1,0 +1,18 @@
+"""A vitest config runs from its package: the process's cwd and the config's
+`__dirname` are the package directory in the runfiles, as under `pnpm test`."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "cwd_and_dirname_test",
+    srcs = ["cwd_and_dirname.test.ts"],
+    config = "vitest.config.mts",
+    config_srcs = ["plugins/where.ts"],
+    data = ["fixtures/x.txt"],
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)

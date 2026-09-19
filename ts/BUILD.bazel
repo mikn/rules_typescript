@@ -1,36 +1,78 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-
-# gazelle:ts_exclude vite_env.d.ts
+load(
+    "@bazel_skylib//rules:common_settings.bzl",
+    "bool_flag",
+    "int_flag",
+    "string_flag",
+)
+load("//ts/private/actions:lint.bzl", "lint_config")
 
 package(default_visibility = ["//visibility:public"])
 
-# Ambient type shim for Vite client-side globals (import.meta.env, asset URLs).
-# Users can add this to their ts_compile srcs, or set vite_types = True on
-# ts_compile which auto-includes it.
-exports_files(["vite_env.d.ts"])
+# Who emits the .d.ts a dependent reads: tsgo from the full program, on the
+# dependent's path (TsgoDeclare), or oxc syntactically (exports annotated).
+string_flag(
+    name = "declarations",
+    build_setting_default = "tsgo",
+    values = [
+        "tsgo",
+        "oxc",
+    ],
+)
+
+# A .js.map beside every .js oxc writes; off for a build whose bundler makes
+# its own.
+bool_flag(
+    name = "source_map",
+    build_setting_default = True,
+)
+
+# A .d.ts.map beside every declaration tsgo emits, so go-to-definition across a
+# package boundary lands on the .ts source.
+bool_flag(
+    name = "declaration_map",
+    build_setting_default = False,
+)
+
+# The threads tsgo checks with, and the cpus TsgoCheck and TsgoDeclare declare
+# to Bazel's scheduler; 0 leaves tsgo's own count and Bazel's estimate.
+int_flag(
+    name = "checkers",
+    build_setting_default = 0,
+)
+
+# Library checking exposes invalid third-party declarations hidden by skipLibCheck.
+bool_flag(
+    name = "lib_check",
+    build_setting_default = False,
+)
+
+# The linter every compile runs: ts.lint() in the root MODULE.bazel writes the
+# lint_config this names.
+label_flag(
+    name = "lint",
+    build_setting_default = "@lint_config//:lint",
+)
+
+# `--//ts:lint=//ts:no_lint`: a build without the linter and with TsgoCheck,
+# which --norun_validations would drop too.
+lint_config(name = "no_lint")
+
+# //tests/api_surface:defs_surface_test reads the exported names out of it.
+exports_files(["defs.bzl"])
 
 bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     deps = [
-        "//ts/private:asset_library",
-        "//ts/private:css_library",
-        "//ts/private:css_module",
-        "//ts/private:json_library",
-        "//ts/private:next_build",
-        "//ts/private:next_server",
         "//ts/private:pnpm",
         "//ts/private:providers",
-        "//ts/private:remix_build",
         "//ts/private:ts_binary",
-        "//ts/private:ts_bundle",
         "//ts/private:ts_codegen",
-        "//ts/private:ts_compile",
         "//ts/private:ts_config",
         "//ts/private:ts_dev_server",
-        "//ts/private:ts_lint",
-        "//ts/private:ts_npm_publish",
-        "//ts/private:ts_test",
+        "//ts/private/rules:ts_compile",
+        "//ts/private/rules:ts_test",
     ],
 )
 
@@ -38,6 +80,12 @@ bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
     deps = [
+        "//npm/private:npm_translate_lock",
+        "//ts/private:go_mod",
         "//ts/private:toolchain",
+        "//ts/private:tools_lock",
+        "//ts/private:tsgo_lock",
+        "//ts/private/actions:lint",
+        "@gazelle//:deps",
     ],
 )

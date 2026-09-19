@@ -1,4 +1,5 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//tests:flags.bzl", "ts_under_flags")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
@@ -7,45 +8,55 @@ package(default_visibility = ["//:__pkg__"])
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
 
-# ── declarations = "tsgo" (the default): tsgo emits the .d.ts ─────────────────
+# ── --//ts:declarations=tsgo (the default): TsgoDeclare emits the .d.ts ──────
 
 ts_compile(
     name = "correct",
     srcs = ["correct.ts"],
 )
 
-# Un-annotated exports. Buildable here precisely because tsgo has the full
-# program; the same sources under declarations = "oxc" are :inferred_oxc below
-# and must fail.
+# Un-annotated exports, declarable because tsgo has the full program; under
+# --//ts:declarations=oxc the same sources must fail (oxc_declarations_test).
 ts_compile(
     name = "inferred",
     srcs = ["inferred.ts"],
+)
+
+# The declarations are emitted on request, never with the default outputs.
+filegroup(
+    name = "declarations",
+    srcs = [
+        ":correct",
+        ":inferred",
+    ],
+    output_group = "declarations",
 )
 
 go_test(
     name = "declaration_types_test",
     size = "small",
     srcs = ["declaration_types_test.go"],
-    data = [
-        ":correct",
-        ":inferred",
-    ],
+    data = [":declarations"],
     deps = ["//tests/verify"],
 )
 
-# ── declarations = "oxc": syntactic emit, diagnostics in _validation ──────────
+# ── --//ts:declarations=oxc: syntactic emit, diagnostics in _validation ───────
 
 # Its own source, not correct.ts: ts_compile derives output paths from the
 # source file name, so two targets in one package cannot share a source.
 ts_compile(
-    name = "annotated_oxc",
+    name = "annotated",
     srcs = ["annotated.ts"],
-    declarations = "oxc",
 )
 
-# Exposes the tscheck stamp. Building this filegroup proves tsgo ran and found
-# no type errors — the check is a validation action in this mode, so it needs
-# to be requested explicitly.
+ts_under_flags(
+    name = "annotated_oxc",
+    declarations = "oxc",
+    target = ":annotated",
+)
+
+# Exposes the tscheck stamp: building this filegroup proves tsgo ran and found
+# no type error.
 filegroup(
     name = "annotated_oxc_tscheck",
     srcs = [":annotated_oxc"],

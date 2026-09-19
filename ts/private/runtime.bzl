@@ -6,7 +6,7 @@ platforms:
   js_runtime_type  the runtime a ts_test / ts_binary program executes on.  It
                    belongs to the TARGET platform and is built for it.
   js_tool_type     node as a build tool (node_modules tree builder, ts_codegen,
-                   next_build, bundlers).  It runs on the EXEC platform.
+                   bundlers).  It runs on the EXEC platform.
 
 They are equal under a plain host build and differ the moment --platforms does.
 Both are backed here by Node.js from rules_nodejs; a consumer can register
@@ -15,14 +15,10 @@ Deno, Bun, or a wrapper of their own for either role.
 
 load("//platforms:platforms.bzl", "constraints")
 
-# ─── Toolchain type labels ─────────────────────────────────────────────────────
-
 # Label(), not a string: these resolve in this file's repository mapping, so
 # they keep working when a consumer gives rules_typescript another repo name.
 JS_RUNTIME_TOOLCHAIN_TYPE = Label("//ts/toolchain:js_runtime_type")
 JS_TOOL_TOOLCHAIN_TYPE = Label("//ts/toolchain:js_tool_type")
-
-# ─── Provider ──────────────────────────────────────────────────────────────────
 
 JsRuntimeInfo = provider(
     doc = "Information about a JavaScript runtime.",
@@ -32,8 +28,6 @@ JsRuntimeInfo = provider(
         "args_prefix": "list of string: Arguments prepended before the entrypoint script.",
     },
 )
-
-# ─── Rule implementation ────────────────────────────────────────────────────────
 
 def _js_runtime_toolchain_impl(ctx):
     binary = ctx.file.runtime_binary
@@ -93,41 +87,19 @@ machine (or remote executor) performing the build, never on the target.
 """,
 )
 
-# ─── Resolution helpers ────────────────────────────────────────────────────────
-
 def get_js_runtime(ctx):
-    """Resolves the target-platform JS runtime from the rule context.
-
-    Use for a runtime staged into runfiles and executed by the built program.
-
-    Args:
-        ctx: The rule context.
-
-    Returns:
-        JsRuntimeInfo if the toolchain is registered, else None.
-    """
+    """The target-platform JsRuntimeInfo, or None when none is registered."""
     toolchain = ctx.toolchains[JS_RUNTIME_TOOLCHAIN_TYPE]
     if toolchain:
         return toolchain.runtime_info
     return None
 
 def get_js_tool(ctx):
-    """Resolves the exec-platform JS runtime from the rule context.
-
-    Use for a runtime invoked by a build action.
-
-    Args:
-        ctx: The rule context.
-
-    Returns:
-        JsRuntimeInfo if the toolchain is registered, else None.
-    """
+    """The exec-platform JsRuntimeInfo, or None when none is registered."""
     toolchain = ctx.toolchains[JS_TOOL_TOOLCHAIN_TYPE]
     if toolchain:
         return toolchain.runtime_info
     return None
-
-# ─── Toolchain macros ──────────────────────────────────────────────────────────
 
 # rules_nodejs names its per-platform repositories "nodejs_<platform>" for the
 # platform keys we use, given node.toolchain(name = "nodejs") in MODULE.bazel.

@@ -598,7 +598,7 @@ def _parse_importers(content):
             break
 
         raw_line = lines[idx].rstrip()
-        if not raw_line or raw_line.startswith("#"):
+        if not raw_line or raw_line.strip().startswith("#"):
             continue
 
         indent = _indent_level(raw_line)
@@ -608,9 +608,16 @@ def _parse_importers(content):
             state["done"] = True
             continue
 
-        # Importer entry: a path like "." or "packages/shared".
-        if indent == 2 and stripped.endswith(":"):
-            state["current_importer"] = stripped[:-1].strip().strip("'\"")
+        # Importer entry: a path like "." or "packages/shared". `dir: {}` is an
+        # importer that declares nothing, and a workspace member all the same.
+        if indent == 2:
+            if stripped.endswith(":"):
+                importer = stripped[:-1]
+            elif ":" in stripped:
+                importer = stripped.partition(":")[0]
+            else:
+                continue
+            state["current_importer"] = importer.strip().strip("'\"")
             _importer_entry(result, state["current_importer"])
             state["current_section"] = None
             state["current_dep_name"] = None
@@ -729,29 +736,7 @@ def _parse_patched_dependencies(content):
 
     return patched
 
-# ─── .npmrc: which registry a tarball comes from ──────────────────────────────
-#
-# A pnpm lockfile records a package's name@version and its integrity, and nothing
-# about where the bytes came from: there is no registry field anywhere in the
-# file. `.npmrc` is the only record, so a workspace on a private registry -- or
-# with one scope on a private registry -- cannot be fetched without reading it.
-#
-# Two kinds of line decide a URL:
-#   registry=https://npm.example.com/          the default for everything
-#   @acme:registry=https://npm.example.com/    the default for one scope
-#
-# Credentials are deliberately not interpreted here. The module extension's
-# output is written to MODULE.bazel.lock -- a committed, shared file -- and a
-# repository rule's attribute values go into it verbatim, so a token that reaches
-# an npm_import attribute is a token in git. So the extension loads
-# `npmrc_registries` and nothing else, and npm_import reads the .npmrc itself at
-# fetch time; what lands in the lock for that repository is the file's label.
-#
-# `~/.npmrc` is not read and cannot be: it lies outside the workspace, so Bazel
-# cannot make it an input to anything, and two machines with different user-level
-# files would then fetch different bytes from one lockfile and one lock. The part
-# that legitimately varies per machine is the token, and `${VAR}` interpolation
-# covers that without leaving the workspace.
+# ─── Which registry a tarball comes from ──────────────────────────────────────
 
 DEFAULT_NPM_REGISTRY = "https://registry.npmjs.org"
 
@@ -786,6 +771,80 @@ def _npmrc_registries(content):
             registries[""] = _normalise_registry(value)
         elif key.startswith("@") and key.endswith(":registry"):
             registries[key[:-len(":registry")]] = _normalise_registry(value)
+    return registries
+
+def _yaml_scalar(text):
+    """A YAML plain or quoted scalar, its trailing comment dropped."""
+    text = text.strip()
+    if text[:1] in ('"', "'"):
+        end = text.find(text[0], 1)
+        return text[1:end] if end != -1 else text[1:]
+    comment = text.find(" #")
+    return (text[:comment] if comment != -1 else text).strip()
+
+def _yaml_pair(line):
+    """(key, value) of a `key: value` line, or (None, None) for any other."""
+    text = line.strip()
+    if text[:1] in ('"', "'"):
+        end = text.find(text[0], 1)
+        if end == -1 or not text[end + 1:].lstrip().startswith(":"):
+            return (None, None)
+        return (text[1:end], _yaml_scalar(text[end + 1:].lstrip()[1:]))
+    key, sep, value = text.partition(":")
+    if not sep or not key.strip():
+        return (None, None)
+    return (key.strip(), _yaml_scalar(value))
+
+def _pnpm_workspace_registries(content):
+    """{"": default_url, "@scope": url, ...} from a pnpm-workspace.yaml.
+
+    `registries:` maps `default` and `@scope` keys to URLs; a top-level
+    `registry:` sets the default over the block's. A value naming `${VAR}` is
+    dropped, as pnpm drops it from a project's file.
+    """
+    registries = {}
+    default = None
+    in_block = False
+    for raw in content.split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, value = _yaml_pair(raw)
+        if not raw[0].isspace():
+            in_block = key == "registries"
+            if in_block and value and not value.startswith("#"):
+                fail("pnpm-workspace.yaml: use an indented registries mapping with default or @scope keys; inline mappings and aliases are unsupported")
+            if key == "registry" and value and "${" not in value:
+                default = value
+            continue
+        if not in_block:
+            continue
+        if key == None or (key != "default" and not key.startswith("@")):
+            fail("pnpm-workspace.yaml: use an indented registries mapping with default or @scope keys; inline mappings and aliases are unsupported")
+        if "${" in value:
+            continue
+        if key == "default":
+            registries[""] = _normalise_registry(value)
+        elif key.startswith("@"):
+            registries[key] = _normalise_registry(value)
+    if default != None:
+        registries[""] = _normalise_registry(default)
+    return registries
+
+def _workspace_registries(npmrc, pnpm_workspace):
+    """The registry map a workspace's two files settle on, {"": default,
+    "@scope": url}: the .npmrc's lines, then pnpm-workspace.yaml's, the later
+    winning a key -- the order pnpm 11's config reader builds it in.
+
+    Args:
+        npmrc: The .npmrc text, or "" without one.
+        pnpm_workspace: The pnpm-workspace.yaml text, or "" without one.
+
+    Returns:
+        {} when neither names a registry, which callers read as npmjs.
+    """
+    registries = _npmrc_registries(npmrc or "")
+    registries.update(_pnpm_workspace_registries(pnpm_workspace or ""))
     return registries
 
 def _package_scope(package_name):
@@ -842,7 +901,7 @@ def _npm_tarball_url(package_name, version, resolution, registries = {}):
         resolution:   The lockfile's `resolution:` mapping. A `tarball:` there is
                       an absolute URL pnpm already resolved (a git or http
                       dependency), and it wins over any registry.
-        registries:   {"": default, "@scope": url} from .npmrc, or {}.
+        registries:   The {"": default, "@scope": url} map, or {}.
     """
     if "tarball" in resolution:
         return resolution["tarball"]
@@ -1074,6 +1133,9 @@ parse_patched_dependencies = _parse_patched_dependencies
 npm_tarball_url = _npm_tarball_url
 verify_integrity = _verify_integrity
 npmrc_registries = _npmrc_registries
+pnpm_workspace_registries = _pnpm_workspace_registries
+workspace_registries = _workspace_registries
+package_scope = _package_scope
 npmrc_assignments = _npmrc_assignments
 package_name_to_label = _package_name_to_label
 package_dir_name = _package_dir_name

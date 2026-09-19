@@ -1,31 +1,18 @@
 """An array-form vitest config, and the Bazel layer reaching each of its projects.
 
-The CSS-module plugin lives in the config ts_test generates; a `test.projects`
-entry only sees it because ts_test merges that layer into every entry.
+The `test.include` over the compiled tests is set by the config ts_test
+generates; a `test.projects` entry only gets it because ts_test applies that
+step to every entry, so the test runs at all only under it.
 """
 
-load("//ts:defs.bzl", "css_module", "ts_compile", "ts_test")
+load("//ts:defs.bzl", "ts_test")
 
 package(default_visibility = ["//:__pkg__"])
-
-css_module(
-    name = "button_module",
-    srcs = ["Button.module.css"],
-)
-
-ts_compile(
-    name = "styles",
-    srcs = ["styles.ts"],
-    deps = [":button_module"],
-)
 
 ts_test(
     name = "project_test",
     srcs = ["project.test.ts"],
     config = "vitest.workspace.mts",
-    deps = [
-        ":button_module",
-        ":styles",
-        "@npm//:vitest",
-    ],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
 )

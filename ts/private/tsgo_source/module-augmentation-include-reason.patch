@@ -1,0 +1,297 @@
+diff --git a/internal/compiler/fileInclude.go b/internal/compiler/fileInclude.go
+index aacf73ca..d0d0c10a 100644
+--- a/internal/compiler/fileInclude.go
++++ b/internal/compiler/fileInclude.go
+@@ -46,11 +46,12 @@ type referencedFileData struct {
+ }
+ 
+ type referenceFileLocation struct {
+-	file        *ast.SourceFile
+-	node        *ast.Node
+-	ref         *ast.FileReference
+-	packageId   module.PackageId
+-	isSynthetic bool
++	file           *ast.SourceFile
++	node           *ast.Node
++	ref            *ast.FileReference
++	packageId      module.PackageId
++	isSynthetic    bool
++	isAugmentation bool
+ }
+ 
+ func (r *referenceFileLocation) text() string {
+@@ -105,13 +106,14 @@ func (r *FileIncludeReason) getReferencedLocation(program *Program) *referenceFi
+ 	switch r.kind {
+ 	case fileIncludeKindImport:
+ 		var specifier *ast.Node
+-		var isSynthetic bool
++		var isSynthetic, isAugmentation bool
+ 		if ref.synthetic != nil {
+ 			specifier = ref.synthetic
+ 			isSynthetic = true
+ 		} else if ref.index < len(file.Imports()) {
+ 			specifier = file.Imports()[ref.index]
+ 		} else {
++			isAugmentation = true
+ 			augIndex := len(file.Imports())
+ 			for _, imp := range file.ModuleAugmentations {
+ 				if imp.Kind == ast.KindStringLiteral {
+@@ -125,10 +127,11 @@ func (r *FileIncludeReason) getReferencedLocation(program *Program) *referenceFi
+ 		}
+ 		resolution := program.GetResolvedModuleFromModuleSpecifier(file, specifier)
+ 		return &referenceFileLocation{
+-			file:        file,
+-			node:        specifier,
+-			packageId:   resolution.PackageId,
+-			isSynthetic: isSynthetic,
++			file:           file,
++			node:           specifier,
++			packageId:      resolution.PackageId,
++			isSynthetic:    isSynthetic,
++			isAugmentation: isAugmentation,
+ 		}
+ 	case fileIncludeKindReferenceFile:
+ 		return &referenceFileLocation{
+@@ -222,7 +225,16 @@ func (r *FileIncludeReason) computeReferenceFileDiagnostic(program *Program, toF
+ 	referenceText := referenceLocation.text()
+ 	switch r.kind {
+ 	case fileIncludeKindImport:
+-		if !referenceLocation.isSynthetic {
++		if referenceLocation.isAugmentation {
++			fileName := toFileName(referenceLocation.file.FileName())
++			if referenceLocation.packageId.Name != "" {
++				return ast.NewCompilerDiagnostic(
++					diagnostics.Augmented_via_0_from_file_1_with_packageId_2,
++					referenceText, fileName, referenceLocation.packageId.String())
++			}
++			return ast.NewCompilerDiagnostic(
++				diagnostics.Augmented_via_0_from_file_1, referenceText, fileName)
++		} else if !referenceLocation.isSynthetic {
+ 			if referenceLocation.packageId.Name != "" {
+ 				return ast.NewCompilerDiagnostic(diagnostics.Imported_via_0_from_file_1_with_packageId_2, referenceText, toFileName(referenceLocation.file.FileName()), referenceLocation.packageId.String())
+ 			} else {
+@@ -306,6 +318,9 @@ func (r *FileIncludeReason) computeReferenceFileRelatedInfo(program *Program) *a
+ 	}
+ 	switch r.kind {
+ 	case fileIncludeKindImport:
++		if referenceLocation.isAugmentation {
++			return referenceLocation.diagnosticAt(diagnostics.File_is_augmented_here)
++		}
+ 		return referenceLocation.diagnosticAt(diagnostics.File_is_included_via_import_here)
+ 	case fileIncludeKindReferenceFile:
+ 		return referenceLocation.diagnosticAt(diagnostics.File_is_included_via_reference_here)
+diff --git a/internal/compiler/fileloader.go b/internal/compiler/fileloader.go
+index f8d006e9..a5a1f860 100644
+--- a/internal/compiler/fileloader.go
++++ b/internal/compiler/fileloader.go
+@@ -602,11 +602,26 @@ func (p *fileLoader) resolveImportsAndModuleAugmentations(t *parseTask) {
+ 
+ 			importIndex := index - importsStart
+ 
++			// A module augmentation adds no file: the augmented module is in
++			// the program by an import elsewhere or not at all. Its reason is
++			// attached in getProcessedFiles, once the program's files are known.
++			if importIndex >= len(file.Imports()) {
++				t.augmentedModules = append(t.augmentedModules, augmentedModule{
++					path: p.toPath(resolvedFileName),
++					reason: &FileIncludeReason{
++						kind: fileIncludeKindImport,
++						data: &referencedFileData{file: t.path, index: importIndex},
++					},
++				})
++				continue
++			}
++
+ 			shouldAddFile := moduleName != "" &&
+ 				module.GetResolutionDiagnostic(optionsForFile, resolvedModule, file) == nil &&
+ 				!optionsForFile.NoResolve.IsTrue() &&
+ 				!(isJsFile && !optionsForFile.GetAllowJS()) &&
+-				(importIndex < 0 || (importIndex < len(file.Imports()) && (ast.IsInJSFile(file.Imports()[importIndex]) || file.Imports()[importIndex].Flags&ast.NodeFlagsJSDoc == 0)))
++				(importIndex < 0 || ast.IsInJSFile(file.Imports()[importIndex]) ||
++					file.Imports()[importIndex].Flags&ast.NodeFlagsJSDoc == 0)
+ 
+ 			if shouldAddFile {
+ 				t.addSubTask(resolvedRef{
+diff --git a/internal/compiler/filesparser.go b/internal/compiler/filesparser.go
+index 5817fc6b..918c3c23 100644
+--- a/internal/compiler/filesparser.go
++++ b/internal/compiler/filesparser.go
+@@ -44,6 +44,14 @@ type parseTask struct {
+ 
+ 	loadedTask        *parseTask
+ 	allIncludeReasons []*FileIncludeReason
++	augmentedModules  []augmentedModule
++}
++
++// A module augmentation's resolution: the augmented file, and the augmenting
++// file's reason for it, one of the file's reasons when the program holds it.
++type augmentedModule struct {
++	path   tspath.Path
++	reason *FileIncludeReason
+ }
+ 
+ func (t *parseTask) FileName() string {
+@@ -343,6 +351,7 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
+ 		packageIdToSourceFile = make(map[module.PackageId]*ast.SourceFile)
+ 	}
+ 
++	var augmenting []*parseTask
+ 	var collectFiles func(tasks []*parseTask, seen map[*parseTaskData]string)
+ 	// recordedDuplicates tracks, per task data, the set of file-name casings that
+ 	// have already been recorded in duplicateSourceFiles. A file that is reached
+@@ -490,6 +499,9 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
+ 				files = append(files, file)
+ 			}
+ 			filesByPath[path] = file
++			if len(task.augmentedModules) > 0 {
++				augmenting = append(augmenting, task)
++			}
+ 			resolvedModules[path] = task.resolutionsInFile
+ 			typeResolutionsInFile[path] = task.typeResolutionsInFile
+ 			sourceFileMetaDatas[path] = task.metadata
+@@ -513,6 +525,15 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
+ 	}
+ 
+ 	collectFiles(loader.rootTasks, make(map[*parseTaskData]string, totalFileCount))
++	reasons := includeProcessor.fileIncludeReasons
++	for _, task := range augmenting {
++		for _, augmented := range task.augmentedModules {
++			if target, ok := filesByPath[augmented.path]; ok {
++				key := target.Path()
++				reasons[key] = append(reasons[key], augmented.reason)
++			}
++		}
++	}
+ 	loader.sortLibs(libFiles)
+ 
+ 	allFiles := append(libFiles, files...)
+diff --git a/internal/compiler/program_test.go b/internal/compiler/program_test.go
+index 90a26d08..8c7e2c8f 100644
+--- a/internal/compiler/program_test.go
++++ b/internal/compiler/program_test.go
+@@ -10,6 +10,7 @@ import (
+ 	"github.com/microsoft/typescript-go/internal/bundled"
+ 	"github.com/microsoft/typescript-go/internal/compiler"
+ 	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/locale"
+ 	"github.com/microsoft/typescript-go/internal/repo"
+ 	"github.com/microsoft/typescript-go/internal/tsoptions"
+ 	"github.com/microsoft/typescript-go/internal/tspath"
+@@ -309,6 +310,65 @@ func TestIncludeProcessorDiagnosticsWithMissingFileCasing(t *testing.T) {
+ 	}())
+ }
+ 
++// A module augmentation resolves its module as an import does and adds no
++// file to the program; --explainFiles lists it as a reason for a file the
++// program holds by another route, and nothing for one it does not.
++func TestExplainFilesModuleAugmentation(t *testing.T) {
++	t.Parallel()
++
++	if !bundled.Embedded {
++		t.Skip("bundled files are not embedded")
++	}
++
++	files := []testFile{
++		{fileName: "/src/lib.ts",
++			contents: "export interface Options { name: string }"},
++		{fileName: "/src/main.ts",
++			contents: "import type { Options } from './lib';\n" +
++				"export const o: Options = { name: 'x', extra: 1 };"},
++		{fileName: "/src/aug.ts",
++			contents: "export {};\ndeclare module './lib' {\n" +
++				"  interface Options { extra: number }\n}"},
++	}
++	explain := func(rootFiles []string) (*compiler.Program, string) {
++		fs := vfstest.FromMap[any](nil, true /*useCaseSensitiveFileNames*/)
++		fs = bundled.WrapFS(fs)
++		for _, f := range files {
++			_ = fs.WriteFile(f.fileName, f.contents)
++		}
++		opts := core.CompilerOptions{
++			Target:           core.ScriptTargetESNext,
++			Module:           core.ModuleKindESNext,
++			ModuleResolution: core.ModuleResolutionKindBundler,
++			Strict:           core.TSTrue,
++		}
++		program := compiler.NewProgram(compiler.ProgramOptions{
++			Config: &tsoptions.ParsedCommandLine{
++				ParsedConfig: &core.ParsedOptions{
++					FileNames:       rootFiles,
++					CompilerOptions: &opts,
++				},
++			},
++			Host: compiler.NewCompilerHost("/src", fs, bundled.LibPath(), nil, nil),
++		})
++		var out strings.Builder
++		program.ExplainFiles(&out, locale.Default)
++		return program, out.String()
++	}
++
++	_, listing := explain([]string{"/src/main.ts", "/src/aug.ts"})
++	want := "lib.ts\n" +
++		"   Imported via './lib' from file 'main.ts'\n" +
++		"   Augmented via './lib' from file 'aug.ts'\n"
++	assert.Assert(t, strings.Contains(listing, want), "listing:\n%s", listing)
++
++	program, listing := explain([]string{"/src/aug.ts"})
++	assert.Assert(t, program.GetSourceFile("/src/lib.ts") == nil,
++		"the augmentation alone added lib.ts")
++	assert.Assert(t, !strings.Contains(listing, "Augmented via"),
++		"listing:\n%s", listing)
++}
++
+ func BenchmarkNewProgram(b *testing.B) {
+ 	if !bundled.Embedded {
+ 		// Without embedding, we'd need to read all of the lib files out from disk into the MapFS.
+diff --git a/internal/diagnostics/diagnostics_generated.go b/internal/diagnostics/diagnostics_generated.go
+index 86ffdcea..35c75bf0 100644
+--- a/internal/diagnostics/diagnostics_generated.go
++++ b/internal/diagnostics/diagnostics_generated.go
+@@ -4310,6 +4310,12 @@ var Sort_Imports = &Message{code: 100018, category: CategoryMessage, key: "Sort_
+ 
+ var JSDoc_comment = &Message{code: 100019, category: CategoryMessage, key: "JSDoc_comment_100019", text: "JSDoc comment"}
+ 
++var Augmented_via_0_from_file_1 = &Message{code: 100020, category: CategoryMessage, key: "Augmented_via_0_from_file_1_100020", text: "Augmented via {0} from file '{1}'"}
++
++var Augmented_via_0_from_file_1_with_packageId_2 = &Message{code: 100021, category: CategoryMessage, key: "Augmented_via_0_from_file_1_with_packageId_2_100021", text: "Augmented via {0} from file '{1}' with packageId '{2}'"}
++
++var File_is_augmented_here = &Message{code: 100022, category: CategoryMessage, key: "File_is_augmented_here_100022", text: "File is augmented here."}
++
+ func keyToMessage(key Key) *Message {
+ 	switch key {
+ 	case "Unterminated_string_literal_1002":
+@@ -8620,6 +8626,12 @@ func keyToMessage(key Key) *Message {
+ 		return Sort_Imports
+ 	case "JSDoc_comment_100019":
+ 		return JSDoc_comment
++	case "Augmented_via_0_from_file_1_100020":
++		return Augmented_via_0_from_file_1
++	case "Augmented_via_0_from_file_1_with_packageId_2_100021":
++		return Augmented_via_0_from_file_1_with_packageId_2
++	case "File_is_augmented_here_100022":
++		return File_is_augmented_here
+ 	default:
+ 		return nil
+ 	}
+diff --git a/internal/diagnostics/extraDiagnosticMessages.json b/internal/diagnostics/extraDiagnosticMessages.json
+index 10ea4408..0b71ab94 100644
+--- a/internal/diagnostics/extraDiagnosticMessages.json
++++ b/internal/diagnostics/extraDiagnosticMessages.json
+@@ -130,5 +130,17 @@
+     "JSDoc comment": {
+         "category": "Message",
+         "code": 100019
++    },
++    "Augmented via {0} from file '{1}'": {
++        "category": "Message",
++        "code": 100020
++    },
++    "Augmented via {0} from file '{1}' with packageId '{2}'": {
++        "category": "Message",
++        "code": 100021
++    },
++    "File is augmented here.": {
++        "category": "Message",
++        "code": 100022
+     }
+ }

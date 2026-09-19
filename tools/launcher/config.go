@@ -24,23 +24,8 @@ const DumpFlag = "--dump-config"
 const (
 	ModeNode      = "node"
 	ModeVitest    = "vitest"
+	ModeNodeTest  = "node_test"
 	ModeDevServer = "devserver"
-	ModeWrangler  = "wrangler"
-	ModeNext      = "next"
-)
-
-// The two Next.js CLI commands this launcher drives, one per rule.
-const (
-	nextCommandDev   = "dev"
-	nextCommandStart = "start"
-)
-
-// The two things wrangler can be asked to do with a worker. The zero value of
-// WranglerConfig.Command is a dry run, so a config that does not ask to deploy
-// never uploads.
-const (
-	wranglerCommandDryRun = "dry-run"
-	wranglerCommandDeploy = "deploy"
 )
 
 // Config is the whole contract between the Starlark rules and this binary.
@@ -55,35 +40,12 @@ type Config struct {
 
 	Node      *NodeConfig      `json:"node,omitempty"`
 	Vitest    *VitestConfig    `json:"vitest,omitempty"`
+	NodeTest  *NodeTestConfig  `json:"node_test,omitempty"`
 	DevServer *DevServerConfig `json:"dev_server,omitempty"`
-	Wrangler  *WranglerConfig  `json:"wrangler,omitempty"`
-	Next      *NextConfig      `json:"next,omitempty"`
 }
 
-// NextConfig runs the Next.js CLI. `next dev` serves the source tree, so it
-// needs only the project directory; `next start` serves a build, so the
-// launcher stages that build into a writable directory alongside the config and
-// the files Next.js serves from the project root rather than from .next.
-type NextConfig struct {
-	Command       string   `json:"command"`
-	NodeModules   string   `json:"node_modules"`
-	ProjectDir    string   `json:"project_dir,omitempty"`
-	BuildDir      string   `json:"build_dir,omitempty"`
-	ConfigFile    string   `json:"config_file,omitempty"`
-	ProjectFiles  []string `json:"project_files,omitempty"`
-	PackagePrefix string   `json:"package_prefix,omitempty"`
-	Port          int      `json:"port"`
-}
-
-// rule names the rule this config came from, for diagnostics.
-func (n *NextConfig) rule() string {
-	if n.Command == nextCommandDev {
-		return "next_dev_server"
-	}
-	return "next_serve"
-}
-
-// NodeConfig runs one .js entry point.
+// NodeConfig runs one .js entry point. NodeModules, here and below, is an
+// importer's node_modules: a directory no manifest entry names.
 type NodeConfig struct {
 	Entry         string        `json:"entry"`
 	NodeModules   string        `json:"node_modules,omitempty"`
@@ -98,50 +60,33 @@ type PackageLink struct {
 }
 
 // VitestConfig runs the vitest CLI over a sharded set of compiled test files.
+// NodeModules is the importer chain, nearest first.
 type VitestConfig struct {
-	Vitest          string `json:"vitest,omitempty"`
-	VitestInTree    string `json:"vitest_in_tree,omitempty"`
-	VitestIsNpmBin  bool   `json:"vitest_is_npm_bin,omitempty"`
-	ConfigFile      string `json:"config_file"`
-	TestFilesList   string `json:"test_files_list"`
-	NodeModules     string `json:"node_modules,omitempty"`
-	UpdateSnapshots bool   `json:"update_snapshots,omitempty"`
-	Coverage        bool   `json:"coverage,omitempty"`
+	VitestInTree  string   `json:"vitest_in_tree,omitempty"`
+	ConfigFile    string   `json:"config_file"`
+	TestFilesList string   `json:"test_files_list"`
+	NodeModules   []string `json:"node_modules,omitempty"`
+	ReadsHook     string   `json:"reads_hook,omitempty"`
+	// RootRel is vite's root relative to the config's directory: the package
+	// of a `config` from an ancestor package, "." otherwise.
+	RootRel string `json:"root_rel,omitempty"`
+	// Stage maps a runfiles path to the runfiles path the launcher writes its
+	// content to as a regular file; ConfigFile is one of the destinations.
+	Stage map[string]string `json:"stage,omitempty"`
 }
 
-// WranglerConfig runs wrangler over a worker Bazel built. Everything is staged
-// into a writable scratch dir because wrangler writes beside the config file,
-// and a Bazel output directory is read-only.
-type WranglerConfig struct {
-	ConfigFile     string   `json:"config_file"`
-	NodeModules    string   `json:"node_modules"`
-	WranglerInTree string   `json:"wrangler_in_tree"`
-	EnvName        string   `json:"env_name,omitempty"`
-	WorkerFiles    []string `json:"worker_files"`
-	PackagePrefix  string   `json:"package_prefix,omitempty"`
-	// Command is what to do with the worker once it is bundled. Only the exact
-	// string wranglerCommandDeploy uploads; every other value, the empty one
-	// included, is a dry run, so a hand-written or older config cannot deploy by
-	// accident.
-	Command string `json:"command,omitempty"`
+// NodeTestConfig carries no config file: node:test is configured by CLI flags
+// and by the test file itself.
+type NodeTestConfig struct {
+	TestFilesList string   `json:"test_files_list"`
+	NodeModules   []string `json:"node_modules,omitempty"`
+	// ResolveHook is the ESM resolver shim that answers the `./x.ts` specifier
+	// oxc emits verbatim into the .js beside it. Empty disables it.
+	ResolveHook string `json:"resolve_hook,omitempty"`
 }
 
-// deploys reports whether this config asks for a real upload.
-func (w *WranglerConfig) deploys() bool { return w.Command == wranglerCommandDeploy }
-
-// rule names the rule this config came from, for diagnostics.
-func (w *WranglerConfig) rule() string {
-	if w.deploys() {
-		return "ts_worker_deploy"
-	}
-	return "ts_worker_dry_run"
-}
-
-// DevServerConfig runs one dev server implementation, chosen by
-// ts_dev_server's server attr. ServerBinary and ServerInTree are the two ways a
-// server can arrive and exactly one is set: a native binary is a runfile, while
-// a server shipping as an npm package is only a path inside the node_modules
-// tree, since a file inside a TreeArtifact has no label to put in runfiles.
+// DevServerConfig runs one dev server implementation. Exactly one of
+// ServerBinary (a runfile) and ServerInTree (a path under NodeModules) is set.
 type DevServerConfig struct {
 	ConfigFile      string   `json:"config_file"`
 	NodeModules     string   `json:"node_modules,omitempty"`
@@ -150,9 +95,7 @@ type DevServerConfig struct {
 	Argv            []string `json:"argv"`
 	RunsInJsRuntime bool     `json:"runs_in_js_runtime,omitempty"`
 	Plugin          string   `json:"plugin,omitempty"`
-	CSSModulePlugin string   `json:"css_module_plugin,omitempty"`
 	UserConfig      string   `json:"user_config,omitempty"`
-	BundlerBinary   string   `json:"bundler_binary,omitempty"`
 	// ScratchDir is this target's directory under bazel-bin, where a dev server
 	// that insists on writing somewhere is pointed instead of the source tree.
 	ScratchDir string `json:"scratch_dir,omitempty"`
@@ -252,6 +195,13 @@ func (c *Config) validate() error {
 		if c.Vitest.ConfigFile == "" || c.Vitest.TestFilesList == "" {
 			return errors.New(`mode "vitest" requires vitest.config_file and vitest.test_files_list`)
 		}
+	case ModeNodeTest:
+		if c.NodeTest == nil {
+			return errors.New(`mode "node_test" requires a "node_test" section`)
+		}
+		if c.NodeTest.TestFilesList == "" {
+			return errors.New(`mode "node_test" requires node_test.test_files_list`)
+		}
 	case ModeDevServer:
 		if c.DevServer == nil {
 			return errors.New(`mode "devserver" requires a "dev_server" section`)
@@ -262,43 +212,11 @@ func (c *Config) validate() error {
 		if (c.DevServer.ServerBinary == "") == (c.DevServer.ServerInTree == "") {
 			return errors.New(`mode "devserver" requires exactly one of dev_server.server_binary and dev_server.server_in_tree`)
 		}
-	case ModeWrangler:
-		if c.Wrangler == nil {
-			return errors.New(`mode "wrangler" requires a "wrangler" section`)
-		}
-		if c.Wrangler.ConfigFile == "" || c.Wrangler.NodeModules == "" {
-			return errors.New(`mode "wrangler" requires wrangler.config_file and wrangler.node_modules`)
-		}
-		// Rejected rather than silently treated as a dry run: a config meaning to
-		// deploy and misspelling it should say so, not quietly do less.
-		switch c.Wrangler.Command {
-		case "", wranglerCommandDryRun, wranglerCommandDeploy:
-		default:
-			return fmt.Errorf("unknown wrangler.command %q (want %q or %q)",
-				c.Wrangler.Command, wranglerCommandDryRun, wranglerCommandDeploy)
-		}
-	case ModeNext:
-		if c.Next == nil {
-			return errors.New(`mode "next" requires a "next" section`)
-		}
-		if c.Next.NodeModules == "" {
-			return errors.New(`mode "next" requires next.node_modules`)
-		}
-		switch c.Next.Command {
-		case nextCommandDev:
-		case nextCommandStart:
-			if c.Next.BuildDir == "" {
-				return errors.New(`next.command "start" requires next.build_dir`)
-			}
-		default:
-			return fmt.Errorf("unknown next.command %q (want %q or %q)",
-				c.Next.Command, nextCommandDev, nextCommandStart)
-		}
 	case "":
 		return errors.New(`missing "mode"`)
 	default:
-		return fmt.Errorf("unknown mode %q (want %q, %q, %q, %q or %q)",
-			c.Mode, ModeNode, ModeVitest, ModeDevServer, ModeWrangler, ModeNext)
+		return fmt.Errorf("unknown mode %q (want %q, %q, %q or %q)",
+			c.Mode, ModeNode, ModeVitest, ModeNodeTest, ModeDevServer)
 	}
 	return nil
 }

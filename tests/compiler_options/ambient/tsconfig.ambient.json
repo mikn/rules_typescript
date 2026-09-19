@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "typeRoots": ["./typings"],
+    "types": ["my-globals"]
+  }
+}

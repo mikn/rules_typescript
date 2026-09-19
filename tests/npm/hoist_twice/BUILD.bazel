@@ -1,0 +1,17 @@
+load("//npm/private:store.bzl", "npm_store_hoist")
+load("//tests/npm:node_modules_tests.bzl", "hoist_linked_twice_test")
+
+MINIMATCH = "//tests/npm:node_modules/.pnpm/minimatch@"
+
+# One name hoisted privately and publicly, which is one link name twice.
+npm_store_hoist(
+    name = "node_modules/.pnpm/node_modules",
+    private = {MINIMATCH + "9.0.9/node_modules/minimatch": "minimatch"},
+    public = {MINIMATCH + "10.2.4/node_modules/minimatch": "minimatch"},
+    tags = ["manual"],
+)
+
+hoist_linked_twice_test(
+    name = "hoist_linked_twice_test",
+    target_under_test = ":node_modules/.pnpm/node_modules",
+)

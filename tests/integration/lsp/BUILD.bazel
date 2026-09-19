@@ -1,15 +1,15 @@
 """Root BUILD file for the lsp integration test workspace."""
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm", "ts_refresh_tsconfig")
-
-# gazelle:ts_package_boundary every-dir
-# gazelle:ts_path_alias @/ src/
 
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store(name = "node_modules/.pnpm")
 
 ts_pnpm(name = "pnpm")
 
@@ -18,12 +18,9 @@ ts_add_package(
     pnpm_lock = "//:pnpm-lock.yaml",
 )
 
+# //src checks under its own tsconfig.json, which is its editor program too, so
+# nothing is nested. `deps` is what the aspect walks.
 ts_refresh_tsconfig(
     name = "refresh_tsconfig",
-    # `deps` is what the aspect walks: without it there are no packages, no
-    # aliases and no npm entries to write, which is what the runner asserts on.
-    deps = [
-        "//src/components",
-        "//src/models",
-    ],
+    deps = ["//src"],
 )

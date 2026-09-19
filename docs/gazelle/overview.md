@@ -1,6 +1,7 @@
 # Gazelle Overview
 
-Gazelle auto-generates BUILD files from TypeScript source files, inferring `ts_compile` targets and resolving imports to Bazel labels.
+Gazelle writes the BUILD files: one package per `tsconfig.json` program, its
+targets' sources and deps read off tsgo's own listing of that program.
 
 ## Setup
 
@@ -12,13 +13,14 @@ load("@gazelle//:def.bzl", "gazelle")
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 ```
 
 `gazelle_typescript` carries the TypeScript language alone. The other binary in
-that package, `gazelle_ts`, also carries Go and proto — rules_typescript uses it
-to generate BUILD files for its own `.go` sources — so in a polyglot repo it
-rewrites Go BUILD files you never asked it about.
+that package, `gazelle_ts`, also carries Go and proto; rules_typescript uses it
+to generate BUILD files for its own `.go` sources. In a polyglot repo it
+rewrites Go BUILD files too.
 
 Add `gazelle` to `MODULE.bazel`:
 
@@ -27,9 +29,14 @@ bazel_dep(name = "gazelle", version = "0.47.0")
 ```
 
 `rules_typescript` declares `rules_go`, `go_sdk` and `go_deps` as non-dev
-dependencies, so they propagate transitively via bzlmod: consumers need only the
-`bazel_dep` above, and no Go toolchain of their own. Building the extension
-fetches a Go SDK and its modules, on top of the Rust toolchain `oxc-bazel` needs.
+dependencies, so they propagate transitively via bzlmod. Consumers need only the
+`bazel_dep` above, and no Go toolchain of their own. Gazelle compiles only
+under `bazel run`: `tags = ["manual"]` keeps the target and its runner out of
+`bazel build //...`, and the run fetches a Go SDK and its modules. `bazel build`
+and `bazel test` compile no Go unless the workspace registers
+[tsgo from source](../rules/providers.md#tsgo-from-source); the ruleset's
+other Go tools are the binaries of its
+[tools release](../RELEASE_PROCESS.md#tools).
 
 Run Gazelle:
 
@@ -37,17 +44,443 @@ Run Gazelle:
 bazel run //:gazelle
 ```
 
-### Verifying a Run
+## What a Run Reads
 
-Taking Gazelle's output wholesale is the intended workflow.
-`//tests/integration:gazelle_roundtrip_test` pins four properties in CI against a
-real nested workspace: the output builds, generating it twice from scratch
-produces byte-identical BUILD files, `bazel test //...` passes on that output, and
-the set of test targets is unchanged across a delete-and-regenerate. It runs on
-every pull request and on every push to `main`.
+Five things, and no directive of its own.
 
-The test-target set is the one worth checking on your own repository too, since a
-run that deletes a test still builds and is still idempotent:
+1. **Every `tsconfig.json`**, listed through tsgo from the repository root:
+   `tsgo -p <dir>/tsconfig.json --noEmit --listFilesOnly --explainFiles
+   --pretty false`. The listing is the program's files and every edge between
+   them -- each import, module augmentation, `/// <reference>` directive and
+   `types` entry, with the file it resolved to. The binary is the toolchain's,
+   carried in `gazelle_typescript`'s runfiles, so the program Gazelle reads is
+   the one the build type-checks; `-ts_tsgo=<path>` names another. Two files
+   are never listed: a root `tsconfig.json` whose extends chain sets neither
+   `include` nor `files`, since tsgo would enumerate the whole repository, and
+   a `tsconfig.json` `ts_refresh_tsconfig` wrote, built out of the very targets
+   that would name it.
+2. **`pnpm-lock.yaml`** at the repository root, read once: every name the hub
+   declares, the importers and what each declares, and the `link:` entries
+   that make a directory a workspace member.
+3. **The nearest `package.json`** above a package: its `name`, and for a
+   `ts_test` its `dependencies` and `devDependencies`.
+4. **The vitest configs** the generated tests name, listed together in one
+   tsgo run when the first `deps` is written: the runner imports the config,
+   so its imports, and those of the first-party modules they reach, are the
+   test's.
+5. **The hand-written `ts_codegen` rules** in the BUILD files walked: their
+   `outs` and every `out_dir`, the target's output whatever a local run of the
+   generator left on disk.
+
+The listing resolves through the checkout's `node_modules`, so a repository
+with a root lockfile is installed before a run. tsgo prints no line for an
+import a missing install leaves unresolved, and a root `pnpm-lock.yaml` with no
+`node_modules/.modules.yaml` beside it stops the run before any `deps` is
+written. A `tsconfig.json` whose nearest `package.json` is no importer in the
+lockfile is not listed at all: pnpm installs nothing for that project, so it is
+foreign to the workspace ([The Package Model](#the-package-model)).
+
+A run says nothing else about the listings, tsgo's diagnostics included.
+`-ts_verbose` prints which binary ran, one line per `tsconfig.json` with what
+it listed or why it was not, its diagnostics, how many are packages, and the
+`.ts`/`.tsx`/`.mts`/`.cts` files no program lists, per directory and in total:
+`bazel run //:gazelle -- -ts_verbose`.
+
+## The Package Model
+
+A directory is a package when its `tsconfig.json` lists a first-party file: a
+path inside the repository and not under `node_modules`. `include`, `files` and
+`exclude` are the program's, so they decide what the package compiles. A
+directory with no `tsconfig.json`, or one whose listing names no first-party
+file (a `TS18003` config with no inputs, the refused root), is not a package and
+gets no target.
+
+A `package.json` the lockfile has no importer for marks a foreign project:
+pnpm installs nothing for it, so a bare import under it resolves through
+whatever an importer above hoisted, or not at all. That directory and every
+directory below it, down to the next `package.json` that is an importer, is
+outside the package model: a `tsconfig.json` there is not listed and is no
+package, its files are no src of the package above, a file of it a program
+above lists is unowned, and the run names the manifest once. A project meant
+to build is listed in `pnpm-workspace.yaml`.
+
+A file belongs to the nearest package at or above its directory when that
+package's program lists it. A file that package does not list belongs to no
+package: every run from the repository root names each such file with the
+programs that reached it, and so names a listed file under a directory the walk
+did not enter (`# gazelle:exclude`, `.bazelignore`, `# gazelle:ignore`). A file
+two programs list, a parent's and a nested package's, is the nested package's
+alone, and the parent's edge to it is a dep.
+
+Within a package, a `*.test.*` or `*.spec.*` file is a test file, a `.d.ts`,
+`.d.mts` or `.d.cts` a declaration, and every other listed file a library
+file. A file tsgo could have listed -- `.ts`, `.tsx`, `.mts`, `.cts`, `.js`,
+`.jsx`, `.mjs`, `.cjs` -- is a src only when the program lists it: one the
+tsconfig's `exclude` leaves out is neither a src nor data. Every other regular
+file under the package's tree -- not a `BUILD.bazel`, not the package's own
+`tsconfig.json`, not under a deeper package -- is a data src of the package: a
+`.json`, a `.css`, an image, a fixture, the `package.json`. A file a
+`ts_codegen` writes -- one its `outs` declare, or anything under its `out_dir`
+-- is neither, listed or not: a copy on disk is what a local run of the
+generator left, and the target that reaches it depends on the codegen. The one
+unlisted JavaScript that is a src is the twin beside an owned declaration of
+the same stem (`x.mjs` beside `x.d.mts`): tsc drops it from the program and
+resolves `./x.mjs` to the declaration, so the listing never names the module
+itself.
+
+Two programs importing each other's files is a dependency cycle between two
+Bazel targets, which Bazel rejects with the loop of labels when it loads them.
+Directories inside one program are one target, so a mutual import between them
+is nothing.
+
+### Where a Program Is Not
+
+A directory that is not a package gets `Empty` for every kind Gazelle writes --
+`ts_compile`, `ts_test`, `ts_config`, `filegroup(vitest_config)` and
+`filegroup(wrangler_config)` under the names it would use -- so a rule an
+earlier run left there is withdrawn, and the run names the BUILD file to delete
+when one of them was in it: Gazelle cannot delete the file, and an empty BUILD
+file keeps the directory a Bazel package. Two things are written there all the
+same: a `ts_config` over a `tsconfig.json` a program's `extends` chain names
+(the root's shared base), and at the repository root the filegroups over a
+config the tests below name and over the wrangler config it names. A directory
+inside a `ts_codegen`'s `out_dir` is that target's output: nothing under it is
+a source, and a BUILD file there is emptied and named the same way.
+
+## What Gazelle Writes
+
+| Rule | Name | Attributes Gazelle owns |
+|------|------|-------------------------|
+| `ts_compile` | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility` |
+| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
+| `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
+| `filegroup` | `vitest_config` | `srcs`, `visibility` |
+| `filegroup` | `wrangler_config` | `srcs`, `visibility` |
+| `node_modules` | `node_modules` | `deps`, `parent`, `hoist`, `visibility` |
+| `node_modules_member` | `node_modules/<member name>` | `member`, `visibility` |
+| `npm_virtual_store` | `node_modules/.pnpm` | |
+
+Per package: a `ts_compile` when the program has a library file, holding the
+library files, every owned declaration and the data files; a `ts_test` when it
+has a test file, holding the test files and every owned declaration, and the
+data files when no `ts_compile` is written; `tsconfig = ":tsconfig"` on both,
+naming the `ts_config` over the package's own `tsconfig.json`. A `ts_codegen`
+declared in the package's
+BUILD file is a dep of every target there; Gazelle recognises the kind and
+never writes one. A program listing only declaration files writes neither
+target and says so under `-ts_verbose`. `ts_dev_server` is outside all of
+this: Gazelle does not write or touch it ([Dev Server](../guides/dev-server.md)).
+A src whose name Bazel cannot spell (a `:` in it) is dropped and named in the
+log; a name that opens a label (`@`, `//`) is pinned to the package with a
+leading `:`.
+
+Per lockfile importer, package or not: a `node_modules` whose `deps` are the
+importer's declared `dependencies`, `devDependencies` and
+`optionalDependencies` as hub labels (`@npm//web:react`; `@npm//:react` for
+the root's) and whose `parent` is the importer above's target, the
+lockfile's root importer naming `hoist = ":node_modules/.pnpm/node_modules"`
+instead; one
+`node_modules_member` per `link:` entry, `node_modules/<member name>` over the
+member's view; and, at the repository root, the lockfile's package,
+`npm_virtual_store(name = "node_modules/.pnpm")` from `@npm//:defs.bzl`
+([node_modules](../rules/node-modules.md)). A directory that is no importer
+withdraws its `node_modules` and every `node_modules_member`; a hand-written
+one there is kept under `# keep`.
+
+```python
+# packages/core/BUILD.bazel -- tsconfig.json here, the sources under src/
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
+
+ts_compile(
+    name = "core",
+    srcs = [
+        "package.json",
+        "src/index.ts",
+        "src/parse.ts",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+    deps = ["@npm//packages/core:zod"],
+)
+
+ts_test(
+    name = "core_test",
+    srcs = ["src/parse.test.ts"],
+    tsconfig = ":tsconfig",
+    deps = [
+        ":core",
+        "@npm//packages/core:vitest",
+        "@npm//packages/core:zod",
+    ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
+)
+```
+
+A `ts_test` runs under the vitest config plain `vitest` would read for its
+files: a `vitest.config.*`, else a `vite.config.*`, in vitest's own order of
+extensions (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`), so a package that
+configures vitest through vite -- a `define`, a plugin, a `resolve.alias` --
+runs as `pnpm vitest` runs it. One beside the tests goes into `config` by
+name. With none there, Gazelle walks up to the directory plain `vitest` runs
+from, the nearest one holding a `package.json` or the repository root, and
+takes the config it holds: that directory gets a public `filegroup` named
+`vitest_config` over the file, and the test names it by label. A directory
+between the two with no `package.json` is passed over, as `vitest` run from the
+package root passes it over. The directory holding the config has to be a
+package itself, or the root, for the label to reach it; otherwise the run says
+so and the test gets no `config`. Without the config the tests run in plain
+Node, so a worker's `defineWorkersConfig` pool becomes no pool and a dependency
+that only resolves through Vite (`test.server.deps.inline`) fails at import
+time. Every import of the config, bare or relative, is a dep of the test: the
+config is listed by tsgo from its own directory, as vitest loads it, and the
+listing is followed through every first-party module it reaches. Those modules
+are the test's `config_srcs`, spelled from the test's package -- a path under
+it, or `//<package>:<file>` for a config an ancestor package exports -- and the
+rule writes each at its own path in the runfiles, where the config's relative
+imports resolve ([A config file](../rules/ts-test.md#a-config-file)). A module
+outside the config's package is said and gets no entry: a config's modules are
+its package's files.
+
+### A Workers-Pool Config
+
+A config that imports `@cloudflare/vitest-pool-workers` runs its tests inside
+workerd, and the pool reads the wrangler config `wrangler.configPath` names --
+that key alone; a `wrangler.jsonc` beside a config naming none is nothing to
+it. Gazelle reads the one string literal in the config matching
+`wrangler[\w.-]*\.(jsonc|json|toml)` and makes the file a label in the
+config's package: `filegroup(name = "wrangler_config")` beside `vitest_config`,
+withdrawn when the literal or the file goes. A config naming two files, or a
+file outside its package, is said and gets none. The `ts_test` whose config's
+edges name the pool gets `wrangler_config` -- the filegroup's label from a
+package below, the file's name from the config's own -- and, when the lockfile
+declares `@vitest/coverage-istanbul`, `coverage_provider = "istanbul"` with
+that package in `deps` in the importer's spelling; the pool refuses v8
+coverage, and without the package the run says so and writes neither. The
+filegroup follows the literal and is written when the package generates; the
+attributes follow the pool's edge and are written with `deps`, from the
+combined listing. A config that names a wrangler config and installs no pool
+gets the filegroup and no test names it.
+
+## The tsconfig and Its ts_config
+
+Every target compiles under the package's own `tsconfig.json`: its `lib`,
+`types`, `paths`, `jsx` and strictness. The rule reads every compiler option
+from the tsconfig ([where compiler options come
+from](../rules/ts-compile.md#where-compiler-options-come-from)), so no
+attribute restates one to the compiler. The `ts_config` beside the file is what
+makes it a label, and it declares what the rule needs from the file before any
+action reads it: `deps`, the `extends` chain, and the two values that name an
+output -- `jsx = "preserve"` when that is the chain's effective `jsx`
+([`jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve)) and
+`module` when the chain's is one tsgo emits
+([The Module Format](../rules/ts-compile.md#the-module-format)). All three
+are Gazelle's to recompute on every run.
+
+`ts_config.jsx` is written as `"preserve"` when the chain's effective `jsx` is
+`preserve`, read leaf-wins as tsc reads it and inherited through `extends`, and
+removed otherwise; no other value is written, since no other value names an
+output. `ts_config.module` is written the same way when the chain's effective
+`module` is one tsgo emits -- `commonjs`, `node16`, `node18`, `nodenext`,
+lowercased as tsgo prints it -- and removed for an ES kind or `preserve`,
+which oxc emits with no twin to name.
+
+`ts_config.deps` is the `extends` chain. Gazelle reads the package's
+`tsconfig.json` and writes a dep on the `ts_config` of every `tsconfig.json`
+its `extends` names, one specifier or an array, each a relative path resolved
+from the file. A `tsconfig.json` that is no program of its own gets a
+`ts_config` in its directory because a chain names it, which is how the root's
+shared base becomes `//:tsconfig`. A base of another name
+(`tsconfig.base.json`) has no `ts_config` to name, and the run says so: declare
+that dep by hand under `# keep`. A specifier that resolves through
+`node_modules` (`"@tsconfig/node20/tsconfig.json"`) is skipped with a warning,
+since only configs on disk are read. Without the dep the base is no input to
+the action, and tsgo reports `TS5083: Cannot read file` before it reaches the
+sources.
+
+```python
+# workers/proxy/test/BUILD.bazel; its tsconfig.json extends ../tsconfig.json
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//workers/proxy:tsconfig"],
+)
+```
+
+`deps` is Gazelle's, recomputed on every run, so a run corrects the label when
+the base moves or goes away. A hand-written value needs a `# keep` on its line
+to survive the next run ([attributes Gazelle
+owns](directives.md#attributes-gazelle-owns)).
+
+### A Declaration the tsconfig Names
+
+A path-shaped `compilerOptions.types` entry, `"./worker-configuration.d.ts"` in
+the form wrangler writes, names a file the program stages, and the rule reads
+the entry from the tsconfig itself. The listing carries it as an edge from the
+tsconfig to the file, and it resolves as any edge does: to the rule whose
+`srcs` hold the file, or to the `ts_codegen` whose `outs` declare it. An out
+that is not in the checkout is listed by no program, so Gazelle reads the entry
+from the chain itself, resolved against the package's directory as tsc
+resolves it, and writes the codegen into `deps`. Nothing else is written: no
+`types`, no filegroup. A copy of a declared out left on disk by a local
+`wrangler types` is no rule's src: the out is the codegen's, and the program
+that lists it depends on the codegen. The codegen is named for what it writes,
+never for its directory: the directory's name is the package's `ts_compile`,
+and a hand-written rule of another kind holding that name keeps the merger
+from writing the compile. The run names such a rule; rename it.
+
+```python
+# workers/proxy/BUILD.bazel -- the ts_codegen is hand-written; Gazelle leaves it
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = ["--config", "wrangler.jsonc", "--out", "{out}", "--srcs", "{srcs}"],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+    visibility = ["//workers/proxy:__subpackages__"],
+)
+
+ts_compile(
+    name = "proxy",
+    srcs = [
+        "src/handler.ts",
+        "wrangler.jsonc",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+    deps = [":worker_types"],
+)
+```
+
+## Import Resolution
+
+`deps` is written from the listing, one label per edge target. An edge is one
+file reaching another: an import as written, a `declare module "<name>"`
+augmentation of a module the program holds, a `/// <reference path>` or
+`/// <reference types>` directive, a `compilerOptions.types` entry, the JSX
+runtime a `.tsx` file imports under `react-jsx` without writing the import, the
+`importHelpers` module. An augmentation adds no file -- its module is in the
+program by an import elsewhere, or the checker reports `TS2664` -- and tsgo
+lists it (`Augmented via`) under [the source-built
+compiler](../rules/providers.md#tsgo-from-source), not the lockfile's binary.
+tsgo resolved each under the program's own options --
+its `paths`, its `moduleResolution`, the `imports` map of its `package.json`,
+the `exports` maps under `node_modules` -- so Gazelle reads no specifier and
+applies no resolution rule of its own. It maps the file tsgo landed on to a
+label:
+
+- **A file under `node_modules`** is an npm package: the bare specifier's
+  package when the edge is an import and the lockfile mentions that name, else
+  the package the path names by the segments after its last `node_modules/`
+  (two when the first is a scope). The label is spelled through
+  [the lockfile gate](#the-lockfile-gate). The `@types/*` twin of a package
+  the lockfile mentions is the importer's to declare beside it and gets no
+  label of its own; a `@types/<name>` package installed with no `<name>`
+  beside it is the label, `@npm//web:types_mdast`.
+- **A `/// <reference types>` directive in a file under `node_modules`** is the
+  target's edge when the file it landed on is the `@types/<name>` package an
+  importer at or above the target's package declares, spelled as that
+  importer's, `@npm//:types_node`: TypeScript's primary lookup for the directive
+  walks `node_modules/@types` up from the tsconfig's directory -- the chain --
+  before the referencing file's own directory, so that copy is the one the
+  program loads, and the link has to be staged for the build's program to load
+  it too. A directive the chain does not answer resolved beside the referencing
+  package's own tree and is nothing. The directive is the edge of the rule
+  whose files reach the referencing file, the `ts_compile`'s or the `ts_test`'s.
+- **A workspace member imported by its name** -- a bare specifier whose
+  package is a `link:` name in the lockfile, or the manifest name of an
+  importer -- is the name as the nearest importer at or above the package
+  that has it resolves it: the importer's link target where it links the
+  member, `//web:node_modules/@acme/ui`; the importer-scoped label where it
+  declares the name with a version, `@npm//npm-packages/lovite:lovable-tagger`
+  for lovite's `"lovable-tagger": "1.1.13"` beside the member
+  `npm-packages/tagger`, since pnpm installs the published package there;
+  where no importer above links or declares it there is no label and one
+  line names the member, since a target resolves through its importers
+  alone. The name of the nearest
+  `package.json` above the importing file, a subpath included, is a
+  self-reference, which tsc resolves through that manifest's `exports` to a
+  file of the member: a first-party file, resolved as any owned file is -- the
+  member's `ts_compile` from a `ts_test` or a package below it, nothing from
+  the member's own `ts_compile` -- and no line.
+- **A file another package owns**, reached by a relative path or a `paths`
+  alias, is that package's `ts_compile`, or whichever rule holds the file in
+  `srcs`: a hand-written one under `# keep` answers as a generated one does. A
+  file this package's own rules hold is nothing.
+- **A file under a `ts_codegen`'s `out_dir`** is the codegen, matched by the
+  root the path sits under, deepest root first; a file a `ts_codegen` declares
+  in `outs` is that codegen.
+- **A file no package owns** gets no label and one line in the log naming the
+  file, its importer and why: the nearest `tsconfig.json` above it does not
+  list it, no `tsconfig.json` above it lists a file, or it sits under a
+  directory this run did not walk.
+- **The compiler's own libs** (`lib.dom.d.ts` and its kin: under `../` from
+  the lockfile's binary, which reads them from beside itself, under
+  `bundled:///libs/` from the source build, which embeds them) are nothing.
+
+The tsgo action checks every edge against `deps` from the same listing
+([Deps Have to Be Direct](../rules/ts-compile.md#deps-have-to-be-direct)), so
+a build over what Gazelle wrote has no undeclared import to report;
+`//tests/integration:gazelle_roundtrip_test` builds Gazelle's output and pins
+it.
+
+Core Gazelle's `# gazelle:resolve typescript <repository path> <label>` names
+the label for a first-party file and wins over every first-party case above; a
+file under `node_modules` is the gate's alone
+([`# gazelle:resolve`](directives.md#gazelleresolve)).
+
+A `ts_test`'s `deps` is the union of `:<basename>`, the package's `ts_compile`
+when there is one; the edges of every file the package owns -- the test files,
+the library files and the declarations, since the test runs the package's code
+and needs its npm closure; the edges of its vitest config and of the modules
+the config reaches; and the nearest
+`package.json`'s `dependencies` and `devDependencies`, each spelled as an edge
+would be, a member's name as its link target and every other name through the
+gate.
+So a test carries the packages the config and the manifest name and no source
+imports (`vitest`, a pool package, `jsdom`), and none of them needs a `# keep`.
+
+`runner` and `data` are the owner's attributes: Gazelle writes neither, and a
+hand-written value survives every run without `# keep`
+([Runners](../rules/ts-test.md#runners)).
+
+### The Lockfile Gate
+
+Every npm label passes through the root `pnpm-lock.yaml`. An edge the lockfile
+never mentions, under the specifier's package or the listed file's -- one a
+nested `package-lock.json` installed, one a stale store supplied -- gets no
+label and one line naming the importer, the specifier and the name. The hub is
+built from that lockfile, so `@npm//:<name>` for such a package is a target
+that cannot exist, and `no such target` fails analysis for every target in the
+build where a missing dep fails one import with `TS2307`.
+With no root lockfile at all, npm imports get no dep, said once per run.
+
+The spelling follows the importer. The file tsgo listed carries the exact
+version the importing file's own `package.json` resolved, and the hub declares
+each importer's resolutions under the importer's directory beside the root's:
+`@npm//web:marked` beside `@npm//:marked`. A name is spelled under the nearest
+importer on the chain above the importing file that declares it, the root
+last. A flat label for a name two importers
+resolve differently names a resolution the target's chain does not link, and
+fails analysis. Every `ts_compile` and `ts_test` gets `node_modules`, the
+nearest lockfile importer's target at or above the package -- the root's for a
+package under no importer -- which is that chain.
+
+## Verifying a Run
+
+`//tests/integration:gazelle_roundtrip_test` pins four properties against a
+nested workspace: the output builds, generating it twice from scratch produces
+byte-identical BUILD files, `bazel test //...` passes on that output, and the
+set of test targets is unchanged across a delete-and-regenerate. A run that
+deletes a test still builds and is still idempotent, so check the test-target
+set on your own repository:
 
 ```bash
 bazel query 'tests(//...)' | sort > before
@@ -55,29 +488,32 @@ bazel run //:gazelle
 bazel query 'tests(//...)' | sort | diff before -
 ```
 
-That check exists because seven hand-written `go_test` targets once disappeared,
-and the mechanism was Gazelle's Go language rather than the TypeScript extension:
-Go turns `# gazelle:exclude *_test.go` into a deletion stub named
-`<dirbase>_test`, and a hand-written `go_test` of that name goes with it.
+Gazelle's Go language, in `gazelle_ts`, turns `# gazelle:exclude *_test.go`
+into a deletion stub named `<dirbase>_test`, and a hand-written `go_test` of
+that name goes with it.
 
 ### Getting the Clean-Tree Diff to Empty
 
 Once a repository has settled, a Gazelle run on an unmodified checkout should
-change nothing, which is what makes the next non-empty diff mean something.
-Check without writing anything:
+change nothing. Check without writing anything:
 
 ```bash
 bazel run //:gazelle -- -mode=diff
 ```
 
-Two things commonly keep that diff non-empty on a hand-written BUILD file, and
-neither is drift:
+Three things commonly keep that diff non-empty on a hand-written BUILD file,
+and none is drift:
 
 - **Gazelle's own rendering.** It writes a one-element list inline
-  (`deps = ["//pkg"]`) and names a generated file by its producing label where you
-  wrote the filename. Reformat the file to match.
-- **A hand-narrowed attribute it merges.** `visibility` is a merged attribute and
-  generated rules carry `//visibility:public`, so a target restricted to
+  (`deps = ["//pkg"]`) and names a generated file by its producing label where
+  you wrote the filename. Reformat the file to match.
+- **A hand-written rule under a name Gazelle would use.** In a directory that
+  is no package, every rule Gazelle would write is withdrawn under the names it
+  would use -- `<dirbase>`, `<dirbase>_test`, `tsconfig`, `vitest_config`,
+  `wrangler_config` -- so a rule of yours under one of them is proposed for
+  deletion on every run. `# keep` above the rule holds it.
+- **A hand-narrowed attribute it merges.** `visibility` is a merged attribute
+  and generated rules carry `//visibility:public`, so a target restricted to
   `["//myapp:__subpackages__"]` comes back public on every run. Pin it with
   `# keep`:
 
@@ -90,487 +526,6 @@ neither is drift:
   )
   ```
 
-  `# keep` is Gazelle's own directive, not a `ts_*` one: above an attribute it
-  means "never touch this value", above a whole rule "never touch this rule".
-  Without it, a visibility used as an architectural boundary widens back one run
-  at a time.
-
-### Fallback chains in `compilerOptions.paths`
-
-`paths` values are arrays: TypeScript tries each entry in turn. A generated
-`path_aliases` attribute holds one directory per alias. Gazelle discards
-entries under the `bazel-*` convenience symlinks (`ts_compile` fails analysis on
-an alias pointing into the output tree) and entries under a tool-managed
-dot-directory such as `.bazel/npm`, then takes the first of what is left that
-exists on disk. When none exists on disk (an alias whose directory only a codegen
-action produces), the first one is used, silently. That reads the filesystem, so a
-chain listing a codegen-produced directory ahead of a checked-in one can resolve
-differently on a fresh clone than on a built tree; name one directory per alias
-where that matters.
-
-Two cases log, each on a single line (wrapped here to fit):
-
-```
-gazelle: typescript: paths entry "@acme/ui/*" resolves on disk to 2 directories;
-using "./src/ui/*" and ignoring [./generated/ui/*]. Gazelle emits one directory
-per alias; if imports must resolve through more than one, split the alias or list
-the extra files in path_alias_srcs.
-```
-
-Specifiers that only resolve through the ignored directory get no dep edge, and
-the `tsconfig.json` `ts_compile` generates will not carry it either. Setting
-`module_name` on the target producing them is the third option.
-
-```
-gazelle: typescript: paths entry "@acme/ui/*" has no target Gazelle can use
-([./bazel-bin/ui/*]); no path_alias emitted. An alias under bazel-out/bazel-bin
-points into the output tree: set module_name on the target that produces those
-declarations and import it by that name instead.
-```
-
-Every entry pointed into the output tree, so no alias is emitted. An alias with
-even one tool-managed dot-directory entry is dropped without this line: that is
-the shape `ts_refresh_tsconfig` writes for every npm package, and it is meant to
-be dropped.
-
-## Package Boundary Heuristic
-
-By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` source files gets a `ts_compile` target. This matches Go's behaviour where every directory with `.go` files is a package.
-
-**every-dir mode** (default): a directory becomes a boundary when it has any `.ts` files.
-
-**index-only mode** (`# gazelle:ts_package_boundary index-only`): a directory becomes a boundary when:
-
-1. It contains an `index.ts` or `index.tsx` file, or
-2. It has the `# gazelle:ts_package_boundary true` directive, or
-3. It is the repository root.
-
-!!! note "Upgrading from pre-0.2.0"
-    Earlier versions used **index-only mode** by default. If you relied on that behaviour, add `# gazelle:ts_package_boundary index-only` to your root `BUILD.bazel` to restore it.
-
-Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_test` targets automatically in both modes.
-
-Doc and story files (`*.doc.ts`, `*.doc.tsx`, `*.stories.ts`, `*.stories.tsx`) generate a separate `ts_compile` target in both modes, for the same reason: a doc file consumes the library rather than belonging to it. Left in the package target, a design system where `switch/switch.doc.tsx` imports `../label` and `label/label.doc.tsx` imports `../switch` is a dependency cycle between the two component packages, even though neither component depends on the other. Like test files, they are outside the `ts_lint` target's sources, and like the `ts_test` target they also get the package's ambient `.d.ts` files: nothing imports an ambient declaration, so only `srcs` membership puts it in a program. `.mdx` files are not TypeScript sources and are unaffected.
-
-## Generated Target Names
-
-| Rule | Name |
-|------|------|
-| `ts_compile` | directory basename (`src/components` → `components`), `root` at the repository root, or `# gazelle:ts_target_name` |
-| `ts_test` | `<ts_compile name>_test` |
-| `ts_compile` (docs and stories) | `<ts_compile name>_doc` |
-| `ts_lint` | `<ts_compile name>_lint` |
-| `ts_dev_server` | `dev` |
-| `css_library`, `css_module`, `asset_library`, `json_library` | the source filename with `.` replaced by `_` |
-
-Non-TypeScript libraries keep the extension in the name — `button.css` →
-`button_css`, `logo.svg` → `logo_svg`, `config.json` → `config_json`,
-`Button.module.css` → `Button_module_css`. That keeps the directory-named
-`ts_compile` target free (a `components/` directory holding `components.css`
-would otherwise generate two targets named `components`) and keeps files that
-share a stem apart (`logo.svg` and `logo.json`). A tie that survives both gets a
-numeric suffix on the later name (`_2`).
-
-The generated `ts_dev_server` gets `plugin` set and no `server`, so it runs the
-default Vite implementation. Gazelle writes the rule only when the package has
-no `dev` target yet, so a hand-added
-`server = "@rules_typescript//oj:dev_server"` survives later runs. See
-[Choosing the server](../guides/dev-server.md#choosing-the-server).
-
-## The compilerOptions Baseline
-
-Every generated `ts_compile` — the package target and the `_doc` one alike —
-and every `ts_test` names the nearest hand-written `tsconfig.json` in its own
-directory or an ancestor, so a target compiles under the repo's own `lib`,
-`types`, `jsx` and strictness rather than only the ruleset's defaults. A
-`ts_config` target beside the file is what makes it a label a subpackage can
-name:
-
-```python
-# packages/core/BUILD.bazel
-ts_config(
-    name = "tsconfig",
-    src = "tsconfig.json",
-    visibility = ["//visibility:public"],
-)
-
-# packages/core/src/BUILD.bazel
-ts_compile(
-    name = "src",
-    srcs = ["index.ts"],
-    tsconfig = "//packages/core:tsconfig",
-    visibility = ["//visibility:public"],
-)
-```
-
-The `ts_config` goes into the directory holding the file even when nothing else
-there is a target: the pnpm workspace-member layout — `package.json` and
-`tsconfig.json` beside each other with the sources under `src/` — is exactly
-that shape, and without a BUILD file there the label above names a target in a
-package Bazel never loads, which fails analysis for the whole workspace.
-
-Naming a tsconfig **adds** its options and never removes the ruleset's own. The
-four the rule supplies — `strict`, `module: Preserve`, `skipLibCheck`,
-`esModuleInterop` — apply with a `tsconfig` too, under it, so running Gazelle
-over a working build does not silently un-set them. `moduleResolution` is left
-for tsgo to derive from whichever `module` wins, since a value under a
-`tsconfig` that sets `module` would be the wrong half of a pair. See
-[where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
-
-Three cases get no attribute rather than a label into a directory Gazelle writes
-no BUILD file into, each logged with the fix. The label is resolved once per
-package, so a refusal reaches every target there — the `_doc` one included:
-
-- a directory under a `# gazelle:ts_ignore`, and one inside a tree Next.js or
-  SvelteKit stages by glob;
-- in the `index-only` and `tsconfig` boundary modes, one that is not already a
-  package — there, a BUILD file written just to hold the `ts_config` would stop
-  the roll-up walk and drop every source beneath it from the package above;
-- a directory whose own target is already named `tsconfig`.
-
-A tree with no `tsconfig.json` above it keeps the ruleset baseline alone. The
-`tsconfig.json` files `ts_refresh_tsconfig` writes are skipped: they are built
-out of the very targets that would name them.
-
-Starlark cannot read a tsconfig to follow its `extends` chain, so a file that
-extends another needs that chain in the generated `ts_config`'s `deps`. Gazelle
-does not own that attribute, and a value written there survives every later run
-without a `# keep`. `tsconfig` on the compile, doc and test targets **is**
-Gazelle's, recomputed on every run, so a hand-picked baseline needs a `# keep`
-on its line.
-
-## Automatic Lint Targets
-
-When a linter config file is present in the current directory or any ancestor, Gazelle automatically generates a `ts_lint` target alongside each `ts_compile` target. The lint target name is the compile target name with `_lint` appended.
-
-Detected config files:
-- **oxlint**: `oxlint.json`, `.oxlintrc.json`, `.oxlintrc`
-- **eslint**: `eslint.config.mjs`, `eslint.config.js`, `eslint.config.cjs`, `.eslintrc.json`, `.eslintrc.*`
-
-oxlint configs are detected before ESLint configs. The closest config file wins.
-
-Example generated output with an `oxlint.json` at the repo root:
-
-```python
-ts_compile(
-    name = "my_lib",
-    srcs = ["index.ts"],
-    visibility = ["//visibility:public"],
-)
-
-ts_lint(
-    name = "my_lib_lint",
-    srcs = ["index.ts"],
-    linter = "oxlint",
-    linter_binary = "@npm//:oxlint_bin",
-    config = "//:oxlint.json",
-)
-```
-
-To run linting:
-
-```bash
-bazel build //... --output_groups=+_validation
-```
-
-## Configuration
-
-Gazelle reads `compilerOptions.paths` and `compilerOptions.baseUrl` straight from
-the nearest `tsconfig.json`, parsed as JSONC: comments and trailing commas are
-accepted. Everything else is configured with `# gazelle:ts_*` directives in BUILD
-files; see the [Directives Reference](directives.md).
-
-`extends` is followed, written either as one specifier or as an array of them,
-and merged the way `tsc` merges it: the config nearest the leaf wins a key
-outright rather than merging into it, so a `paths` map always comes from exactly
-one file in the chain, and its relative targets are resolved against the
-directory of the config that wrote them. A specifier that resolves through
-`node_modules` (`"@tsconfig/node20/tsconfig.json"`) is skipped with a warning —
-Gazelle reads only configs on disk — so inline the options such a config carries
-or extend a checked-in copy instead.
-
-Directives take precedence over file-based configuration, and a directory's
-`ts_path_alias` directives merge with whatever aliases reached it: a child adds
-keys and overrides one key at a time. A `tsconfig.json` with `paths` does not
-merge. It replaces the alias map for its directory and everything below, parent
-directives included, and the directives in its own BUILD file then merge on top.
-
-### gazelle_ts.json (deprecated)
-
-A `gazelle_ts.json` in a directory is still read. Gazelle prints a deprecation
-warning naming the directive that replaces each key:
-
-| Key | Replacement |
-|---|---|
-| `pathAliases` | `# gazelle:ts_path_alias @/ src/` |
-| `excludePatterns` | `# gazelle:ts_exclude *.generated.ts` |
-| `runtimeDeps.test` | `# gazelle:ts_runtime_dep @npm//:happy-dom` |
-| `excludeDirs` | no directive; excluded directories are the built-in set plus this key |
-| `npmMappingFile` | no directive; a JSON file mapping npm names to labels. Overlays the lockfile inventory rather than replacing it: a package the file names takes its label, every other package keeps the lockfile's |
-
-It sits above `tsconfig.json` and below directives in precedence. Only the two
-keys with no directive replacement keep it alive; do not add new uses.
-
-`runtimeDeps.test` (or `# gazelle:ts_runtime_dep`) lists Bazel labels appended to every generated `ts_test` deps list. Use this for packages needed at test runtime but never statically imported:
-
-| Package | Why it needs to be explicit |
-|---------|----------------------------|
-| `@npm//:happy-dom` | vitest environment — imported by vitest config, not your test files |
-| `@npm//:react` | JSX runtime (`react/jsx-runtime`) — never directly imported |
-| `@npm//:react-dom` | required for React test utilities |
-| `@npm//:types_react` | type declarations for JSX |
-
-## Framework Detection
-
-When the workspace-root `package.json` names a framework Gazelle recognises, the
-root BUILD file gets that framework's bundle wiring: a `node_modules` tree, a
-`vite_bundler`, and a `ts_bundle` with `staging_srcs`, `vite_config` and
-`entry_point` already set. Detection is by dependency name, in `dependencies` or
-`devDependencies`, so there is nothing to configure.
-
-Recognising a framework and being able to bundle it are two different things:
-
-| `package.json` names | Gazelle emits |
-|---|---|
-| `@tanstack/react-router`, `@tanstack/start` | the Vite bundle targets |
-| `@remix-run/dev`, `@remix-run/react` | the Vite bundle targets |
-| `next` | `node_modules` + `next_build` + `next_dev_server` — its own rules, not Vite |
-| `@sveltejs/kit` | `node_modules` + `sveltekit_build` — its own rule, not Vite |
-| `@solidjs/start`, `solid-start` | nothing, plus a message saying why |
-
-For the last one no BUILD file closes the gap, and a generated `ts_bundle` would
-fail `bazel build //...`. Gazelle writes no bundle target and logs the framework,
-the reason, and the fallback:
-
-```
-typescript: SolidStart detected: bundling it is unsupported, so no bundle target
-was generated — @solidjs/start ships no Vite plugin: defineConfig() returns a
-vinxi app, which ts_bundle's vite_config contract (a default export with a
-plugins array) cannot consume. Your TypeScript still compiles and tests; for a
-client-only build, declare a ts_bundle by hand with no vite_config.
-```
-
-SvelteKit is off the `ts_bundle` path for a reason of the same kind. Its plugin
-runs SvelteKit's own sync step from the Vite `config` hook, which wants a
-`src/app.html` and a `svelte.config.js` of its own beside the Vite config, and it
-reads the route tree off `process.cwd()`. `sveltekit_build` owns that instead: it
-globs `src/` and the assets tree, and TypeScript outside them reaches the build
-through `staging_srcs`.
-
-### Solid Start
-
-`@solidjs/start`'s `./config` export has one symbol, `defineConfig`, and the vinxi
-app it returns has no `plugins` array: vinxi owns the server, the router manifest
-and the build. `ts_bundle`'s `vite_config` contract is a default export whose
-`plugins` are prepended to Bazel's, and `unhandled_keys_js` rejects a
-`vite_config` whose own keys are not a subset of `plugins` and `root`. A vinxi app
-is nothing but other keys, so a generated target fails to build. Solid Start is
-registered in `unsupportedBundling` and not as a `frameworkConfigs` entry.
-
-Two changes would each reopen it, and neither is small:
-
-- **`@solidjs/start` ships a Vite plugin.** Upstream's call. Solid Start then
-  joins TanStack Start and Remix on the existing path with no new rule code: a
-  three-line `solid-vite.config.mjs` naming the plugin, a `frameworkConfigs`
-  entry for the npm deps, stage dirs and client entry, and the refusal deleted.
-- **A `BundlerInfo` implementation drives vinxi.** `ts_bundle` takes any bundler
-  returning [`BundlerInfo`](../guides/bundling.md#custom-bundler-bundlerinfo-interface),
-  so a rule wrapping vinxi's build as the bundler binary sidesteps the
-  `vite_config` contract. It is the larger change: vinxi's route manifest, server
-  output and multi-target build have no counterpart in either `BundlerInfo`
-  invocation mode.
-
-`solid-js` with `vite-plugin-solid` is an ordinary Vite plugin and goes through
-`vite_config` like any other. Detection matches only `@solidjs/start` and
-`solid-start`, so a plain `solid-js` workspace never reaches the unsupported
-path; no test in this repository covers that combination.
-
-!!! note "Documented from the refusal, not from an install"
-
-    `@solidjs/start` is in no `package.json` or lockfile here. The shape of
-    `defineConfig`'s return value above comes from the refusal string in
-    `gazelle/framework_bundle.go` and the package's published API. Confirm against
-    the installed package before acting on it.
-
-### The Entry Point Is Generated
-
-`ts_bundle` takes exactly one `.js` as its entry, and Gazelle merges every source
-in a directory into one target, so the framework's conventional client entry needs
-a target of its own. Gazelle writes it: it recognises the file the `entry_point`
-label names, gives it a single-file `ts_compile`, and leaves it out of the
-directory-wide one.
-
-```python
-# app/BUILD.bazel — generated
-ts_compile(
-    name = "entry_client",
-    srcs = ["entry.client.tsx"],
-    visibility = ["//visibility:public"],
-)
-
-ts_compile(
-    name = "app",
-    srcs = ["root.tsx"],
-    visibility = ["//visibility:public"],
-)
-```
-
-Nothing to declare, and nothing to exclude. The pre-0.2 recipe (a
-`# gazelle:ts_exclude` on the entry file plus a hand-written `ts_compile`) still
-works, but Gazelle maintains neither half of it: the exclusion drops the file
-before the generator sees it. The run reports it:
-
-```
-typescript: Remix detected: a ts_exclude directive drops app/entry.client.tsx,
-the bundle's client entry, so Gazelle generates no "entry_client" target and does
-not maintain the one you wrote in its place -- an import added to the entry never
-reaches its deps, and ts_compile's strict-deps check fails on that import. Drop
-the directive and the hand-written target: Gazelle writes the single-file entry
-target itself now.
-```
-
-When nothing in that package maps to the entry name, no bundle target is generated
-either: `entry_point` would name nothing, and a dangling label fails
-`bazel build //...` for the whole workspace. That covers both a missing file and
-one an `exclude` drops. `//tests/integration:remix_test` pins the workspace-wide
-failure and the generated entry target;
-`TestFrameworkEntry_BuiltinExcludeAndTsIgnoreLeaveNoDanglingLabel` pins the
-skipped bundle.
-
-## Import Resolution
-
-Gazelle resolves TypeScript imports to Bazel labels in this order:
-
-1. **Relative imports** (`./foo`, `../bar`) — resolved to the `ts_compile` target in that directory
-2. **Path aliases** — from `compilerOptions.paths` in the nearest `tsconfig.json`, the `imports` field of the nearest `package.json`, or a `# gazelle:ts_path_alias` directive
-3. **A first-party `module_name`** — a bare specifier is matched against the `module_name` of the indexed `ts_compile` targets before npm is considered, because the `@npm` hub has no package under that name
-4. **npm packages** — resolved to `@npm//:<label>` using the pnpm lockfile
-5. **Unresolved** — optionally warned with `# gazelle:ts_warn_unresolved true`
-
-A specifier that spells out an extension resolves like one that does not.
-`./rules/foo.js`, `./rules/foo.ts` and `./rules/foo` are matched against one
-candidate list: the path as written, the path with its extension dropped, that
-stem under each known extension, and `<stem>/index.ts[x]`. NodeNext-style `.js`
-specifiers over `.ts` sources therefore resolve to the target that owns the
-source.
-
-A `#`-prefixed specifier is a Node package-private import, answered only by the
-`imports` field of the package's own `package.json`:
-
-```json
-{ "imports": { "#shared/*": "./shared/*" } }
-```
-
-Gazelle reads that map as a path alias, so `#shared/flags` resolves to the
-target owning `<pkg>/shared/flags`. A conditions object or an array picks one
-target (`types`, then `import`, `module`, `default`, `node`, `require`). An
-entry a `paths` key already covers keeps the `paths` answer, and an inner
-package's map replaces an outer package's answer for the same key — Node
-answers a `#` from the nearest enclosing `package.json`.
-
-A target may name another package instead of a path, which is how the field
-swaps a polyfill by condition:
-
-```json
-{ "imports": { "#dep": { "node": "./src/node.ts", "default": "lodash" } } }
-```
-
-That entry resolves to `@npm//:lodash`, subpaths and a trailing `/*` wildcard
-included. A `#` specifier no entry covers resolves to nothing rather than to an
-npm label — there is no npm package of that name. Node allows `*` anywhere in a
-pattern, but an alias key matches by prefix: `#internal/*/utils` is dropped
-rather than recorded as a key that could never fire.
-
-Node built-ins resolve to `@types/node`, with or without the `node:` prefix:
-`import "path"` and `import "node:path"` both take the declarations dep, since
-Node supplies the module at runtime but nothing supplies its types. A package
-installed under a built-in's name (the browserify `path` shim, say) still wins.
-When the lockfile has no `@types/node` the import gets no dep at all — a label
-no hub declares would turn a type error into an analysis failure.
-
-### The npm inventory
-
-The names in step 4 come from the workspace-root `pnpm-lock.yaml`, read once per
-Gazelle run. The inventory is what the `@npm` hub declares a flat `//:<label>`
-for, which is the whole resolved closure and not only what a `package.json`
-lists: `npm/lazy.bzl` gives every package in the lockfile a label, so a
-transitive `@types/node` is as real a dep target as a direct one.
-
-Two bounds on that, both deliberate:
-
-- A package built for specific platforms (`os:`, `cpu:`, `libc:` — the native
-  sidecars like `@esbuild/linux-x64` and `fsevents`) is left out. Matching the
-  platform table exactly would mean a second copy of it in Go, and no
-  TypeScript source imports those by name.
-- Only lockfile format 6.x and 9.x are read, the same two
-  `npm/private/npm_translate_lock.bzl` reads. Any other version logs a warning
-  and leaves the inventory absent, which is not the same as empty: everything
-  gated on the inventory (the `@types/node` dep, the codegen detectors, the
-  framework bundle's npm deps) falls back to file-presence heuristics rather
-  than concluding the workspace declares nothing.
-
-A repo with no lockfile is in that same absent state, which is why the codegen
-detectors emit a target from a `schema.prisma` alone there and check the
-dependency where a lockfile exists.
-
-### A name the lockfile never mentions
-
-Step 4 stops short of the label when the lockfile has never heard of the name at
-all. The hub is built from that lockfile, so `@npm//:anthropic-ai_sdk` for a
-package a nested `package-lock.json` installed, or `@npm//:_integrations` for a
-`@/integrations/...` alias no `tsconfig` in scope expands, is a target that
-cannot exist — and `no such target` fails analysis for every target in the
-build, where a missing dep fails the one import that needed it with `TS2307`.
-`# gazelle:ts_warn_unresolved true` lists them.
-
-This reads a wider set than the inventory above, on purpose. The inventory
-under-claims (the platform-restricted packages), and refusing a label on an
-under-claim would drop a real dep, so the refusal takes every name either
-section of the lockfile spells plus every workspace link and npm alias. Two
-things are never refused: a tree carrying its own `# gazelle:ts_npm_hub`, which
-resolves against a second lockfile nobody read here, and a workspace with no
-root lockfile at all.
-
-When several alias entries match one specifier (a tsconfig declaring both
-`"@shared"` and `"@shared/*"`), the longest matching alias key wins, which is
-TypeScript's own rule: a pattern equal to the whole specifier is the longest key
-that can match it. An alias key without a trailing wildcard matches only at a
-path-segment boundary, so `@shared` does not claim `@sharedX`.
-
-An import of an extension no rule here claims (`./notes.rst`) resolves to
-nothing at all rather than to a label under the file's own name: `//pkg/notes.rst`
-is a package Bazel cannot load, and a missing package fails every target in the
-build instead of the one that lost a dep.
-
-A specifier that maps to a directory that is not on disk resolves to nothing for
-the same reason. `#shared/i18n/compiled/messages` under an
-`"#shared/*": "./shared/*"` entry names `//web/shared/i18n/compiled/messages`,
-and if nobody has generated that directory Bazel answers `no such package`
-before any compile runs. Dropping the dep leaves the one `TS2307` the missing
-module deserves.
-
-A specifier that lands in a directory the generator refuses to walk resolves to
-nothing for the same reason. `rolledUpIn` skips a dot-directory, `node_modules`,
-`dist` and `bazel-out`, so outside `every-dir` mode nothing claims their files
-and no BUILD file appears in them: `../../shared/public/.well-known/assetlinks.json?raw`
-would name `//web/shared/public/.well-known`, a package the generator has
-already decided will not exist. An indexed rule in such a directory still
-answers first, so a dot-directory package generated in `every-dir` mode is
-unaffected, and so is one whose `BUILD` file is checked in by hand: that file is
-the proof Bazel can load the package, and what the generator would or would not
-write there says nothing about it.
-
-A bare specifier a `declare module "x"` block in the target's own sources names
-resolves to nothing, before the npm step. In a script-mode declaration file such
-a block is the module -- `declare module "mobile"` beside the code importing
-`"mobile"` -- so no dep can carry it and `@npm//:mobile` would name a target no
-hub declares. Only the target holding the declaration is exempt, and an
-installed package of the same name keeps its dep: the lockfile is the claim that
-a hub target exists. A pattern name (`declare module "*.svg"`) is ignored, since
-the specifiers it covers are relative paths with real targets.
-
-Gazelle's deps and the `ts_compile` strict-deps check share one specifier
-scanner. If `bazel build` reports an import no direct dep provides and re-running
-Gazelle does not add it, that is a bug in the ruleset.
-
-See [Directives Reference](directives.md) for all available directives.
+  `# keep` is Gazelle's own directive. Above an attribute it means "never
+  touch this value"; above a whole rule, "never touch this rule". See the
+  [Directives Reference](directives.md).

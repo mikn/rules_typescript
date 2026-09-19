@@ -3,6 +3,8 @@
 package harness
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,10 +27,11 @@ import (
 	"github.com/mikn/rules_typescript/tests/hmrsocket"
 )
 
+// Config names the child workspace under the checkout the nested Bazel runs
+// over; with no WorkspaceRel it runs over the checkout itself.
 type Config struct {
 	Name         string
 	WorkspaceRel string
-	Lockfile     string
 	Renames      map[string]string
 }
 
@@ -39,7 +42,9 @@ type IT struct {
 	OutputBase   string
 
 	bazel      string
+	staged     string
 	scratchDir string
+	bazelrc    string
 	bazelBin   string
 	stops      []func()
 }
@@ -102,20 +107,28 @@ func start(cfg Config) (*IT, error) {
 	}
 	fmt.Printf("INFO: rules_ts_root   = %s (via %s)\n", root, via)
 
-	base := filepath.Join(scratchRoot(), cfg.Name)
+	base, err := runRoot(cfg.Name, root)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("INFO: run_root        = %s\n", base)
 	it := &IT{
 		Name:         cfg.Name,
 		RulesTSRoot:  root,
-		WorkspaceDir: filepath.Join(base, "workspace"),
+		WorkspaceDir: root,
 		OutputBase:   filepath.Join(base, "output_base"),
 		bazel:        bazel,
 		scratchDir:   filepath.Join(base, "scratch"),
+	}
+	if cfg.WorkspaceRel != "" {
+		it.staged = filepath.Join(base, "workspace")
+		it.WorkspaceDir = it.staged
 	}
 	return it, it.prepare(cfg, workspaceSrc)
 }
 
 func (it *IT) prepare(cfg Config, workspaceSrc string) error {
-	for _, dir := range []string{it.WorkspaceDir, it.scratchDir} {
+	for _, dir := range it.scratchDirs() {
 		makeWritable(dir)
 		if err := os.RemoveAll(dir); err != nil {
 			return err
@@ -126,6 +139,9 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 	}
 	if err := os.MkdirAll(it.OutputBase, 0o755); err != nil {
 		return err
+	}
+	if it.staged == "" {
+		return it.shareRepositoryCache()
 	}
 	if err := stage(workspaceSrc, it.WorkspaceDir); err != nil {
 		return err
@@ -143,16 +159,14 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 			return err
 		}
 	}
-	if cfg.Lockfile != "" {
-		src := filepath.Join(it.RulesTSRoot, cfg.Lockfile)
-		if _, err := os.Stat(src); err != nil {
-			return fmt.Errorf("pnpm-lock.yaml not found at %s", src)
-		}
-		if err := copyFile(src, filepath.Join(it.WorkspaceDir, "pnpm-lock.yaml")); err != nil {
-			return err
-		}
-	}
 	return it.shareRepositoryCache()
+}
+
+func (it *IT) scratchDirs() []string {
+	if it.staged == "" {
+		return []string{it.scratchDir}
+	}
+	return []string{it.staged, it.scratchDir}
 }
 
 // Each test gets its own output base, so without a shared repository cache all
@@ -164,25 +178,34 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 // a sibling already ran: sequentially from cold the same three tests took 188s,
 // 88s and 21s with it.
 func (it *IT) shareRepositoryCache() error {
-	repo := filepath.Join(scratchRoot(), "repository_cache")
-	disk := filepath.Join(scratchRoot(), "disk_cache")
-	for _, dir := range []string{repo, disk} {
+	repo := filepath.Join(cacheRoot(), "repository_cache")
+	disk := filepath.Join(cacheRoot(), "disk_cache")
+	for _, dir := range []string{repo, disk, bazeliskHome()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	f, err := os.OpenFile(filepath.Join(it.WorkspaceDir, ".bazelrc"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	lines := "common --repository_cache=" + repo + "\n" +
+		"common --disk_cache=" + disk + "\n"
+	if it.staged == "" {
+		// The checkout keeps its .bazelrc and the outer build's bazel-* links.
+		it.bazelrc = filepath.Join(it.scratchDir, "bazelrc")
+		lines += "build --experimental_convenience_symlinks=ignore\n"
+		return os.WriteFile(it.bazelrc, []byte(lines), 0o644)
+	}
+	rc := filepath.Join(it.staged, ".bazelrc")
+	f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "\ncommon --repository_cache=%s\ncommon --disk_cache=%s\n", repo, disk)
+	_, err = fmt.Fprintf(f, "\n%s", lines)
 	return err
 }
 
-// TEST_TMPDIR is the LAST choice: a nested output base runs to gigabytes, and
-// TEST_TMPDIR is often a small tmpfs where the run dies of ENOSPC mid-assertion.
-func scratchRoot() string {
+// The persistent root: RULES_TS_IT_SCRATCH is the name ci.yml sets. Never
+// TEST_TMPDIR: the outer Bazel clears it on each `bazel test` (docs/CI_CD.md).
+func cacheRoot() string {
 	if dir := os.Getenv("RULES_TS_IT_SCRATCH"); dir != "" {
 		return dir
 	}
@@ -192,7 +215,27 @@ func scratchRoot() string {
 	if home := os.Getenv("HOME"); home != "" {
 		return filepath.Join(home, ".cache", "rules_typescript_it")
 	}
-	return filepath.Join(os.Getenv("TEST_TMPDIR"), "rules_typescript_it")
+	return filepath.Join(os.TempDir(), "rules_typescript_it")
+}
+
+// bazelisk defaults BAZELISK_HOME to $PWD, the WorkspaceDir prepare() recreates
+// per run: unset, every test fetches Bazel from releases.bazel.build again.
+func bazeliskHome() string {
+	if dir := os.Getenv("BAZELISK_HOME"); dir != "" {
+		return dir
+	}
+	return filepath.Join(cacheRoot(), "bazelisk")
+}
+
+// Under `bazel test` the run root is TEST_TMPDIR. The fallback is keyed by
+// checkout and test, not os.MkdirTemp: the next run overwrites a killed run's.
+func runRoot(name, checkout string) (string, error) {
+	if dir := os.Getenv("TEST_TMPDIR"); dir != "" {
+		return dir, nil
+	}
+	sum := sha256.Sum256([]byte(checkout))
+	dir := filepath.Join(cacheRoot(), "runs", hex.EncodeToString(sum[:6]), name)
+	return dir, os.MkdirAll(dir, 0o755)
 }
 
 func rulesTSRoot(workspaceSrc, workspaceRel string) (root, via string, err error) {
@@ -204,6 +247,10 @@ func rulesTSRoot(workspaceSrc, workspaceRel string) (root, via string, err error
 				return root, "runfiles", nil
 			}
 		}
+	}
+	if workspaceRel == "" {
+		return "", "", fmt.Errorf("no rules_typescript checkout in the runfiles "+
+			"(tried %s)", strings.Join(tried, ", "))
 	}
 	trimmed := strings.TrimSuffix(workspaceSrc, "/"+workspaceRel)
 	if trimmed == workspaceSrc {
@@ -308,16 +355,16 @@ func makeWritable(dir string) {
 	})
 }
 
-// The output base is KEPT: each nested run otherwise re-fetches its toolchains
-// and npm closure, and these tests are `exclusive`, so nothing races it.
+// The output base is kept: under `bazel test` the next run clears TEST_TMPDIR
+// anyway, and outside it the next run of this test reuses it in place.
 func (it *IT) cleanup() {
 	for i := len(it.stops) - 1; i >= 0; i-- {
 		it.stops[i]()
 	}
-	shutdown := exec.Command(it.bazel, "--output_base="+it.OutputBase, "shutdown")
+	shutdown := exec.Command(it.bazel, append(it.startup(), "shutdown")...)
 	shutdown.Env = nestedEnv()
 	shutdown.Run()
-	for _, dir := range []string{it.WorkspaceDir, it.scratchDir} {
+	for _, dir := range it.scratchDirs() {
 		makeWritable(dir)
 		os.RemoveAll(dir)
 	}
@@ -351,21 +398,43 @@ func (it *IT) Scratch(rel ...string) string {
 	return path
 }
 
-// Unsetting TEST_TMPDIR keeps the nested Bazel out of the outer execroot, which
-// it refuses with "repo contents cache is inside main repo".
+// Inherited TEST_TMPDIR makes nested Bazel reject its repo cache inside the outer execroot.
 func nestedEnv() []string {
 	env := []string{}
 	for _, entry := range os.Environ() {
-		if strings.HasPrefix(entry, "TEST_TMPDIR=") {
+		if strings.HasPrefix(entry, "TEST_TMPDIR=") || strings.HasPrefix(entry, "BAZELISK_HOME=") {
 			continue
 		}
 		env = append(env, entry)
 	}
-	return env
+	return append(env, "BAZELISK_HOME="+bazeliskHome())
+}
+
+func (it *IT) startup() []string {
+	opts := []string{"--output_base=" + it.OutputBase}
+	if it.bazelrc != "" {
+		opts = append(opts, "--bazelrc="+it.bazelrc)
+	}
+	return opts
+}
+
+// BazelExecutable is the nested Bazel as one executable, for a tool that
+// takes it through an environment variable (BAZEL=...).
+func (it *IT) BazelExecutable() string {
+	path := it.Scratch("bazel")
+	words := []string{}
+	for _, word := range append([]string{it.bazel}, it.startup()...) {
+		words = append(words, "'"+strings.ReplaceAll(word, "'", `'\''`)+"'")
+	}
+	script := "#!/usr/bin/env bash\nexec " + strings.Join(words, " ") + " \"$@\"\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		it.Fail("cannot write %s: %v", path, err)
+	}
+	return path
 }
 
 func (it *IT) command(args []string) *exec.Cmd {
-	cmd := exec.Command(it.bazel, append([]string{"--output_base=" + it.OutputBase}, args...)...)
+	cmd := exec.Command(it.bazel, append(it.startup(), args...)...)
 	cmd.Dir = it.WorkspaceDir
 	cmd.Env = nestedEnv()
 	return cmd
@@ -409,6 +478,27 @@ func (it *IT) BazelLog(logName string, args ...string) (*Log, error) {
 		it.Fail("cannot write %s: %v", log.Path, writeErr)
 	}
 	return log, err
+}
+
+// Install runs the workspace's ts_pnpm over its lockfile: Gazelle lists that
+// tree. Its store is under the cache root, so a warm run fetches nothing.
+func (it *IT) Install() {
+	store := filepath.Join(cacheRoot(), "pnpm")
+	args := []string{"run", "//:pnpm", "--", "install", "--frozen-lockfile",
+		"--prefer-offline", "--ignore-scripts",
+		"--store-dir", filepath.Join(store, "store")}
+	fmt.Printf("INFO: bazel %s\n", strings.Join(args, " "))
+	cmd := it.command(args)
+	cmd.Env = append(cmd.Env,
+		"npm_config_cache_dir="+filepath.Join(store, "cache"),
+		"npm_config_state_dir="+filepath.Join(store, "state"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		it.Fail("pnpm install exited non-zero: %v", err)
+	}
+	it.RequireFile(it.Path("node_modules", ".modules.yaml"),
+		"pnpm install left no node_modules/.modules.yaml at the workspace root")
 }
 
 func (it *IT) BazelBin() string {
@@ -468,12 +558,16 @@ func (it *IT) Runfile(rel string) string {
 	return path
 }
 
-// Exec runs a command outside Bazel and keeps its output alongside the nested
-// build logs, so a failing assertion has the same paper trail as a failing build.
-func (it *IT) Exec(logName, name string, args ...string) (*Log, error) {
-	fmt.Printf("INFO: %s %s\n", name, strings.Join(args, " "))
+// Exec runs a command outside Bazel, in the workspace under the nested Bazel's
+// environment plus env; its output is kept beside the nested build logs.
+func (it *IT) Exec(
+	logName string, env []string, name string, args ...string,
+) (*Log, error) {
+	fmt.Printf("INFO: %s %s %s\n", strings.Join(env, " "), name,
+		strings.Join(args, " "))
 	cmd := exec.Command(name, args...)
 	cmd.Dir = it.WorkspaceDir
+	cmd.Env = append(nestedEnv(), env...)
 	out := &strings.Builder{}
 	cmd.Stdout = out
 	cmd.Stderr = out

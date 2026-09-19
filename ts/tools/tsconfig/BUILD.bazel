@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+# gazelle:prefix github.com/mikn/rules_typescript/ts/tools/tsconfig
+
+go_library(
+    name = "tsconfig",
+    srcs = ["tsconfig.go"],
+    importpath = "github.com/mikn/rules_typescript/ts/tools/tsconfig",
+    visibility = ["//visibility:public"],
+    deps = ["//ts/tools/jsonc"],
+)
+
+go_test(
+    name = "tsconfig_test",
+    size = "small",
+    srcs = ["tsconfig_test.go"],
+    embed = [":tsconfig"],
+)

@@ -1,0 +1,153 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files(
+    [
+        "defs.bzl",
+    ] + glob(
+        include = ["*.bazel"],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        include = [
+            "*.bazel",
+            "*.bzl",
+        ],
+        allow_empty = True,
+    ),
+)
+
+alias(
+    name = "clap-4.5.60",
+    actual = "@rules_typescript_crates__clap-4.5.60//:clap",
+    tags = ["manual"],
+)
+
+alias(
+    name = "clap",
+    actual = "@rules_typescript_crates__clap-4.5.60//:clap",
+    tags = ["manual"],
+)
+
+alias(
+    name = "miette-7.6.0",
+    actual = "@rules_typescript_crates__miette-7.6.0//:miette",
+    tags = ["manual"],
+)
+
+alias(
+    name = "miette",
+    actual = "@rules_typescript_crates__miette-7.6.0//:miette",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_allocator-0.117.0",
+    actual = "@rules_typescript_crates__oxc_allocator-0.117.0//:oxc_allocator",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_allocator",
+    actual = "@rules_typescript_crates__oxc_allocator-0.117.0//:oxc_allocator",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_codegen-0.117.0",
+    actual = "@rules_typescript_crates__oxc_codegen-0.117.0//:oxc_codegen",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_codegen",
+    actual = "@rules_typescript_crates__oxc_codegen-0.117.0//:oxc_codegen",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_diagnostics-0.117.0",
+    actual = "@rules_typescript_crates__oxc_diagnostics-0.117.0//:oxc_diagnostics",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_diagnostics",
+    actual = "@rules_typescript_crates__oxc_diagnostics-0.117.0//:oxc_diagnostics",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_isolated_declarations-0.117.0",
+    actual = "@rules_typescript_crates__oxc_isolated_declarations-0.117.0//:oxc_isolated_declarations",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_isolated_declarations",
+    actual = "@rules_typescript_crates__oxc_isolated_declarations-0.117.0//:oxc_isolated_declarations",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_parser-0.117.0",
+    actual = "@rules_typescript_crates__oxc_parser-0.117.0//:oxc_parser",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_parser",
+    actual = "@rules_typescript_crates__oxc_parser-0.117.0//:oxc_parser",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_semantic-0.117.0",
+    actual = "@rules_typescript_crates__oxc_semantic-0.117.0//:oxc_semantic",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_semantic",
+    actual = "@rules_typescript_crates__oxc_semantic-0.117.0//:oxc_semantic",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_span-0.117.0",
+    actual = "@rules_typescript_crates__oxc_span-0.117.0//:oxc_span",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_span",
+    actual = "@rules_typescript_crates__oxc_span-0.117.0//:oxc_span",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_transformer-0.117.0",
+    actual = "@rules_typescript_crates__oxc_transformer-0.117.0//:oxc_transformer",
+    tags = ["manual"],
+)
+
+alias(
+    name = "oxc_transformer",
+    actual = "@rules_typescript_crates__oxc_transformer-0.117.0//:oxc_transformer",
+    tags = ["manual"],
+)
+
+alias(
+    name = "rayon-1.11.0",
+    actual = "@rules_typescript_crates__rayon-1.11.0//:rayon",
+    tags = ["manual"],
+)
+
+alias(
+    name = "rayon",
+    actual = "@rules_typescript_crates__rayon-1.11.0//:rayon",
+    tags = ["manual"],
+)

@@ -1,13 +1,15 @@
-// Package typescript implements a Gazelle language extension that generates
-// Bazel BUILD files for TypeScript projects using rules_typescript.
-//
-// It supports ts_compile and ts_test rules from @rules_typescript//ts:defs.bzl,
-// infers package boundaries from index.ts/tsx files, and resolves imports to
-// Bazel labels via the rule index, npm mappings, and path alias configuration.
+// Package typescript is the Gazelle language for rules_typescript: a package
+// per tsconfig.json program, its targets from tsgo's listing.
 package typescript
 
 import (
 	"flag"
+	"fmt"
+	"maps"
+	"os"
+	"slices"
+	"sort"
+	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
@@ -19,173 +21,53 @@ import (
 
 const languageName = "typescript"
 
-// tsLang is the Gazelle language extension for TypeScript.
-type tsLang struct{}
+type tsLang struct {
+	language.BaseLifecycleManager
+	programs *programStore
+}
 
-// NewLanguage returns a new instance of the TypeScript Gazelle language extension.
-// Gazelle discovers extensions via this symbol.
 func NewLanguage() language.Language {
 	return &tsLang{}
 }
 
-// Name returns the canonical name of this language extension. It is used as a
-// prefix when resolving import specs and when keying per-language config state.
 func (l *tsLang) Name() string { return languageName }
 
-// RegisterFlags registers command-line flags for the TypeScript extension.
-// Currently no top-level flags are defined; configuration is driven by the
-// gazelle_ts.json file and in-BUILD directives.
-func (l *tsLang) RegisterFlags(_ *flag.FlagSet, _ string, _ *config.Config) {}
-
-// CheckFlags validates flags after they have been parsed. No-op for now.
-func (l *tsLang) CheckFlags(_ *flag.FlagSet, _ *config.Config) error { return nil }
-
-// KnownDirectives lists the # gazelle: directives this extension understands.
-// Gazelle emits a warning for unrecognised directives, so every directive
-// that Configure interprets must be listed here.
-func (l *tsLang) KnownDirectives() []string {
-	return []string{
-		// Control whether every dir or only index.ts dirs are package boundaries.
-		directivePackageBoundary,
-		// Suppress all TypeScript rule generation for this directory tree.
-		directiveIgnore,
-		// Override the target name for the primary ts_compile rule in this dir.
-		directiveTargetName,
-		// Emit a warning for imports that cannot be resolved to a Bazel label.
-		directiveWarnUnresolved,
-		// Select the .d.ts emitter on generated ts_compile rules.
-		directiveDeclarations,
-		// Add a TypeScript path alias mapping (can appear multiple times).
-		directivePathAlias,
-		// Append a Bazel label to every ts_test deps list in this tree.
-		directiveRuntimeDep,
-		// Append a Bazel label to every ts_compile and ts_test deps list here.
-		directiveAmbientTypes,
-		// Add a file glob pattern to exclude from source targets.
-		directiveExclude,
-		// Register a custom ts_codegen target via a directive.
-		directiveCodegen,
-		// Name the npm hub repo that bare specifiers in this tree resolve into.
-		directiveNpmHub,
-		// Declare what an asset extension's import resolves to in this tree.
-		directiveAssetDeclarationType,
-	}
+func (l *tsLang) RegisterFlags(fs *flag.FlagSet, _ string, c *config.Config) {
+	tc := defaultTsConfig()
+	fs.StringVar(&tc.programs.tsgoFlag, "ts_tsgo", "",
+		"the tsgo binary that lists each tsconfig.json program; the default is the toolchain's, in the Gazelle binary's runfiles")
+	fs.BoolVar(&tc.programs.verbose, "ts_verbose", false,
+		"say which tsgo lists the programs, one line per tsconfig.json with "+
+			"what it listed or why it is not a package, how many are, and the "+
+			".ts files no program lists")
+	l.programs = tc.programs
+	c.Exts[languageName] = tc
 }
 
-// Configure reads directives from the build file in directory rel and updates
-// the per-directory tsConfig stored in c.Exts.
+func (l *tsLang) CheckFlags(_ *flag.FlagSet, c *config.Config) error {
+	if tsgo := getConfig(c).programs.tsgoFlag; tsgo != "" {
+		if _, err := os.Stat(tsgo); err != nil {
+			return fmt.Errorf("-ts_tsgo: %w", err)
+		}
+	}
+	return nil
+}
+
+// KnownDirectives is empty: the tsconfig.json, the lockfile and the manifest
+// say everything; # gazelle:exclude, # gazelle:resolve and # keep are core's.
+func (l *tsLang) KnownDirectives() []string {
+	return nil
+}
+
 func (l *tsLang) Configure(c *config.Config, rel string, f *rule.File) {
 	configureTsConfig(c, rel, f)
 }
 
-// tsDefsSymbols are the rule kinds this extension loads from //ts:defs.bzl.
-// Loads and ApparentLoads must name the same set, so they read one list.
-var tsDefsSymbols = []string{
-	"asset_library", "css_library", "css_module", "json_library",
-	"next_build", "next_dev_server", "sveltekit_build", "ts_add_package",
-	"ts_bundle", "ts_codegen", "ts_compile", "ts_config", "ts_dev_server",
-	"ts_lint", "ts_pnpm", "ts_test",
-}
-
-// Loads returns the load info for the rules generated by this extension.
-// Deprecated in favour of ModuleAwareLanguage.ApparentLoads, but still
-// required by Gazelle for compatibility.
-func (l *tsLang) Loads() []rule.LoadInfo {
-	return []rule.LoadInfo{
-		{
-			Name:    "@rules_typescript//ts:defs.bzl",
-			Symbols: tsDefsSymbols,
-		},
-		{
-			Name:    "@rules_typescript//npm:defs.bzl",
-			Symbols: []string{"node_modules"},
-		},
-		{
-			Name:    "@rules_typescript//vite:bundler.bzl",
-			Symbols: []string{"vite_bundler"},
-		},
-	}
-}
-
-// ApparentLoads returns load info aware of the Bzlmod apparent repository name.
-// This satisfies the ModuleAwareLanguage optional interface.
-func (l *tsLang) ApparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo {
-	rulesTs := moduleToApparentName("rules_typescript")
-	if rulesTs == "" {
-		rulesTs = "rules_typescript"
-	}
-	return []rule.LoadInfo{
-		{
-			Name:    "@" + rulesTs + "//ts:defs.bzl",
-			Symbols: tsDefsSymbols,
-		},
-		{
-			Name:    "@" + rulesTs + "//npm:defs.bzl",
-			Symbols: []string{"node_modules"},
-		},
-		{
-			Name:    "@" + rulesTs + "//vite:bundler.bzl",
-			Symbols: []string{"vite_bundler"},
-		},
-	}
-}
-
-// Kinds returns metadata about each rule kind this extension generates. Gazelle
-// uses this metadata to match generated rules against existing rules and to
-// determine which attributes are mergeable.
+// Kinds is every rule Gazelle writes or withdraws, with the attributes it
+// recomputes; a rule matches by name, which the merger checks unasked.
 func (l *tsLang) Kinds() map[string]rule.KindInfo {
 	return map[string]rule.KindInfo{
-		"asset_library": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
-		"css_library": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
-		"css_module": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
-		"json_library": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
 		"ts_compile": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
 			NonEmptyAttrs: map[string]bool{
 				"srcs": true,
 			},
@@ -193,188 +75,53 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs":         true,
 				"deps":         true,
 				"visibility":   true,
-				"path_aliases": true,
-				"declarations": true,
 				"tsconfig":     true,
+				"node_modules": true,
 			},
 			ResolveAttrs: map[string]bool{
 				"deps": true,
 			},
 		},
 		"ts_test": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
 			NonEmptyAttrs: map[string]bool{
 				"srcs": true,
 			},
 			MergeableAttrs: map[string]bool{
-				"srcs":     true,
-				"deps":     true,
-				"tsconfig": true,
+				"srcs":         true,
+				"deps":         true,
+				"tsconfig":     true,
+				"config":       true,
+				"node_modules": true,
 			},
+			// Written at Resolve, from the config's listing: its modules and
+			// the pool's attributes.
 			ResolveAttrs: map[string]bool{
-				"deps": true,
+				"deps":              true,
+				"config_srcs":       true,
+				"wrangler_config":   true,
+				"coverage_provider": true,
 			},
 		},
-		// ts_config makes a package's hand-written tsconfig.json a label the
-		// targets in its subpackages can name. `deps` -- the extends chain
-		// Starlark cannot read -- is not mergeable, so a value written there by
-		// hand survives every later run without a "# keep".
+		// ts_config makes a package's tsconfig.json a label. deps, jsx and module
+		// are read out of the file, so all three are Gazelle's (# keep otherwise).
 		"ts_config": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
 			NonEmptyAttrs: map[string]bool{
 				"src": true,
 			},
 			MergeableAttrs: map[string]bool{
 				"src":        true,
+				"deps":       true,
+				"jsx":        true,
+				"module":     true,
 				"visibility": true,
 			},
 		},
-		"ts_lint": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":             true,
-				"linter":           true,
-				"linter_binary":    true,
-				"config":           true,
-				"fail_on_warnings": true,
-			},
-		},
-		// node_modules is no longer generated by Gazelle (ts_test auto-generates it
-		// internally), but we keep it in Kinds so that Gazelle can still recognise
-		// and delete stale node_modules rules from existing BUILD files during
-		// migration.
-		"node_modules": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"deps": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"deps": true,
-			},
-		},
-		"ts_dev_server": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"entry_point": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"entry_point":  true,
-				"port":         true,
-				"host":         true,
-				"open":         true,
-				"node_modules": true,
-				"plugin":       true,
-				"bundler":      true,
-				"visibility":   true,
-			},
-		},
-		// ts_codegen is generated by auto-detection and # gazelle:ts_codegen directives.
-		// srcs and node_modules are intentionally excluded from MergeableAttrs:
-		//   - srcs: initial generation sets the correct value (files or a glob
-		//     expression). Merging srcs would corrupt glob expressions that must
-		//     remain as Starlark expressions in the BUILD file.
-		//   - node_modules: the user may point to a specific node_modules target
-		//     holding only the generator's own deps. Subsequent Gazelle runs
-		//     should not override that with the generic ":node_modules" default.
-		// outs and out_dir remain mergeable so Gazelle can update declared outputs
-		// when the generator configuration changes.
-		"ts_codegen": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"generator": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"outs":       true,
-				"out_dir":    true,
-				"visibility": true,
-			},
-		},
-		// vite_bundler is generated at the workspace root when a Vite-based
-		// framework is detected. node_modules and vite attrs are mergeable so
-		// Gazelle can update them when the configuration changes.
-		"vite_bundler": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"vite": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"vite":         true,
-				"node_modules": true,
-			},
-		},
-		// Emitted on every run, so MergeableAttrs names exactly what the
-		// generator writes: MergeRules deletes a mergeable attr a candidate omits.
-
-		// srcs is absent because a glob() is not an expression the merger merges;
-		// setGeneratedGlob writes that one straight onto the rule.
-		"ts_bundle": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"entry_point": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"entry_point":  true,
-				"bundler":      true,
-				"staging_srcs": true,
-				"vite_config":  true,
-				"mode":         true,
-				"html":         true,
-			},
-		},
-		"next_build": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"node_modules": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"node_modules": true,
-				"config":       true,
-				"tsconfig":     true,
-				"staging_srcs": true,
-			},
-		},
-		// next_dev_server is generated beside next_build: `next dev` needs the
-		// same npm tree and nothing else, since it reads its routes from source.
-		"next_dev_server": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"node_modules": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"node_modules": true,
-			},
-		},
-		"sveltekit_build": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"node_modules": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"node_modules":  true,
-				"config":        true,
-				"svelte_config": true,
-				"staging_srcs":  true,
-			},
-		},
-		// filegroup is generated in stage-dir sub-packages to export sources
-		// for ts_bundle.staging_srcs. Only the srcs attr is managed by Gazelle.
+		// ts_codegen is hand-written and never generated; a Kind so that its
+		// out_dir is indexed (codegenTreeSpecs) and its outs are deps (D9).
+		"ts_codegen": {},
+		// filegroup makes a vitest config, or the wrangler config it names, a
+		// label for the packages below it.
 		"filegroup": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
 			NonEmptyAttrs: map[string]bool{
 				"srcs": true,
 			},
@@ -383,58 +130,107 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"visibility": true,
 			},
 		},
-		// ts_pnpm and ts_add_package are macros generated at the workspace root
-		// when a pnpm-lock.yaml is detected. They wrap the hermetic pnpm binary.
-		// They are kept in Kinds so that Gazelle can recognise and merge them
-		// correctly; the only attr it manages is ts_add_package's pnpm_lock,
-		// which names the hub whose lockfile the target edits.
-		"ts_pnpm": {
-			MatchAny:       false,
-			MatchAttrs:     []string{"name"},
-			NonEmptyAttrs:  map[string]bool{},
-			MergeableAttrs: map[string]bool{},
+		// An importer declaring nothing has no deps, so deps, parent and
+		// hoist together decide emptiness.
+		"node_modules": {
+			NonEmptyAttrs: map[string]bool{
+				"deps":   true,
+				"parent": true,
+				"hoist":  true,
+			},
+			MergeableAttrs: map[string]bool{
+				"deps":       true,
+				"parent":     true,
+				"hoist":      true,
+				"visibility": true,
+			},
 		},
-		"ts_add_package": {
-			MatchAny:       false,
-			MatchAttrs:     []string{"name"},
-			NonEmptyAttrs:  map[string]bool{},
-			MergeableAttrs: map[string]bool{"pnpm_lock": true},
+		"node_modules_member": {
+			NonEmptyAttrs: map[string]bool{
+				"member": true,
+			},
+			MergeableAttrs: map[string]bool{
+				"member":     true,
+				"visibility": true,
+			},
 		},
+		// The lockfile package's store call, named after its directory.
+		"npm_virtual_store": {},
 	}
 }
 
-// Fix repairs deprecated or obsolete usage in an existing build file. Called
-// before the file is indexed. Only structural/rename fixes are applied here;
-// fixes that delete rules are guarded by c.ShouldFix.
+// The load each kind comes from; filegroup is native. The hub is spelled
+// @npm, as every npm label Gazelle writes is.
+var kindLoads = map[string]string{
+	"ts_codegen":          "//ts:defs.bzl",
+	"ts_compile":          "//ts:defs.bzl",
+	"ts_config":           "//ts:defs.bzl",
+	"ts_test":             "//ts:defs.bzl",
+	"node_modules":        "//npm:defs.bzl",
+	"node_modules_member": "//npm:defs.bzl",
+	"npm_virtual_store":   "@npm//:defs.bzl",
+}
+
+func (l *tsLang) Loads() []rule.LoadInfo {
+	return l.ApparentLoads(func(string) string { return "" })
+}
+
+func (l *tsLang) ApparentLoads(
+	moduleToApparentName func(string) string,
+) []rule.LoadInfo {
+	rulesTs := moduleToApparentName("rules_typescript")
+	if rulesTs == "" {
+		rulesTs = "rules_typescript"
+	}
+	symbols := map[string][]string{}
+	for kind := range l.Kinds() {
+		file, ok := kindLoads[kind]
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(file, "@") {
+			file = "@" + rulesTs + file
+		}
+		symbols[file] = append(symbols[file], kind)
+	}
+	var loads []rule.LoadInfo
+	for _, file := range slices.Sorted(maps.Keys(symbols)) {
+		sort.Strings(symbols[file])
+		loads = append(loads, rule.LoadInfo{Name: file, Symbols: symbols[file]})
+	}
+	return loads
+}
+
+// Fix is empty: no ruleset code knows a retired attribute.
 func (l *tsLang) Fix(_ *config.Config, _ *rule.File) {}
 
-// GenerateRules produces the ts_compile and ts_test rules for the directory
-// described by args. The heavy lifting lives in generate.go.
 func (l *tsLang) GenerateRules(args language.GenerateArgs) language.GenerateResult {
 	return generateRules(args)
 }
 
-// Imports returns the set of ImportSpecs that can be used to import the given
-// rule. These are indexed by Gazelle and later queried by Resolve. For
-// ts_compile targets we index by the package-relative import path that other
-// TypeScript files would use to reference this target.
+func (l *tsLang) DoneGeneratingRules() {
+	if l.programs != nil {
+		l.programs.reportCensus()
+		l.programs.reportUnlisted()
+		l.programs.reportUnowned()
+	}
+}
+
 func (l *tsLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve.ImportSpec {
 	return importsForRule(c, r, f)
 }
 
-// Embeds returns labels of rules that the given rule embeds. TypeScript rules
-// do not embed other rules, so this always returns nil.
 func (l *tsLang) Embeds(_ *rule.Rule, _ label.Label) []label.Label { return nil }
 
-// Resolve translates the opaque imports value (produced by GenerateRules via
-// GenerateResult.Imports) into concrete Bazel deps on the rule r.
 func (l *tsLang) Resolve(
 	c *config.Config,
 	ix *resolve.RuleIndex,
-	rc *repo.RemoteCache,
+	_ *repo.RemoteCache,
 	r *rule.Rule,
 	imports any,
 	from label.Label,
 ) {
-	resolveImports(c, ix, r, imports, from)
+	if imps, ok := imports.(*ruleImports); ok && imps != nil {
+		resolveEdges(c, ix, r, imps, from)
+	}
 }

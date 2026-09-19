@@ -2,19 +2,20 @@
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-
-# gazelle:ts_package_boundary every-dir
-
-# An svgr-style project's shape, minus svgr: the type is an inline object so it
-# needs no npm package to resolve, and it carries spaces so the directive's
-# first-space-only split is exercised through a real Gazelle run.
-# gazelle:ts_asset_declaration_type .svg { readonly viewBox: string }
+load("@rules_typescript//ts:defs.bzl", "ts_pnpm")
 
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+# The runner installs node_modules with it before the first Gazelle pass: the
+# listing must run over the tree the build will check.
+ts_pnpm(name = "pnpm")
 
 # Hand-written: Gazelle deleting a test target satisfies both "the output
 # builds" and "two runs are byte-identical", so the runner compares the set.
@@ -23,10 +24,24 @@ build_test(
     targets = ["//src/app"],
 )
 
-# The generator behind src/i18n's ts_codegen directive. It lives here so tools/
-# holds nothing Gazelle would write a BUILD file for.
+# The generator src/i18n's hand-written ts_codegen names.
 sh_binary(
     name = "catalogue_gen",
     srcs = ["tools/catalogue_gen.sh"],
+    visibility = ["//visibility:public"],
+)
+
+# The generator the runner's src/locales ts_codegen names; the compiled/ tree
+# checked in beside it stands in for what a local run leaves behind.
+sh_binary(
+    name = "tree_gen",
+    srcs = ["tools/tree_gen.sh"],
+    visibility = ["//visibility:public"],
+)
+
+# The generator the runner's worker/ ts_codegen names.
+sh_binary(
+    name = "env_types_gen",
+    srcs = ["tools/env_types_gen.sh"],
     visibility = ["//visibility:public"],
 )

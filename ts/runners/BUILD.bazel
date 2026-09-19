@@ -1,0 +1,7 @@
+load("//ts/private/rules:runners.bzl", "node_test_runner", "vitest_runner")
+
+package(default_visibility = ["//visibility:public"])
+
+vitest_runner(name = "vitest")
+
+node_test_runner(name = "node_test")

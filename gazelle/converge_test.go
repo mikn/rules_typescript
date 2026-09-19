@@ -5,6 +5,7 @@ package typescript
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -78,6 +79,9 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		}
 
 		c := parent.Clone()
+		// Core's resolve config carries # gazelle:resolve, which the edge
+		// resolver reads first, as cmd/gazelle registers it.
+		(&resolve.Configurer{}).Configure(c, rel, f)
 		configureTsConfig(c, rel, f)
 
 		for _, sub := range subdirs {
@@ -105,7 +109,13 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		}
 		visits = append(visits, dirVisit{rel, c, f, res.Gen, res.Empty, res.Imports})
 	}
-	walk(&config.Config{RepoRoot: repoRoot, Exts: map[string]any{}}, "")
+	root := &config.Config{
+		RepoRoot: repoRoot,
+		RepoName: "converge_repo_root",
+		Exts:     map[string]any{},
+	}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", root)
+	walk(root, "")
 	ix.Finish()
 
 	for _, v := range visits {
@@ -113,9 +123,16 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 			if i >= len(v.imports) {
 				break
 			}
-			lang.Resolve(v.c, ix, nil, r, v.imports[i], label.New("", v.rel, r.Name()))
+			lang.Resolve(v.c, ix, nil, r, v.imports[i],
+				label.New(v.c.RepoName, v.rel, r.Name()))
 		}
 		merger.MergeFile(v.file, v.empty, v.gen, merger.PostResolve, kinds, nil)
+	}
+	// cmd/gazelle calls this after the last Resolve and before the writes, and
+	// a check over the whole target graph has nowhere else to run.
+	var asLanguage language.Language = lang
+	if life, ok := asLanguage.(language.LifecycleManager); ok {
+		life.AfterResolvingDeps(context.Background())
 	}
 	for _, v := range visits {
 		merger.FixLoads(v.file, lang.Loads())
@@ -341,106 +358,6 @@ func lineDiff(want, got string) string {
 	return b2.String()
 }
 
-// ---- what the app rule actually stages -------------------------------------
-
-var appRuleKinds = []string{"next_build", "sveltekit_build", "ts_bundle"}
-
-// appInputs collects every workspace path the root app rule declares: its own
-// globs and plain files, plus the srcs of every target it names, transitively.
-type appInputs struct {
-	rule  string
-	files map[string]bool
-	globs []string
-}
-
-func (in appInputs) covers(p string) bool {
-	if in.files[p] {
-		return true
-	}
-	for _, pattern := range in.globs {
-		if prefix, ok := strings.CutSuffix(pattern, "/**"); ok {
-			if p == prefix || strings.HasPrefix(p, prefix+"/") {
-				return true
-			}
-			continue
-		}
-		if matched, _ := path.Match(pattern, p); matched {
-			return true
-		}
-	}
-	return false
-}
-
-func collectAppInputs(t *testing.T, repoRoot string) appInputs {
-	t.Helper()
-	in := appInputs{files: map[string]bool{}}
-
-	root := loadRules(t, repoRoot, "")
-	var app *rule.Rule
-	for _, r := range root {
-		if contains(appRuleKinds, r.Kind()) {
-			app = r
-			break
-		}
-	}
-	if app == nil {
-		return in
-	}
-	in.rule = app.Kind() + "(" + app.Name() + ")"
-
-	var labels []string
-	addValues := func(attr string) {
-		if app.Attr(attr) == nil {
-			return
-		}
-		if glob, ok := rule.ParseGlobExpr(app.Attr(attr)); ok {
-			in.globs = append(in.globs, glob.Patterns...)
-			return
-		}
-		for _, v := range attrValues(app, attr) {
-			if isWorkspaceLabel(v) {
-				labels = append(labels, v)
-				continue
-			}
-			in.files[v] = true
-		}
-	}
-	for _, attr := range []string{"srcs", "staging_srcs", "entry_point", "html", "config", "svelte_config", "tsconfig"} {
-		addValues(attr)
-	}
-
-	seen := map[string]bool{}
-	for len(labels) > 0 {
-		lbl := labels[0]
-		labels = labels[1:]
-		if seen[lbl] {
-			continue
-		}
-		seen[lbl] = true
-		pkg, name := splitLabel(lbl)
-		for _, r := range loadRules(t, repoRoot, pkg) {
-			if r.Name() != name {
-				continue
-			}
-			if glob, ok := rule.ParseGlobExpr(r.Attr("srcs")); ok {
-				for _, pattern := range glob.Patterns {
-					in.globs = append(in.globs, path.Join(pkg, pattern))
-				}
-			} else {
-				for _, src := range r.AttrStrings("srcs") {
-					in.files[path.Join(pkg, src)] = true
-				}
-			}
-			for _, dep := range r.AttrStrings("deps") {
-				if isWorkspaceLabel(dep) {
-					labels = append(labels, absLabel(pkg, dep))
-				}
-			}
-		}
-	}
-	return in
-}
-
 // ---- dangling labels -------------------------------------------------------
 
 // Every in-workspace label no rule declares and no file satisfies: a
@@ -484,6 +401,11 @@ func labelResolves(t *testing.T, repoRoot, pkg, name string) bool {
 		if r.Name() == name {
 			return true
 		}
+		// The store macro declares every target under its name: the trees,
+		// their links and the hoist, none a rule this file holds.
+		if r.Kind() == "npm_virtual_store" && strings.HasPrefix(name, r.Name()+"/") {
+			return true
+		}
 	}
 	full := path.Join(pkg, name)
 	info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(full)))
@@ -519,6 +441,31 @@ func enclosingPackage(repoRoot, filePath string) (string, bool) {
 			dir = parent
 		}
 	}
+}
+
+// Every srcs entry naming a file under a directory that is a package of its
+// own: Bazel reads a source label out of the innermost package above the file.
+func crossesPackageBoundary(t *testing.T, repoRoot string) []string {
+	t.Helper()
+	var out []string
+	for _, dir := range convergePackages(t, repoRoot) {
+		for _, r := range loadRules(t, repoRoot, dir) {
+			for _, src := range r.AttrStrings("srcs") {
+				if strings.HasPrefix(src, "//") || strings.HasPrefix(src, "@") {
+					continue
+				}
+				full := path.Join(dir, strings.TrimPrefix(src, ":"))
+				holder, inPackage := enclosingPackage(repoRoot, full)
+				if inPackage && holder != dir {
+					out = append(out, fmt.Sprintf(
+						"%s named by %s(%s) in %s sits in package %s", full,
+						r.Kind(), r.Name(), path.Join(dir, "BUILD.bazel"), holder))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ---- small helpers ---------------------------------------------------------
@@ -585,4 +532,13 @@ func splitLabel(lbl string) (pkg, name string) {
 		return pkg, name
 	}
 	return body, path.Base(body)
+}
+
+func ruleNamed(rules []*rule.Rule, kind, name string) *rule.Rule {
+	for _, r := range rules {
+		if r.Kind() == kind && r.Name() == name {
+			return r
+		}
+	}
+	return nil
 }
