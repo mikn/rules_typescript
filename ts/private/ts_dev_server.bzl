@@ -514,6 +514,7 @@ def _ts_dev_server_impl(ctx):
             [runtime_binary],
             transitive = [
                 entry.transitive_js,
+                entry.transitive_runtime_sources,
                 entry.transitive_js_maps,
                 entry.transitive_data,
                 entry.npm_files,

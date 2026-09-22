@@ -16,7 +16,7 @@ ts_test(
 )
 ```
 
-`srcs`, `deps`, `tsconfig` and `node_modules` are `ts_compile`'s. The same
+`srcs`, `deps`, `tsconfig`, `node_modules` and `emit` are `ts_compile`'s. The same
 actions compile the test files -- the emit as ES modules under the vitest
 runner ([Runners](#runners)) -- and the importer chain tsgo checked them
 against ([The node_modules Chain](ts-compile.md#the-node_modules-chain)) is
@@ -29,6 +29,7 @@ the compiled files.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | The test files, as `ts_compile`'s `srcs`, with every other file of the package -- a `.snap`, a fixture -- and a file of another package the tests import by relative path, exported where it lives. The TypeScript ones are in the runfiles at their source paths too; see [Files at Run Time](#files-at-run-time) |
+| `emit` | `bool` | `True` | Set `False` for Vitest to run TypeScript sources directly while tsgo validation remains enabled. See [source-only programs](ts-compile.md#source-only-programs). |
 | `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A dep under the test's `tsconfig` is checked from its sources ([The Test's Program](#the-tests-program)); a `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its sources there too |
 | `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json` or a `ts_config` target, the file the deps that join the program share; under vitest its `paths` resolve at run time. See [The Test's Program](#the-tests-program) and [The Test's tsconfig](#the-tests-tsconfig) |
 | `node_modules` | `label` | `None` | The nearest lockfile importer's `node_modules` target, as on `ts_compile`: the chain the tests resolve their npm deps along, at run time too. See [Files at Run Time](#files-at-run-time) |

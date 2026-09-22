@@ -31,14 +31,14 @@ fi
 # TsInfo runs from `TsInfo = provider(` to the closing paren at column 0; a
 # field is an 8-space-indented quoted key at that depth.
 printf '%s\n' data declarations js js_maps manifest npm_files npm_packages \
-  owners sources transitive_data transitive_es_twins transitive_js \
-  transitive_js_maps tsconfig > "${want}"
+  owners runtime_sources sources transitive_data transitive_es_twins transitive_js \
+  transitive_js_maps transitive_runtime_sources tsconfig > "${want}"
 sed -n '/^TsInfo = provider($/,/^)$/p' "${PROVIDERS}" \
   | sed -n 's/^        "\([a-z_]*\)": .*/\1/p' \
   | LC_ALL=C sort > "${got}"
 if ! LC_ALL=C diff -u "${want}" "${got}" > "${TEST_TMPDIR}/diff"; then
-  echo "TsInfo's fields differ from the pinned fourteen (-want +got):" >&2
+  echo "TsInfo's fields differ from the pinned set (-want +got):" >&2
   cat "${TEST_TMPDIR}/diff" >&2
   exit 1
 fi
-echo "providers.bzl defines exactly 9 providers; TsInfo has exactly 14 fields"
+echo "providers.bzl and TsInfo match the pinned public surface"

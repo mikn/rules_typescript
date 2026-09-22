@@ -18,6 +18,8 @@ store; a workspace member's hub view forwards the member's.
     fields = {
         "js": "depset of File: the .js this target produces -- compiled " +
               "output and JavaScript srcs staged as-is.",
+        "runtime_sources": "depset of File: directly published TypeScript runtime inputs.",
+        "transitive_runtime_sources": "depset of File: source-mode runtime inputs in the dependency closure, using store artifacts for npm members.",
         "js_maps": "depset of File: the .js.map beside them.",
         "declarations": "depset of File: the .d.ts this target produces and " +
                         "the ones it passes through from srcs. A global one " +
@@ -26,7 +28,8 @@ store; a workspace member's hub view forwards the member's.
         "data": "depset of File: the other srcs, staged at their " +
                 "package-relative paths beside the .js.",
         "manifest": "File or None: the package.json at the package's root " +
-                    "as built, every source-file target rewritten to the " +
+                    "as built: source targets remain unchanged with emit=False; otherwise " +
+                    "every source-file target is rewritten to the " +
                     "emitted file, <name>.package.json. A dependent's " +
                     "program root lays it at the package's path and the " +
                     "member's store tree copies it there; the src as written " +
@@ -62,13 +65,13 @@ store; a workspace member's hub view forwards the member's.
                      "holds with the trees they enter, and its first-party " +
                      "deps' npm_files. An action stages this and nothing " +
                      "else of the store.",
-        "owners": "depset of struct(label, files, declarations): one " +
+        "owners": "depset of struct(label, files, declarations, type_inputs, importers): one " +
                   "record per first-party target in the closure, this one " +
                   "first -- the label a deps list writes, the sources, " +
                   "declarations, data and manifest as built it stages, and " +
-                  "its declarations alone. The tsgo action names the owner " +
+                  "its declarations, consumer type inputs and npm importer directories. The tsgo action names the owner " +
                   "of a listed file from `files`; a consumer's program " +
-                  "reads the `declarations` of every record but a dep's it " +
+                  "reads the `type_inputs` of every record but a dep's it " +
                   "holds as sources. An npm package's declarations reach a " +
                   "consumer through `npm_files`, not through a record.",
     },
@@ -87,6 +90,8 @@ def _or_direct(transitive, direct):
 def ts_info(
         js = _EMPTY,
         js_maps = _EMPTY,
+        runtime_sources = _EMPTY,
+        transitive_runtime_sources = None,
         declarations = _EMPTY,
         data = _EMPTY,
         manifest = None,
@@ -107,10 +112,14 @@ def ts_info(
             label = label_text(label),
             files = depset(transitive = [sources, declarations, data]),
             declarations = declarations,
+            type_inputs = declarations,
+            importers = (),
         )])
     return TsInfo(
         js = js,
         js_maps = js_maps,
+        runtime_sources = runtime_sources,
+        transitive_runtime_sources = _or_direct(transitive_runtime_sources, runtime_sources),
         declarations = declarations,
         data = data,
         manifest = manifest,
@@ -141,6 +150,7 @@ into the launcher's config and the runfiles of one test.
         "hook": "File: the one module the runner loads into node before the " +
                 "tests -- the node:test runner's resolver, the vitest " +
                 "runner's reads recorder.",
+        "supports_source_inputs": "bool: the runner transforms TypeScript runtime inputs.",
         "es_modules": "bool: True when the runner runs the program as ES " +
                       "modules whatever its tsconfig's module -- vitest, " +
                       "which imports every file through vite's transform -- " +

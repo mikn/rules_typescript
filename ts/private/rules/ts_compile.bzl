@@ -53,8 +53,9 @@ The linter the root module's ts.lint() names runs over the same sources as a
 second validation action, TsLint. The emit reads the same program root when
 tsgo emits the JavaScript.
 
-The rule has four attributes: srcs, deps, tsconfig and node_modules. Every
-compiler option is the tsconfig's; the emit knobs are the build flags
+emit=False retains source files for transforming runtimes and validation,
+without JavaScript or declaration emission. Every compiler option is the
+tsconfig's; the emit knobs are the build flags
 //ts:declarations (tsgo|oxc),
 //ts:source_map, //ts:declaration_map and //ts:lib_check. Each action is a
 function under ts/private/actions/; compile_program declares the outputs, calls
@@ -340,7 +341,9 @@ def compile_program(
     src's outputs, `importers` the chain's NodeModulesInfo nearest first and
     `npm_files` the store files the program reaches.
     """
-    oxc = get_oxc_toolchain(ctx)
+    emit = ctx.attr.emit
+    declarations = declarations and emit
+    oxc = get_oxc_toolchain(ctx) if emit else None
     pkg = ctx.label.package
 
     compile_srcs, js_srcs, passthrough_dts, data_srcs = _classify_srcs(ctx)
@@ -348,6 +351,7 @@ def compile_program(
     dep_npm_package_sets = []
     dep_npm_file_sets = []
     transitive_js_sets = []
+    runtime_source_sets = []
     transitive_js_map_sets = []
     transitive_data_sets = []
     transitive_es_twins_sets = []
@@ -366,6 +370,10 @@ def compile_program(
     # files at their exec paths would duplicate every module.
     for dep in ctx.attr.deps:
         info = dep[TsInfo]
+        if info.transitive_runtime_sources:
+            runtime_source_sets.append(
+                dep[NpmPackageInfo].store.transitive if NpmPackageInfo in dep else info.transitive_runtime_sources,
+            )
         dep_npm_package_sets.append(info.npm_packages)
         if NpmLinkInfo in dep:
             direct_npm_infos.append(dep[NpmPackageInfo])
@@ -423,7 +431,13 @@ def compile_program(
             [entry.store.transitive for entry in npm_links] + dep_npm_file_sets
         ),
     )
-    importers = [importer.dir for importer in chain]
+    own_importers = [importer.dir for importer in chain]
+    dependency_importers = {}
+    for record in depset(transitive = owner_sets).to_list():
+        for directory in record.importers:
+            if directory not in own_importers:
+                dependency_importers[directory] = True
+    importers = dependency_importers.keys() + own_importers
 
     declared_keys = {key: True for key in npm_declared.values()}
     npm_reachable = [
@@ -434,7 +448,7 @@ def compile_program(
 
     dep_dts_depset = depset(
         transitive = [
-            record.declarations
+            record.type_inputs
             for record in depset(transitive = owner_sets).to_list()
             if record.label not in held_as_sources
         ],
@@ -484,7 +498,7 @@ def compile_program(
     twin_pairs = []
     twins_dir = "{}.es".format(ctx.label.name)
 
-    for src in compile_srcs:
+    for src in compile_srcs if emit else []:
         stem = _package_relative_stem(src, pkg)
         emit_roots[_source_root(src, pkg)] = True
 
@@ -541,18 +555,22 @@ def compile_program(
         ctx.actions.symlink(output = staged, target_file = src)
         data_staged.append(staged)
         if rel == "package.json":
-            manifest = ctx.actions.declare_file(
-                "{}.package.json".format(ctx.label.name),
-            )
-            manifest_action(ctx, src, manifest, tsx_extension)
+            if emit:
+                manifest = ctx.actions.declare_file(
+                    "{}.package.json".format(ctx.label.name),
+                )
+                manifest_action(ctx, src, manifest, tsx_extension)
+            else:
+                manifest = src
 
     # JavaScript srcs whose declarations are all checked in leave tsgo nothing
     # to write: a program to check, not one to emit from.
     tsgo_emits_dts = tsgo_emits_dts and bool(dts_outputs)
 
+    runtime_sources = [] if emit else compile_srcs
     as_built = [manifest] if manifest else []
     all_outputs = (
-        js_outputs + js_map_outputs + js_passthrough + data_staged + as_built
+        runtime_sources + js_outputs + js_map_outputs + js_passthrough + data_staged + as_built
     )
 
     program_srcs = compile_srcs + js_srcs
@@ -567,6 +585,8 @@ def compile_program(
                 check_srcs + dts_outputs + data_staged + as_built,
             ),
             declarations = direct_dts,
+            type_inputs = direct_dts if emit else depset(check_srcs),
+            importers = tuple([importer.dir for importer in chain]),
         )],
         transitive = owner_sets,
     )
@@ -633,6 +653,7 @@ def compile_program(
             ]),
             isolated_declarations = oxc_emits_dts,
             lib_check = ctx.attr._lib_check[BuildSettingInfo].value,
+            emit = emit,
         )
         tsconfig = written.tsconfig
         options_file = written.options
@@ -642,7 +663,7 @@ def compile_program(
         program_inputs = (
             check_srcs + joined + json_srcs + dep_json + dep_manifests
         )
-        if compile_srcs:
+        if emit and compile_srcs:
             emit_action(
                 ctx,
                 oxc = oxc,
@@ -736,6 +757,12 @@ def compile_program(
     if lint.binary and check_srcs:
         validation_outputs.append(lint_action(ctx, lint, check_srcs))
 
+    direct_runtime_sources = depset(runtime_sources, order = "postorder")
+    transitive_runtime_sources = depset(
+        runtime_sources,
+        transitive = runtime_source_sets,
+        order = "postorder",
+    )
     direct_js = depset(js_outputs + js_passthrough, order = "postorder")
     direct_js_map = depset(js_map_outputs, order = "postorder")
 
@@ -761,6 +788,8 @@ def compile_program(
 
     info = TsInfo(
         js = direct_js,
+        runtime_sources = direct_runtime_sources,
+        transitive_runtime_sources = transitive_runtime_sources,
         js_maps = direct_js_map,
         declarations = direct_dts,
         data = depset(data_staged, order = "postorder"),
@@ -797,6 +826,8 @@ def compile_program(
     return struct(
         outputs = all_outputs + passthrough_dts,
         js = js_outputs + js_passthrough,
+        runtime_sources = runtime_sources,
+        transitive_runtime_sources = transitive_runtime_sources,
         emitted = emitted,
         importers = chain,
         npm_files = npm_files,
@@ -829,6 +860,10 @@ def _ts_compile_impl(ctx):
     ]
 
 TS_COMPILE_ATTRS = {
+    "emit": attr.bool(
+        default = True,
+        doc = "Emit JavaScript and declarations. False publishes TypeScript sources while retaining validation; consumers must transform those sources.",
+    ),
     "srcs": attr.label_list(
         doc = """The package's files.
 

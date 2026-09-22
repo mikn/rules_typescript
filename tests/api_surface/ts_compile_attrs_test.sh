@@ -17,7 +17,7 @@ RULE="${RUNFILES}/ts/private/rules/ts_compile.bzl"
 want="${TEST_TMPDIR}/want"
 got="${TEST_TMPDIR}/got"
 
-printf '%s\n' deps node_modules srcs tsconfig > "${want}"
+printf '%s\n' deps emit node_modules srcs tsconfig > "${want}"
 
 # The dict runs from `TS_COMPILE_ATTRS = {` to the closing brace at column 0; a
 # public attribute is a 4-space-indented quoted key at that depth.
@@ -26,7 +26,7 @@ sed -n '/^TS_COMPILE_ATTRS = {$/,/^}$/p' "${RULE}" \
   | LC_ALL=C sort > "${got}"
 
 if ! LC_ALL=C diff -u "${want}" "${got}" > "${TEST_TMPDIR}/diff"; then
-  echo "ts_compile's public attributes differ from the pinned three (-want +got):" >&2
+  echo "ts_compile's public attributes differ from the pinned set (-want +got):" >&2
   cat "${TEST_TMPDIR}/diff" >&2
   exit 1
 fi

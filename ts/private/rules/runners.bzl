@@ -122,6 +122,7 @@ def _vitest_runner_impl(ctx):
         packages = ["vitest"],
         hook = ctx.file._reads_hook,
         es_modules = True,
+        supports_source_inputs = True,
         launch = _vitest_launch,
     )]
 
@@ -145,6 +146,7 @@ def _node_test_runner_impl(ctx):
         packages = [],
         hook = ctx.file._resolve_hook,
         es_modules = False,
+        supports_source_inputs = False,
         launch = _node_test_launch,
     )]
 

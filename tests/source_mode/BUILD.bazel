@@ -1,0 +1,137 @@
+load("//npm:defs.bzl", "node_modules", "node_modules_member")
+load("//npm/private:store.bzl", "npm_store_member")
+load("//npm/private:workspace_package.bzl", "npm_workspace_package")
+load("//ts:defs.bzl", "ts_binary", "ts_compile", "ts_test")
+load(":source_tests.bzl", "node_rejects_source_test", "source_actions_test")
+
+# gazelle:ignore
+
+ts_test(
+    name = "vitest_transforms_source_dependency_test",
+    srcs = ["library.test.ts"],
+    emit = False,
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        "//tests/source_mode/lib:library",
+        "@npm//:vitest",
+    ],
+)
+
+source_actions_test(
+    name = "source_keeps_validation_without_emit_test",
+    target_under_test = "//tests/source_mode/lib:library",
+)
+
+ts_compile(
+    name = "entry",
+    srcs = ["entry.ts"],
+    deps = ["//tests/source_mode/lib:library"],
+)
+
+ts_binary(
+    name = "unsupported_node",
+    entry_point = ":entry",
+    tags = ["manual"],  # The analysis test requires this target to fail.
+)
+
+node_rejects_source_test(
+    name = "node_rejects_transitive_source_test",
+    target_under_test = ":unsupported_node",
+)
+
+ts_compile(
+    name = "commonjs_without_emit_metadata",
+    srcs = ["entry.ts"],
+    emit = False,
+    tsconfig = "commonjs.json",
+    deps = ["//tests/source_mode/lib:library"],
+)
+
+ts_compile(
+    name = "jsx_without_emit_metadata",
+    srcs = ["jsx.tsx"],
+    emit = False,
+    tsconfig = "jsx.json",
+)
+
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    visibility = ["//tests/source_mode:__subpackages__"],
+    deps = ["@npm//:minimatch"],
+)
+
+npm_store_member(
+    name = "node_modules/.pnpm/native-source-fixture@0.0.0/node_modules/native-source-fixture",
+    member = "//tests/source_mode/lib:library",
+    member_dir = "tests/source_mode/lib",
+)
+
+npm_workspace_package(
+    name = "source_member",
+    package_name = "native-source-fixture",
+    member_dir = "tests/source_mode/lib",
+    store = ":node_modules/.pnpm/native-source-fixture@0.0.0/node_modules/native-source-fixture",
+    target = "//tests/source_mode/lib:library",
+)
+
+node_modules_member(
+    name = "node_modules/native-source-fixture",
+    member = ":source_member",
+    visibility = ["//tests/source_mode:__subpackages__"],
+)
+
+npm_store_member(
+    name = "node_modules/.pnpm/native-wrapper-fixture@0.0.0/node_modules/native-wrapper-fixture",
+    member = "//tests/source_mode/wrapper",
+    member_dir = "tests/source_mode/wrapper",
+    deps = {":node_modules/.pnpm/native-source-fixture@0.0.0/node_modules/native-source-fixture": "native-source-fixture"},
+)
+
+npm_workspace_package(
+    name = "wrapper_member",
+    package_name = "native-wrapper-fixture",
+    member_dir = "tests/source_mode/wrapper",
+    store = ":node_modules/.pnpm/native-wrapper-fixture@0.0.0/node_modules/native-wrapper-fixture",
+    target = "//tests/source_mode/wrapper",
+)
+
+node_modules_member(
+    name = "node_modules/native-wrapper-fixture",
+    member = ":wrapper_member",
+)
+
+ts_test(
+    name = "source_member_through_emitted_member_test",
+    srcs = ["member.test.ts"],
+    emit = False,
+    node_modules = ":node_modules",
+    deps = [
+        ":node_modules/native-wrapper-fixture",
+        "@npm//:vitest",
+    ],
+)
+
+ts_binary(
+    name = "unsupported_member_node",
+    entry_point = "//tests/source_mode/wrapper",
+    tags = ["manual"],  # The analysis test requires this target to fail.
+)
+
+node_rejects_source_test(
+    name = "node_rejects_source_member_test",
+    target_under_test = ":unsupported_member_node",
+)
+
+ts_test(
+    name = "source_owner_keeps_npm_version_test",
+    srcs = ["owner.test.ts"],
+    emit = False,
+    node_modules = ":node_modules",
+    deps = [
+        "//tests/npm/multi_version:source_owner",
+        "@npm//:minimatch",
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)
