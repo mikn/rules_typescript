@@ -128,3 +128,65 @@ func TestNodeModulesUsesAutoDiscoveredRunfilesWithoutEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestAuxiliaryLauncherUsesOwnRunfilesInsteadOfParents(t *testing.T) {
+	for _, mode := range []string{"manifest", "directory", "directory_only"} {
+		t.Run(mode, func(t *testing.T) {
+			_, parent := fakeRunfiles(t, map[string]string{"_main/tool.js": "parent"})
+			root := t.TempDir()
+			program := filepath.Join(root, "auxiliary")
+			ownFile := filepath.Join(root, "tool.js")
+			if err := os.WriteFile(ownFile, []byte("auxiliary"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			manifest := program + ".runfiles_manifest"
+			if mode != "manifest" {
+				if err := os.Mkdir(program+".runfiles", 0o755); err != nil {
+					t.Fatal(err)
+				}
+				manifest = filepath.Join(program+".runfiles", "MANIFEST")
+			}
+			if mode == "directory_only" {
+				ownFile = filepath.Join(program+".runfiles", "_main/tool.js")
+				if err := os.MkdirAll(filepath.Dir(ownFile), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(ownFile, []byte("auxiliary"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(manifest, []byte("_main/tool.js "+ownFile+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			r, err := resolverForExecutable(program)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := r.Path("_main/tool.js"); err != nil || got != ownFile {
+				t.Fatalf("auxiliary runfile = %q, %v; want %q", got, err, ownFile)
+			}
+			if (r.Dir() != "") != (mode != "manifest") {
+				t.Fatalf("directory staging changed: %q", r.Dir())
+			}
+			if mode == "directory_only" {
+				for _, invalid := range []string{"../tool.js", "_main/../tool.js", ownFile} {
+					if _, err := r.Path(invalid); err == nil {
+						t.Fatalf("accepted invalid runfiles path %q", invalid)
+					}
+				}
+				if got := runfilesEnv(r.Env(), "RUNFILES_DIR"); got != program+".runfiles" {
+					t.Fatalf("child runfiles directory = %q", got)
+				}
+				if got := runfilesEnv(Environ(nil, r.Env()), "RUNFILES_MANIFEST_FILE"); got != "" {
+					t.Fatalf("child still inherits parent manifest: %q", got)
+				}
+			}
+			inherited, err := resolverForExecutable(filepath.Join(root, "no_own_runfiles"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := inherited.Path("_main/tool.js"); err != nil || got != parent["_main/tool.js"] {
+				t.Fatalf("inherited fallback = %q, %v", got, err)
+			}
+		})
+	}
+}

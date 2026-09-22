@@ -18,11 +18,6 @@ func planNode(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error
 		return nil, err
 	}
 
-	if n.ChdirRunfiles && r.Dir() != "" {
-		plan.Dir = r.Dir()
-		plan.setEnv("RUNFILES_DIR", r.Dir())
-	}
-
 	// A temp directory, not the runfiles tree: the runfiles tree is read-only
 	// for tools inside action sandboxes and immutable after `bazel run`.
 	scratch := ""

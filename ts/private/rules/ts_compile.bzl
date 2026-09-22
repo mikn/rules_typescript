@@ -64,6 +64,7 @@ over the same attributes.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+load("//ts/private:node_modules.bzl", "importer_chain")
 load(
     "//ts/private:providers.bzl",
     "NodeModulesInfo",
@@ -255,15 +256,7 @@ def _importer_chain(ctx, packages):
                 ", ".join(sorted([info.package_name for info in packages])),
             ))
         return []
-    chain = [ctx.attr.node_modules[NodeModulesInfo]]
-    for _ in range(1000):
-        if chain[-1].parent == None:
-            return chain
-        chain.append(chain[-1].parent)
-    fail("{}: the importer chain from {} is more than 1000 deep".format(
-        ctx.label,
-        ctx.attr.node_modules.label,
-    ))
+    return importer_chain(ctx.attr.node_modules[NodeModulesInfo])
 
 def _importer_linking(chain, name):
     for importer in chain:
@@ -602,8 +595,10 @@ def compile_program(
         for f in depset(transitive = transitive_data_sets).to_list()
         if f.extension == "json"
     ]
+    lint = ctx.attr._lint[LintConfigInfo]
+    needs_config = program_srcs or (lint.binary and check_srcs and any(["{tsconfig}" in arg for arg in lint.args]))
     tsgo_toolchain_info = ctx.toolchains[TSGO_TOOLCHAIN_TYPE]
-    if program_srcs and not tsgo_toolchain_info:
+    if needs_config and not tsgo_toolchain_info:
         fail(("ts_compile: {} needs a tsgo toolchain, and none is registered." +
               "\nThe tsconfig the actions read, and the target and jsx oxc " +
               "transforms with, come from `tsgo --showConfig`.\nAdd to " +
@@ -612,11 +607,11 @@ def compile_program(
 
     tsconfig = None
     options_file = None
-    if program_srcs:
+    if needs_config:
         tsgo = tsgo_toolchain_info.tsgo_info
 
         declare_root = None
-        if tsgo_emits_dts:
+        if tsgo_emits_dts and program_srcs:
             roots = {}
             for src in program_srcs:
                 roots[_source_root(src, pkg)] = True
@@ -659,10 +654,8 @@ def compile_program(
         options_file = written.options
 
     validation_outputs = []
+    program_inputs = check_srcs + joined + json_srcs + dep_json + dep_manifests
     if program_srcs:
-        program_inputs = (
-            check_srcs + joined + json_srcs + dep_json + dep_manifests
-        )
         if emit and compile_srcs:
             emit_action(
                 ctx,
@@ -753,9 +746,20 @@ def compile_program(
                 checkers = checkers,
             )
 
-    lint = ctx.attr._lint[LintConfigInfo]
     if lint.binary and check_srcs:
-        validation_outputs.append(lint_action(ctx, lint, check_srcs))
+        validation_outputs.append(lint_action(
+            ctx,
+            lint = lint,
+            srcs = check_srcs,
+            tsconfig = tsconfig,
+            inputs = program_inputs,
+            chain = tsconfig_chain,
+            dep_dts = dep_dts_depset,
+            npm_files = npm_files,
+            importers = importers,
+            overlays = sorted(overlays.keys()),
+            manifests = dep_manifests,
+        ))
 
     direct_runtime_sources = depset(runtime_sources, order = "postorder")
     transitive_runtime_sources = depset(

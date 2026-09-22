@@ -37,6 +37,9 @@ func TestPlanNodeExecsTheToolchainRuntime(t *testing.T) {
 	if !plan.UseExec {
 		t.Error("a plain binary should exec, leaving no launcher in the process tree")
 	}
+	if plan.Dir != "" {
+		t.Errorf("npm CLI changed the caller working directory to %q", plan.Dir)
+	}
 }
 
 func TestPlanNodeFallsBackToSystemNode(t *testing.T) {

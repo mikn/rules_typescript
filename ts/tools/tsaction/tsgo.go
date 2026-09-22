@@ -22,10 +22,12 @@ import (
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
-	var sources, importers, overlays, manifests stringList
+	var sources, copies, importers, overlays, manifests, toolEnv stringList
 	flags.Var(&sources, "source",
 		"an input of the action in the source tree, linked at its path under "+
 			"the root (repeatable); the output tree is linked whole")
+	flags.Var(&toolEnv, "tool-env", "NAME=executable input path, made absolute before entering the program root (repeatable)")
+	flags.Var(&copies, "copy", "a source input copied at its workspace path for realpath-based module resolution (repeatable)")
 	flags.Var(&importers, "node_modules",
 		"an importer's node_modules directory, nearest first (repeatable); "+
 			"the last is the lockfile's root importer")
@@ -69,15 +71,44 @@ func runTsgo(args []string) error {
 	}
 	defer os.RemoveAll(*root)
 
+	// Node resolves config imports from the real file, not its source symlink.
+	for _, file := range copies {
+		if file == outputTree || strings.HasPrefix(file, outputTree+"/") {
+			return fmt.Errorf("-copy=%s is under the linked output tree", file)
+		}
+		at := filepath.Join(*root, filepath.FromSlash(file))
+		if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+			return err
+		}
+		if err := os.Remove(at); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := copyFile(file, at); err != nil {
+			return err
+		}
+	}
+
 	tool, err := filepath.Abs(cmdline[0])
 	if err != nil {
 		return err
 	}
 	cmdline = append([]string{tool}, cmdline[1:]...)
+	env := make([]string, 0, len(toolEnv))
+	for _, binding := range toolEnv {
+		name, path, ok := strings.Cut(binding, "=")
+		if !ok || name == "" || path == "" {
+			return fmt.Errorf("-tool-env needs NAME=executable, got %q", binding)
+		}
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return err
+		}
+		env = append(env, name+"="+absolute)
+	}
 	if own == nil {
-		err = runToolIn(*root, os.Stdout, cmdline)
+		err = runToolIn(*root, os.Stdout, cmdline, env...)
 	} else {
-		err = checkedRun(*root, cmdline, own, chain, *project)
+		err = checkedRun(*root, cmdline, own, chain, *project, env...)
 	}
 	if err != nil {
 		return err
@@ -91,9 +122,9 @@ func runTsgo(args []string) error {
 // checkedRun keeps the listing off stdout: a failing tsgo relays its
 // diagnostics, or all it printed when none parse; a passing one is checked.
 func checkedRun(dir string, cmdline []string, own *ownership,
-	chain *tsconfig.Resolved, project string) error {
+	chain *tsconfig.Resolved, project string, env ...string) error {
 	var out bytes.Buffer
-	runErr := runToolIn(dir, &out, cmdline)
+	runErr := runToolIn(dir, &out, cmdline, env...)
 	listing, parseErr := explainfiles.Parse(out.String())
 	if runErr != nil {
 		if parseErr != nil || len(listing.Diagnostics) == 0 {

@@ -85,7 +85,7 @@ def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
     ctx.actions.write(output = manifest, content = lines)
     return manifest
 
-def _program_args(
+def program_args(
         ctx,
         root,
         srcs,
@@ -108,10 +108,10 @@ def _program_args(
     args.add_all(manifests, format_each = "-manifest=%s")
     return args
 
-def _program_inputs(tsgo, tsconfig, srcs, chain, dep_dts, npm_files, extra):
+def program_inputs(tsconfig, srcs, chain, dep_dts, npm_files, extra = [], tool_files = depset()):
     return depset(
-        srcs + [tsconfig] + chain + extra,
-        transitive = [dep_dts, npm_files, tsgo.files],
+        srcs + ([tsconfig] if tsconfig else []) + chain + extra,
+        transitive = [dep_dts, npm_files, tool_files],
     )
 
 def _run_tsgo(ctx, run_args, inputs, outputs, mnemonic, checkers):
@@ -155,7 +155,7 @@ def tsgo_check(
     _validation group.
     """
     stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
-    run_args = _program_args(
+    run_args = program_args(
         ctx,
         "{}/{}.program".format(tsconfig.dirname, ctx.label.name),
         srcs,
@@ -178,14 +178,14 @@ def tsgo_check(
     _run_tsgo(
         ctx,
         run_args,
-        _program_inputs(
-            tsgo,
+        program_inputs(
             tsconfig,
             srcs,
             chain,
             dep_dts,
             npm_files,
             [ownership],
+            tool_files = tsgo.files,
         ),
         [stamp],
         "TsgoCheck",
@@ -214,7 +214,7 @@ def tsgo_declare(
     under `out_dir`, mirroring `root_dir`. noEmitOnError leaves nothing behind
     a type error, so no stale declaration survives one.
     """
-    run_args = _program_args(
+    run_args = program_args(
         ctx,
         "{}/{}.declare".format(tsconfig.dirname, ctx.label.name),
         srcs,
@@ -239,14 +239,13 @@ def tsgo_declare(
     _run_tsgo(
         ctx,
         run_args,
-        _program_inputs(
-            tsgo,
+        program_inputs(
             tsconfig,
             srcs,
             chain,
             dep_dts,
             npm_files,
-            [],
+            tool_files = tsgo.files,
         ),
         outputs,
         "TsgoDeclare",

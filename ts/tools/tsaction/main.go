@@ -137,9 +137,12 @@ func runTool(cmdline []string) error {
 	return runToolIn("", os.Stdout, cmdline)
 }
 
-func runToolIn(dir string, stdout io.Writer, cmdline []string) error {
+func runToolIn(dir string, stdout io.Writer, cmdline []string, env ...string) error {
 	cmd := exec.Command(cmdline[0], cmdline[1:]...)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

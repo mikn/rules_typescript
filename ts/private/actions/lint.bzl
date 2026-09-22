@@ -6,13 +6,20 @@ names, and compile_program runs TsLint over the program's sources when it
 names a binary. docs/guides/lint.md is the reference.
 """
 
+load("//ts/private:node_modules.bzl", "importer_chain")
+load("//ts/private:providers.bzl", "NodeModulesInfo")
 load("//ts/private:toolchain.bzl", "get_tools_toolchain")
+load(":tsgo.bzl", "program_args", "program_inputs", "source_path")
 
 LintConfigInfo = provider(
     doc = "What //ts:lint resolves to: the linter every compile runs.",
     fields = {
         "binary": "FilesToRunProvider, or None when nothing lints.",
         "config": "File passed as --config, or None.",
+        "tool_env": "dict of environment name to FilesToRunProvider: auxiliary executables.",
+        "data": "depset of File: declared config imports, plugins and ignore files.",
+        "importers": "list of string: importer directories declared in data, root last.",
+        "args": "list of string: linter arguments; {tsconfig} names the action config.",
         "fail_on_warnings": "bool: --max-warnings=0 is passed.",
     },
 )
@@ -21,9 +28,33 @@ def _lint_config_impl(ctx):
     binary = None
     if ctx.attr.binary:
         binary = ctx.attr.binary[DefaultInfo].files_to_run
+    tool_env = {}
+    for target, name in ctx.attr.tool_env.items():
+        if not name or name[0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_" or any([c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789" for c in name.elems()]):
+            fail("tool_env for {} needs an environment variable name, got {}".format(target.label, repr(name)))
+        if name in tool_env:
+            fail("tool_env assigns {} to more than one executable".format(name))
+        tool = target[DefaultInfo].files_to_run
+        if not tool or not tool.executable:
+            fail("tool_env target {} must be executable".format(target.label))
+        tool_env[name] = tool
+    importers = {}
+    links = []
+    stores = []
+    for dep in ctx.attr.data:
+        if NodeModulesInfo in dep:
+            for importer in importer_chain(dep[NodeModulesInfo]):
+                importers[importer.dir] = True
+                for entry in importer.links.values():
+                    links.append(entry.link)
+                    stores.append(entry.store.transitive)
     return [LintConfigInfo(
         binary = binary,
+        tool_env = tool_env,
         config = ctx.file.config,
+        data = depset(ctx.files.data + links, transitive = stores),
+        importers = importers.keys(),
+        args = ctx.attr.args,
         fail_on_warnings = ctx.attr.fail_on_warnings,
     )]
 
@@ -41,6 +72,12 @@ lint_config = rule(
                   "unset, the flag is not passed.",
             allow_single_file = True,
         ),
+        "tool_env": attr.label_keyed_string_dict(
+            cfg = "exec",
+            doc = "Executable labels mapped to environment names receiving their absolute paths.",
+        ),
+        "data": attr.label_list(allow_files = True),
+        "args": attr.string_list(),
         "fail_on_warnings": attr.bool(
             doc = "A warning fails the build: --max-warnings=0, which " +
                   "oxlint and eslint spell alike.",
@@ -57,6 +94,9 @@ def _lint_config_repo_impl(repository_ctx):
         lines.append('    binary = "{}",'.format(attrs.binary))
     if attrs.config:
         lines.append('    config = "{}",'.format(attrs.config))
+    lines.append("    tool_env = {},".format(repr(attrs.tool_env)))
+    lines.append("    data = {},".format(repr(attrs.data)))
+    lines.append("    args = {},".format(repr(attrs.args)))
     lines.append("    fail_on_warnings = {},".format(attrs.fail_on_warnings))
     lines.append('    visibility = ["//visibility:public"],')
     repository_ctx.file(
@@ -76,41 +116,58 @@ lint_config_repo = repository_rule(
         "config": attr.string(
             doc = "The config file's label, canonical; \"\" for none.",
         ),
+        "tool_env": attr.string_dict(),
+        "data": attr.string_list(),
+        "args": attr.string_list(),
         "fail_on_warnings": attr.bool(),
     },
     doc = "The repository holding the lint_config a root module's ts.lint() " +
           "configured.",
 )
 
-# An npm bin launcher cds to its runfiles before exec, so a relative path
-# would miss; tsaction substitutes its working directory for the token.
-_FROM_EXECROOT = "{{EXECROOT}}/%s"
-
-def lint_action(ctx, lint, srcs):
-    """Registers TsLint over `srcs` under `lint`, which names a binary.
-
-    Returns the stamp tsaction writes when the linter exits 0, for _validation.
-    """
+def lint_action(ctx, lint, srcs, tsconfig, inputs, chain, dep_dts, npm_files, importers, overlays, manifests):
+    """Registers TsLint in the same program layout as tsgo's validation."""
     stamp = ctx.actions.declare_file("{}.tslint".format(ctx.label.name))
-    args = ctx.actions.args()
-    args.use_param_file("@%s", use_always = False)
-    args.set_param_file_format("multiline")
-    args.add("-stamp", stamp)
+    config_files = [lint.config] if lint.config else []
+    merged_importers = {directory: True for directory in lint.importers + importers}
+    if importers or lint.importers:
+        root_importer = (importers or lint.importers)[-1]
+        merged_importers.pop(root_importer)
+        merged_importers[root_importer] = True
+    args = program_args(
+        ctx,
+        "{}/{}.lint".format(stamp.dirname, ctx.label.name),
+        inputs,
+        chain,
+        dep_dts,
+        merged_importers.keys(),
+        overlays,
+        manifests,
+    )
+    args.add_all(depset(config_files, transitive = [lint.data]), map_each = source_path, format_each = "-copy=%s", expand_directories = False)
+    for name, tool in lint.tool_env.items():
+        args.add(tool.executable, format = "-tool-env=" + name + "=%s")
+    args.add(stamp, format = "-stamp=%s")
     args.add("--")
     args.add(lint.binary.executable)
-    inputs = list(srcs)
     if lint.config:
-        args.add("--config", lint.config, format = _FROM_EXECROOT)
-        inputs.append(lint.config)
+        args.add("--config", lint.config)
     if lint.fail_on_warnings:
         args.add("--max-warnings=0")
-    args.add_all(srcs, format_each = _FROM_EXECROOT)
+    for arg in lint.args:
+        if "{tsconfig}" in arg and not tsconfig:
+            fail("lint args require {tsconfig}, but {} has no runtime sources".format(ctx.label))
+        args.add(arg.replace("{tsconfig}", tsconfig.path if tsconfig else ""))
+    args.add_all(srcs)
     ctx.actions.run(
-        inputs = inputs,
-        tools = [lint.binary],
+        inputs = depset(
+            config_files,
+            transitive = [program_inputs(tsconfig, inputs, chain, dep_dts, npm_files), lint.data],
+        ),
+        tools = [lint.binary] + lint.tool_env.values(),
         outputs = [stamp],
         executable = get_tools_toolchain(ctx).tsaction,
-        arguments = ["stamp", args],
+        arguments = ["tsgo", args],
         env = {"PATH": "/bin:/usr/bin"},
         mnemonic = "TsLint",
         progress_message = "TsLint %{label}",
