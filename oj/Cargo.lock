@@ -3747,7 +3747,7 @@ checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6000,9 +6000,9 @@ dependencies = [
 
 [[package]]
 name = "oj"
-version = "0.2.1"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f630062270e96f58ed5e8ca6b443288d2d56badb4df0686a8c8912a58c51e33"
+checksum = "22e624c65e560f7677932aa691c4e83f4b98e688a0ed174c2cd819e497c46b37"
 dependencies = [
  "anyhow",
  "arcstr",
@@ -6012,6 +6012,7 @@ dependencies = [
  "deno_core",
  "flate2",
  "futures-util",
+ "libc",
  "notify",
  "oj_cache",
  "oj_compiler",
@@ -6056,9 +6057,9 @@ dependencies = [
 
 [[package]]
 name = "oj_cache"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0b19d599ef06536dfcd1f2be0a9f4a000a130f99e5c6d91472f977b4e363645"
+checksum = "780d6606aac9c6818926629928cbc1e34ccb5b858914e723263a62e3a6c78008"
 dependencies = [
  "blake3",
  "serde",
@@ -6067,9 +6068,9 @@ dependencies = [
 
 [[package]]
 name = "oj_compiler"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "595d0c36af661ae35ae24b552887761c1185d030417b120627c2a6c562e0a0ca"
+checksum = "0762c502bc98c6f3c6fa1bf588d17df1abd2a48ff6a5a6fff5fa5c22c7c0943e"
 dependencies = [
  "glob",
  "memchr",
@@ -6092,9 +6093,9 @@ dependencies = [
 
 [[package]]
 name = "oj_config"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ada520fcfe022722687f0f5c7b099a08c6d0742f78082945c8132a8452a01034"
+checksum = "2dc0a6f38c9f3d41d8d4e4a1ce5ce28f56bd585e7769def5fb427b3d29c8564f"
 dependencies = [
  "oxc_allocator",
  "oxc_codegen",
@@ -6111,9 +6112,9 @@ dependencies = [
 
 [[package]]
 name = "oj_css"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "653c317810da5478e75b50a12ad7e2e1bfbe2d20e4c5def1b4616550b0a4f6ee"
+checksum = "75c0f0552a21a95bc7bfde302125943d9d9bb056b91a589efeaa71fc445822d5"
 dependencies = [
  "grass",
  "lightningcss",
@@ -6124,9 +6125,9 @@ dependencies = [
 
 [[package]]
 name = "oj_deno_napi"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41e8c54793aad120f6e1918e585290f5eec68cc110f9bad1063e9108f3b61c7a"
+checksum = "887f822083aa7beeeb4b1412a5c43b8f98d80387b94826920d3cf4d0ced6c10a"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -6145,9 +6146,9 @@ dependencies = [
 
 [[package]]
 name = "oj_deno_runtime"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91f39738557bd6df9679edb4df4c0d52c192c19e1ffcea26700a4e3f5d6b205d"
+checksum = "f7b803814293174081950a475cbae012a26bab4dd430a30bf6993d4591d9056e"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6221,24 +6222,24 @@ dependencies = [
 
 [[package]]
 name = "oj_env"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dc62002cee2e948be3b23d1170ff26475f76312cd897ced4f1e2ba8cb98bef7"
+checksum = "8f4dd1330f7956ddae2629d471f13d1b729fe733750abbee882520f573c9536e"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "oj_graph"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c23cc2bbe362f5021ad7ec3c191b593d1c784b6a67aa621cb84545691e3ccacc"
+checksum = "1ead566d4df42b632c1674c0f2a3bb80a1ec22194fcd8013f37cceb4f9e736cc"
 
 [[package]]
 name = "oj_js"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e71897fef57b13dbe8874ed4ea6e215c5f79a72be86d96b85c38215a1f5255a6"
+checksum = "e20456a413564241b33e63e50c064a7639ea06744562e8a781b7e0217dd37971"
 dependencies = [
  "deno_config",
  "deno_core",
@@ -6258,9 +6259,9 @@ dependencies = [
 
 [[package]]
 name = "oj_resolver"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "425d2c6c89b133f26e328257e458bb084dcd1e9270398c4a15d15c1481c790b0"
+checksum = "37dcadd1847b2be564dc8f4ebfdda69bbd021ab000f7e82066b4d5f5cbd824fd"
 dependencies = [
  "oxc_resolver",
  "thiserror 2.0.20",
@@ -6268,9 +6269,9 @@ dependencies = [
 
 [[package]]
 name = "oj_server"
-version = "0.2.1"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "887b1c5dfcb9e132d9b02ce548cf43085911df8fafcec7a7a0a9b94c4bc7e0b5"
+checksum = "fcd1d57ae90b8c7cb75c501e41542d3e9a8feabbfc29ded1dc5988b6fd3470ce"
 dependencies = [
  "anyhow",
  "axum",
@@ -7556,7 +7557,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -8681,7 +8682,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
