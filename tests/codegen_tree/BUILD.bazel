@@ -121,3 +121,12 @@ filegroup(
     srcs = [":js_consumer"],
     output_group = "declarations",
 )
+
+# keep
+ts_compile(
+    name = "source_consumer",
+    srcs = ["consumer.ts"],
+    emit = False,
+    tsconfig = "tsconfig.tree.json",
+    deps = [":tree"],
+)

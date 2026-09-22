@@ -94,6 +94,7 @@ type actionConfig struct {
 	srcs                                  []string
 	isolatedDeclarations                  bool
 	libCheck                              bool
+	sourceOnly                            bool
 }
 
 type stringList []string
@@ -127,6 +128,7 @@ func writeTsconfig(args []string) error {
 		"to types when the user's chain sets neither types nor typeRoots "+
 		"(repeatable)")
 	flags.BoolVar(&a.isolatedDeclarations, "isolated_declarations", false, "oxc emits the declarations, so every export must be annotated")
+	flags.BoolVar(&a.sourceOnly, "source_only", false, "the program publishes sources without emitting JavaScript")
 	flags.BoolVar(&a.libCheck, "lib_check", false, "check the program's .d.ts closure too")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -180,11 +182,13 @@ func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
 	if err != nil {
 		return nil, oxcOptions{}, err
 	}
-	if err := a.checkJsx(effective.Jsx); err != nil {
-		return nil, oxcOptions{}, err
-	}
-	if err := a.checkModule(effective.Module); err != nil {
-		return nil, oxcOptions{}, err
+	if !a.sourceOnly {
+		if err := a.checkJsx(effective.Jsx); err != nil {
+			return nil, oxcOptions{}, err
+		}
+		if err := a.checkModule(effective.Module); err != nil {
+			return nil, oxcOptions{}, err
+		}
 	}
 	config, err := a.build(effective, roots, chain, dir)
 	if err != nil {

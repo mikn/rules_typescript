@@ -32,6 +32,7 @@ load(
 )
 
 _ENTRY_EXTENSIONS = ["js", "jsx", "mjs", "cjs"]
+_SOURCE_EXTENSIONS = ["ts", "tsx", "mts", "cts"]
 
 def _same_package(a, b):
     return a.package == b.package and a.repo_name == b.repo_name
@@ -69,12 +70,16 @@ def _chain(ctx, program):
 
 def _ts_test_impl(ctx):
     runner = ctx.attr.runner[TsTestRunnerInfo]
+    supports_sources = getattr(runner, "supports_source_inputs", False)
     program = compile_program(
         ctx,
         es_modules = runner.es_modules,
         package_program = True,
         declarations = False,
     )
+
+    if program.transitive_runtime_sources and not supports_sources:
+        fail("{}: runner {} cannot transform TypeScript source dependencies; use an emitting program or a source-capable runner.".format(ctx.label, ctx.attr.runner.label))
 
     linked = {info.package_name: True for info in program.packages}
     missing = [name for name in runner.packages if name not in linked]
@@ -87,7 +92,8 @@ def _ts_test_impl(ctx):
             ", ".join(missing),
         ))
 
-    entry_points = [f for f in program.js if f.extension in _ENTRY_EXTENSIONS]
+    entry_extensions = _ENTRY_EXTENSIONS + (_SOURCE_EXTENSIONS if program.runtime_sources else [])
+    entry_points = [f for f in program.js + program.runtime_sources if f.extension in entry_extensions]
 
     test_files_list = ctx.actions.declare_file(
         "{}_test_files.txt".format(ctx.label.name),
@@ -115,13 +121,13 @@ def _ts_test_impl(ctx):
 
     launched = runner.launch(ctx, struct(
         entry_points = entry_points,
-        entry_extensions = _ENTRY_EXTENSIONS,
+        entry_extensions = entry_extensions,
         test_files_list = test_files_list,
         chain = chain,
         transitive_js = program.transitive_js,
         es_twins = program.es_twins,
         placed = placed,
-        runtime_data_sets = [program.transitive_data],
+        runtime_data_sets = [program.transitive_data, program.transitive_runtime_sources],
         package_sources = _package_sources(ctx),
         inline_members = sorted({m.package_name: True for m in members}.keys()),
         runner = runner,

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The three attribute dicts ts_test composes are read out of the source; their
-# public keys must be exactly the ten attributes docs/rules/ts-test.md lists.
+# Starlark rules cannot enumerate their own attributes.
 
 set -euo pipefail
 
@@ -16,7 +15,7 @@ fi
 want="${TEST_TMPDIR}/want"
 got="${TEST_TMPDIR}/got"
 
-printf '%s\n' config config_srcs coverage_provider data deps env node_modules \
+printf '%s\n' config config_srcs coverage_provider data deps emit env node_modules \
   runner srcs tsconfig wrangler_config > "${want}"
 
 # A dict runs from `<NAME> = {` to the closing brace at column 0; a public

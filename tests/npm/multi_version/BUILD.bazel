@@ -1,6 +1,6 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_test")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
 
 package(default_visibility = ["//tests/npm:__pkg__"])
 
@@ -86,5 +86,18 @@ ts_test(
     deps = [
         "@npm//:minimatch_9_0_9",
         "@npm//:vitest",
+    ],
+)
+
+# keep
+ts_compile(
+    name = "source_owner",
+    srcs = ["source_owner.ts"],
+    emit = False,
+    node_modules = ":node_modules",
+    visibility = ["//tests/source_mode:__pkg__"],
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:types_node",
     ],
 )

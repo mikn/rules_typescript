@@ -51,7 +51,7 @@ def _npm_package_info(ctx, member):
         package_root = root,
         all_files = depset(
             files,
-            transitive = [info.declarations, info.js, info.js_maps],
+            transitive = [info.declarations, info.js, info.js_maps, info.runtime_sources],
         ),
         transitive_deps = info.npm_packages,
         store = ctx.attr.store[NpmStoreInfo],

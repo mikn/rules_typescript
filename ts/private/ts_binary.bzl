@@ -115,6 +115,9 @@ def _ts_binary_impl(ctx):
     else:
         entry = _js_file_entry(ctx, data_files)
 
+    if entry.transitive_runtime_sources:
+        fail("{}: ts_binary requires emitted JavaScript for its complete dependency closure; enable emit on source-only dependencies before running this target.".format(ctx.label))
+
     runtime_binary = None
     runtime_args = []
     js_runtime = get_js_runtime(ctx)

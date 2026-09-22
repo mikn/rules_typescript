@@ -1,0 +1,13 @@
+load("//ts:defs.bzl", "ts_compile")
+
+# gazelle:ignore
+
+ts_compile(
+    name = "library",
+    srcs = [
+        "library.ts",
+        "package.json",
+    ],
+    emit = False,
+    visibility = ["//tests/source_mode:__subpackages__"],
+)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,6 +59,17 @@ func TestDevServerBehaviour(t *testing.T) {
 	bazelBin := filepath.Join(ws, "bazel-bin")
 	appBin := filepath.Join(bazelBin, "tests", "dev_server")
 	mkdir(t, appBin)
+	if target == "dev_oj_source" {
+		for _, rel := range []string{"dev_app.ts", "lib/index.ts"} {
+			content, err := os.ReadFile(tree.File("tests/dev_server/" + rel).Abs())
+			if err != nil {
+				t.Fatal(err)
+			}
+			dest := filepath.Join(appRoot, rel)
+			mkdir(t, filepath.Dir(dest))
+			write(t, dest, string(content))
+		}
+	}
 	write(t, filepath.Join(ws, "index.html"), "WORKSPACE_INDEX")
 	write(t, filepath.Join(appRoot, "index.html"), `<html>NESTED_APP_INDEX<script type="module" src="/entry.js"></script></html>`)
 	write(t, filepath.Join(appRoot, "app.ts"), "export const origin: string = \"TS_SOURCE_TRANSFORMED_BY_VITE\";\n")
@@ -178,6 +190,24 @@ func TestDevServerBehaviour(t *testing.T) {
 	srv := start(t, launcher.Abs(), ws, tmp, extraArgs...)
 	base := srv.awaitHTTP(t, "/app.ts")
 	t.Logf("%s (%s) is up and answering on %s", target, impl, base)
+
+	if target == "dev_oj_source" {
+		t.Run("source_app_resolves_js_import_to_source_library_without_emit", func(t *testing.T) {
+			app := get(t, base, "/dev_app.ts")
+			if app.status != 200 {
+				t.Fatalf("source app returned %d: %s", app.status, app.body)
+			}
+			match := regexp.MustCompile(`["']([^"']*lib/index[^"']*)["']`).FindStringSubmatch(app.body)
+			if match == nil {
+				t.Fatalf("source app has no library import: %s", app.body)
+			}
+			library := get(t, base, strings.TrimPrefix(match[1], "."))
+			if library.status != 200 {
+				t.Fatalf("source library returned %d: %s", library.status, library.body)
+			}
+			library.contains(t, srv, "@devserver/lib")
+		})
+	}
 
 	if impl == "oj" {
 		t.Run("application_config_denies_workspace_files", func(t *testing.T) {

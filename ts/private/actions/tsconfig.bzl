@@ -50,7 +50,8 @@ def tsconfig_action(
         declared_module,
         types_deps,
         isolated_declarations,
-        lib_check):
+        lib_check,
+        emit = True):
     """Writes <name>.tsconfig.json and <name>.options.json from the chain.
 
     Returns struct(tsconfig, options).
@@ -71,6 +72,8 @@ def tsconfig_action(
     config_args.add(tsconfig, format = "-out=%s")
     config_args.add(options_file, format = "-options=%s")
     config_args.add(ctx.bin_dir.path, format = "-bin_dir=%s")
+    if not emit:
+        config_args.add("-source_only")
     if declared_jsx:
         config_args.add(declared_jsx, format = "-jsx=%s")
     if declared_module:

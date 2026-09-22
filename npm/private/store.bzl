@@ -249,7 +249,7 @@ def _npm_store_member_impl(ctx):
             ctx.attr.member_dir,
         ))
     files = [f for f in data if f not in written] + [info.manifest]
-    for emitted in (info.declarations, info.js, info.js_maps):
+    for emitted in (info.declarations, info.js, info.js_maps, info.runtime_sources):
         files.extend(emitted.to_list())
     _stage(ctx, tree, files, dest)
     store = _store_info(ctx, parts, tree, _dep_links(ctx, parts))

@@ -12,7 +12,7 @@ Tests:
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//ts:defs.bzl", "ts_codegen", "ts_compile")
+load("//ts:defs.bzl", "ts_codegen", "ts_compile", "ts_test")
 load(":codegen_tests.bzl", "outs_codegen_providers_test")
 
 package(default_visibility = ["//:__pkg__"])
@@ -104,4 +104,32 @@ ts_compile(
 build_test(
     name = "globals_test",
     targets = [":uses_globals"],
+)
+
+# keep
+ts_compile(
+    name = "source_globals",
+    srcs = ["uses_globals.ts"],
+    emit = False,
+    tsconfig = "tsconfig.globals.json",
+    deps = [":generated_globals"],
+)
+
+# keep
+ts_compile(
+    name = "generated_source",
+    srcs = [":generated_ts"],
+    emit = False,
+)
+
+# keep
+ts_test(
+    name = "generated_source_runs_without_emit_test",
+    srcs = ["generated_source.test.ts"],
+    emit = False,
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        ":generated_source",
+        "@npm//:vitest",
+    ],
 )

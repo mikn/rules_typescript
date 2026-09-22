@@ -83,7 +83,10 @@ ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
            → TsLint validation action (.tslint stamp in _validation) when the
              root module's ts.lint() names a linter
 
-.d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source;
+.d.ts = the default compilation boundary. With `emit = False`, a program
+retains TypeScript sources and validation without JavaScript or declaration
+emission; source-capable runners transform those inputs. Downstream emitted
+programs otherwise see .d.ts, not .ts source;
 a ts_test under the target's tsconfig is the exception, one program with the
 compile over the .ts (docs/rules/ts-test.md § The Test's Program).
 Change implementation without changing .d.ts → no downstream recompilation.
@@ -91,7 +94,7 @@ Change implementation without changing .d.ts → no downstream recompilation.
 The strict-deps check is the tsgo action's: tests/strict_deps pins the manifest
 it reads, and //tests/integration:new_project_test the failing build.
 
-The rule has three attributes: srcs, deps, tsconfig. Every compiler option is
+The rule takes srcs, deps, tsconfig, node_modules and emit. Every compiler option is
 the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 (//ts:declarations, //ts:source_map, //ts:declaration_map, //ts:lib_check);
 //ts:checkers sizes tsgo's threads and the cpus its two actions declare.

@@ -25,12 +25,12 @@ flags in `.bazelrc`. Every compiler option is the tsconfig's.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | The package's files: TypeScript is compiled, JavaScript and declarations join the program, every other file is staged as data. See [Sources](#sources) |
+| `emit` | `bool` | `True` | Set `False` to publish TypeScript sources for transforming consumers, with validation retained and no JS or declaration emission. |
 | `deps` | `label_list` | `[]` | `ts_compile`, `ts_codegen` or `ts_npm_package` targets, and a workspace member's link target `//<importer>:node_modules/<name>` |
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
 | `node_modules` | `label` | `None` | The `node_modules` target of the nearest lockfile importer at or above the package: the chain a direct npm dep resolves along. Required when the closure holds an npm package; Gazelle writes it. See [The node_modules Chain](#the-node_modules-chain) |
 
-Those are the four. Everything else is a build flag, one value for the whole
-build:
+Emission settings otherwise use build flags, one value for the whole build:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -43,6 +43,25 @@ build:
 
 A target that has to be built under another value of one of these is reached
 through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
+
+### Source-only programs
+
+`emit = False` keeps tsgo checking in `_validation` but publishes the program's
+TypeScript files instead of emitting JavaScript or declarations. Use it on
+both the library and its Vitest `ts_test` to keep declaration emission out of
+the test path. The original package manifest is retained; its exports must
+name files present in the source package. Workspace members keep their own
+npm dependency resolutions.
+
+Vitest and the OJ backend of `ts_dev_server` can transform these inputs. Set
+`emit = False` on the application and its source-native library dependencies;
+the server consumes their source closure while tsgo validation runs separately.
+OJ transforms on demand and needs no pre-emitted application JavaScript or
+declarations. Installed npm packages and optional server plugins keep their
+own runtime formats. `ts_binary` and the Node test runner reject
+source-only dependency closures, including sources behind an emitted workspace
+member. Bundled binary support is not enabled by this option. Existing programs
+default to `emit = True`.
 
 ### Sources
 

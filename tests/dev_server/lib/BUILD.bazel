@@ -10,3 +10,10 @@ ts_compile(
     srcs = ["index.ts"],
     visibility = ["//visibility:public"],
 )
+
+# keep
+ts_compile(
+    name = "source_lib",
+    srcs = ["index.ts"],
+    emit = False,
+)

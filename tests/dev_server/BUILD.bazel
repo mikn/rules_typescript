@@ -121,6 +121,22 @@ ts_dev_server(
     vite_config = "user_config_relative.mjs",
 )
 
+# keep
+ts_compile(
+    name = "source_app",
+    srcs = ["dev_app.ts"],
+    emit = False,
+    deps = ["//tests/dev_server/lib:source_lib"],
+)
+
+# keep
+ts_dev_server(
+    name = "dev_oj_source",
+    entry_point = ":source_app",
+    node_modules = ":node_modules",
+    port = 5184,
+)
+
 ts_dev_server(
     name = "dev_oj",
     entry_point = ":dev_app",
@@ -174,6 +190,7 @@ ts_dev_server(
     for target, port, bazel_plugin, react_refresh, user_config, impl in [
         ("dev", "5173", "0", "0", "0", "vite"),
         ("dev_oj", "5179", "0", "0", "0", "oj"),
+        ("dev_oj_source", "5184", "0", "0", "0", "oj"),
         ("dev_oj_with_plugin", "5182", "1", "0", "0", "oj"),
         ("dev_with_plugin", "5174", "1", "0", "0", "vite"),
         ("dev_with_react_refresh", "5175", "0", "1", "0", "vite"),
