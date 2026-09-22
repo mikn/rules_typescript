@@ -17,6 +17,7 @@ load("//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "leaf",
     srcs = ["index.ts"],
+    emit = True,  # keep
     tags = ["manual"],
     visibility = ["//visibility:private"],
 )
@@ -24,6 +25,7 @@ ts_compile(
 ts_compile(
     name = "root",
     srcs = ["root.ts"],
+    emit = True,  # keep
     tags = ["manual"],
     visibility = ["//tests/lsp:__pkg__"],
     deps = [":leaf"],

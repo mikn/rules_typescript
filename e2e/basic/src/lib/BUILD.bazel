@@ -6,6 +6,7 @@ ts_compile(
         "index.ts",
         "math.ts",
     ],
+    emit = True,  # keep
     node_modules = "//:node_modules",
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
@@ -14,6 +15,7 @@ ts_compile(
 ts_test(
     name = "lib_test",
     srcs = ["math.test.ts"],
+    emit = True,  # keep
     node_modules = "//:node_modules",
     tsconfig = ":tsconfig",
     deps = [

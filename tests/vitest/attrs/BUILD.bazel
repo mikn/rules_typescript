@@ -26,6 +26,7 @@ ts_test(
     srcs = ["attrs.test.ts"],
     config = "vitest.config.mts",
     coverage_provider = "v8",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.vitest.json",
     visibility = ["//:__pkg__"],

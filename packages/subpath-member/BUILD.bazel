@@ -12,5 +12,6 @@ ts_compile(
         "package.json",
         "src/value.ts",
     ],
+    emit = True,  # keep
     visibility = ["//visibility:public"],
 )

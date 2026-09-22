@@ -10,6 +10,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
 # One file through oxc-bazel, which the ruleset's own hub builds.
 ts_compile(
     name = "hello",
+    emit = True,
     srcs = ["src/hello.ts"],
 )
 
@@ -21,6 +22,7 @@ ts_config(
 
 ts_compile(
     name = "hello_commonjs",
+    emit = True,
     srcs = ["src/commonjs.ts"],
     tsconfig = ":commonjs_config",
 )

@@ -11,6 +11,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
 ts_compile(
     name = "app",
     srcs = ["src/app/index.ts"],
+    emit = True,  # keep
     visibility = ["//visibility:public"],
 )
 

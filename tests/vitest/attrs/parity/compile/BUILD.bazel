@@ -5,6 +5,7 @@ load("//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "parity_compile",
     srcs = ["parity.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     visibility = ["//tests/vitest/attrs:__pkg__"],
     deps = ["@npm//:vitest"],

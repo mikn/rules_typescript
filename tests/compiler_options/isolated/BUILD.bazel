@@ -20,12 +20,14 @@ ts_config(
 ts_compile(
     name = "annotated",
     srcs = ["annotated.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
 )
 
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
     deps = [":annotated"],
 )

@@ -198,6 +198,7 @@ chain_test(
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = ["@npm//:zod"],
 )
@@ -220,6 +221,7 @@ chain_test(
 ts_compile(
     name = "direct_types_probe",
     srcs = ["direct_types_probe.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = ["@npm//:types_node"],
 )
@@ -227,6 +229,7 @@ ts_compile(
 ts_compile(
     name = "transitive_types_probe",
     srcs = ["transitive_types_probe.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = ["@npm//:vite"],
 )
@@ -266,6 +269,7 @@ chain_test(
 ts_compile(
     name = "paired_types_probe",
     srcs = ["paired_types_probe.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = ["@npm//:culori"],
 )
@@ -280,6 +284,7 @@ build_test(
 ts_compile(
     name = "chain_types_probe",
     srcs = ["chain_types_probe.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [
         "@npm//:bun-types",
@@ -346,6 +351,7 @@ go_test(
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [":node_modules/shared"],
 )
@@ -356,6 +362,7 @@ ts_test(
     name = "workspace_runtime_test",
     size = "small",
     srcs = ["workspace_runtime.test.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [
         ":node_modules/shared",
@@ -407,6 +414,7 @@ ts_test(
     name = "by_name_member_test",
     size = "small",
     srcs = ["by_name_member.test.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [
         ":node_modules/by-name-member",
@@ -418,6 +426,7 @@ ts_test(
     name = "by_name_member_node_test",
     size = "small",
     srcs = ["by_name_member_node.test.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     runner = "//ts/runners:node_test",
     deps = [
@@ -462,6 +471,7 @@ go_test(
 ts_compile(
     name = "ws_linked_consumer",
     srcs = ["ws_linked_consumer.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm/features:node_modules",
     deps = ["//tests/npm/features:node_modules/ws-linked"],
 )
@@ -471,6 +481,7 @@ ts_compile(
 ts_compile(
     name = "alias_consumer",
     srcs = ["alias_consumer.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm/features:node_modules",
     deps = ["@npm_features//:styles-alias"],
 )

@@ -40,6 +40,7 @@ func main() {
 		Name:         "new_project",
 		WorkspaceRel: "tests/integration/new_project",
 	}, func(it *harness.IT) {
+		it.Write(it.Path("src/app/package.json"), `{"main":"./index.js"}`+"\n")
 		it.MustBazel("run", "//:gazelle")
 		it.Pass("bazel run //:gazelle")
 
@@ -161,17 +162,20 @@ export interface Middle {
 
 ts_compile(
     name = "hidden",
+    emit = True,
     srcs = ["hidden.ts"],
 )
 
 ts_compile(
     name = "leaf",
+    emit = True,
     srcs = ["leaf.ts"],
     deps = [":hidden"],
 )
 
 ts_compile(
     name = "middle",
+    emit = True,
     srcs = ["middle.ts"],
     tsconfig = "tsconfig.json",
     deps = [":leaf"],

@@ -16,6 +16,7 @@ ts_compile(
         "deep/util.ts",
         "lib.ts",
     ],
+    emit = True,  # keep
     tsconfig = "tsconfig.ts_extensions.json",
 )
 
@@ -23,6 +24,7 @@ ts_compile(
 ts_test(
     name = "relative_ts_test",
     srcs = ["relative_ts.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.ts_extensions.json",
     deps = [

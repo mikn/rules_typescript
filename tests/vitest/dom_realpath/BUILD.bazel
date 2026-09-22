@@ -13,6 +13,7 @@ ts_test(
         "fixture.json",
     ],
     config = "vitest.config.mjs",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         "//tests/npm:node_modules/shared",

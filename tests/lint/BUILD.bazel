@@ -29,11 +29,13 @@ ts_compile(
         "clean.ts",
         "types.d.ts",
     ],
+    emit = True,  # keep
 )
 
 ts_test(
     name = "clean_test",
     srcs = ["clean.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         ":clean",

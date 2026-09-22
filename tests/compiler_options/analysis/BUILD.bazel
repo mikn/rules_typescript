@@ -44,6 +44,7 @@ ts_compile(
         "util.js",
         "zroot.ts",
     ],
+    emit = True,  # keep
     tsconfig = "tsconfig.checkjs.json",
 )
 
@@ -70,6 +71,7 @@ baseline_file_test(
 ts_compile(
     name = "over_tsconfig",
     srcs = ["baselined.ts"],
+    emit = True,  # keep
     tsconfig = "silent.tsconfig.json",
 )
 
@@ -90,6 +92,7 @@ ts_config(
 ts_compile(
     name = "derived_resolution",
     srcs = ["derived.ts"],
+    emit = True,  # keep
     tsconfig = ":nodenext_tsconfig",
 )
 
@@ -107,6 +110,7 @@ ts_compile(
         "//tests/compiler_options/subtree:nested/helper.ts",
         "//tests/compiler_options/subtree:root.ts",
     ],
+    emit = True,  # keep
     tags = ["manual"],
 )
 
@@ -148,6 +152,7 @@ go_test(
 ts_compile(
     name = "exported_subpaths",
     srcs = ["exported_subpaths.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["//tests/npm:node_modules/pulse"],
 )
@@ -164,6 +169,7 @@ build_test(
 ts_compile(
     name = "requested_types",
     srcs = ["requested_types.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.requested_types.json",
     deps = [
@@ -186,6 +192,7 @@ ts_compile(
         "type_roots/local-types/index.d.ts",
         "types_under_type_roots.ts",
     ],
+    emit = True,  # keep
     tsconfig = "tsconfig.type_roots.json",
 )
 
@@ -205,11 +212,13 @@ genrule(
 ts_compile(
     name = "generated_ambient",
     srcs = ["generated_in_srcs.d.ts"],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "generated_type_file",
     srcs = ["generated_dep_consumer.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.generated_types.json",
     deps = [":generated_ambient"],
 )
@@ -226,6 +235,7 @@ ts_compile(
         "generated_in_srcs.d.ts",
         "generated_own_consumer.ts",
     ],
+    emit = True,  # keep
     tsconfig = "tsconfig.generated_types.json",
 )
 
@@ -240,6 +250,7 @@ build_test(
 ts_compile(
     name = "lone",
     srcs = ["lone.ts"],
+    emit = True,  # keep
     tags = ["manual"],
 )
 
@@ -262,6 +273,7 @@ ts_compile(
         "lone.ts",
         ":gen_ts",
     ],
+    emit = True,  # keep
     tags = ["manual"],
 )
 
@@ -273,6 +285,7 @@ mixed_source_roots_test(
 ts_compile(
     name = "jsx_source",
     srcs = ["widget.jsx"],
+    emit = True,  # keep
     tags = ["manual"],
 )
 

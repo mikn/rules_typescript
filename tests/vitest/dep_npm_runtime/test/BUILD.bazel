@@ -7,6 +7,7 @@ load(":tree_tests.bzl", "runtime_is_the_chain_test")
 ts_test(
     name = "test_test",
     srcs = ["lib.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         "//tests/vitest/dep_npm_runtime",

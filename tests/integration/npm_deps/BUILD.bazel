@@ -25,5 +25,6 @@ exports_files(["oxlint.json"])
 ts_compile(
     name = "violations",
     srcs = ["lint_fixture/violations.ts"],
+    emit = True,  # keep
     tags = ["manual"],
 )

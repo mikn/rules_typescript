@@ -13,11 +13,13 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "mapped",
     srcs = ["mapped.ts"],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "unmapped",
     srcs = ["unmapped.ts"],
+    emit = True,  # keep
 )
 
 # tsgo's emit, moved from TsEmit's scratch outDir; oxc writes mapped.js.map.
@@ -30,6 +32,7 @@ ts_config(
 ts_compile(
     name = "commonjs",
     srcs = ["commonjs.ts"],
+    emit = True,  # keep
     tsconfig = ":commonjs_tsconfig",
 )
 

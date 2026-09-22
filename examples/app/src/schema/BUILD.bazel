@@ -6,6 +6,7 @@ ts_compile(
         "index.ts",
         "user.ts",
     ],
+    emit = True,
     node_modules = "//:node_modules",
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],

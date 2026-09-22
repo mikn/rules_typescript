@@ -30,12 +30,14 @@ load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 ts_compile(
     name = "base_one",
     srcs = ["base_one.ts"],
+    emit = True,  # keep
     tsconfig = "one.tsconfig.json",
 )
 
 ts_compile(
     name = "base_two",
     srcs = ["base_two.ts"],
+    emit = True,  # keep
     tsconfig = "two.tsconfig.json",
 )
 
@@ -57,12 +59,14 @@ baseline_conflict_test(
 ts_compile(
     name = "params",
     srcs = ["params.ts"],
+    emit = True,  # keep
     tsconfig = "two.tsconfig.json",
 )
 
 ts_compile(
     name = "fallthrough",
     srcs = ["fallthrough.ts"],
+    emit = True,  # keep
     tsconfig = "two.tsconfig.json",
 )
 

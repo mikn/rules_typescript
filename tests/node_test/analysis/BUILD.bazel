@@ -12,6 +12,7 @@ ts_test(
     srcs = ["attrs.test.ts"],
     config = "//tests/workers_nested:vitest_config",
     coverage_provider = "istanbul",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     tags = ["manual"],

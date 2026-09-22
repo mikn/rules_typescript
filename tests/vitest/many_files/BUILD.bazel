@@ -26,6 +26,7 @@ ts_test(
     name = "many_files_test",
     srcs = [":tests"],
     config = "vitest.config.mjs",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )
@@ -36,6 +37,7 @@ ts_test(
     srcs = ["one.test.ts"],
     config = "vitest.config.mjs",
     data = [":tests"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

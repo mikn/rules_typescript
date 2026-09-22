@@ -11,6 +11,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "awaits",
     srcs = ["awaits.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.es2020.json",
 )
 

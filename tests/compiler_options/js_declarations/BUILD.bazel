@@ -36,11 +36,13 @@ ts_compile(
         "legacy.d.cts",
         "typed.ts",
     ],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.consumer.json",
     deps = [":types_only"],
 )
@@ -54,6 +56,7 @@ ts_compile(
         "legacy.d.cts",
         "main.ts",
     ],
+    emit = True,  # keep
 )
 
 passes_declarations_through_test(

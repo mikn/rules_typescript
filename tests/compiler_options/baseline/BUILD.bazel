@@ -23,6 +23,7 @@ ts_config(
 ts_compile(
     name = "loose",
     srcs = ["loose.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
 )
 
@@ -31,6 +32,7 @@ ts_compile(
 ts_compile(
     name = "loose_check_only",
     srcs = ["loose_check_only.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
 )
 
@@ -60,6 +62,7 @@ ts_config(
 ts_compile(
     name = "nodenext",
     srcs = ["nodenext.ts"],
+    emit = True,  # keep
     tsconfig = ":nodenext_tsconfig",
 )
 
@@ -67,6 +70,7 @@ ts_compile(
 ts_compile(
     name = "nodenext_check_only",
     srcs = ["nodenext_check_only.ts"],
+    emit = True,  # keep
     tsconfig = ":nodenext_tsconfig",
 )
 
@@ -97,6 +101,7 @@ ts_compile(
         "ts_ext_helper.ts",
         "ts_ext_main.ts",
     ],
+    emit = True,  # keep
     tsconfig = ":ts_extensions_tsconfig",
 )
 

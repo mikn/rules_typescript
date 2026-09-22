@@ -22,6 +22,7 @@ load(":instrumentation_tests.bzl", "selects_both_packages_test", "selects_nothin
 ts_compile(
     name = "same_package",
     srcs = ["same_package.ts"],
+    emit = True,  # keep
 )
 
 # math.test.ts is duplicated from //tests/vitest rather than shared: Bazel does
@@ -30,6 +31,7 @@ ts_compile(
 ts_test(
     name = "math_coverage_test",
     srcs = ["math.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     visibility = ["//:__pkg__"],
     deps = [

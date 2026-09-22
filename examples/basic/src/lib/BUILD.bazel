@@ -9,6 +9,7 @@ ts_compile(
         "index.ts",
         "math.ts",
     ],
+    emit = True,
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
 )

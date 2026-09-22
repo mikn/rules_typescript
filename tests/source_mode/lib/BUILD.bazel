@@ -8,6 +8,5 @@ ts_compile(
         "library.ts",
         "package.json",
     ],
-    emit = False,
     visibility = ["//tests/source_mode:__subpackages__"],
 )

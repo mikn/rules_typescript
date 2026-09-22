@@ -4,5 +4,6 @@ load("//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "lib",
     srcs = ["math.ts"],
+    emit = True,  # keep
     visibility = ["//visibility:public"],
 )

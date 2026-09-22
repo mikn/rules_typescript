@@ -13,6 +13,7 @@ ts_compile(
         "entry.ts",
         "styles.css",
     ],
+    emit = True,  # keep
 )
 
 # Tailwind loads these packages by bare specifier beside the staged config.
@@ -31,6 +32,7 @@ node_modules(
 ts_compile(
     name = "tailwind_config",
     srcs = ["tailwind_config.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [
         "@npm_tailwind//:tailwindcss_vite",

@@ -19,6 +19,7 @@ node_modules(
 ts_compile(
     name = "root_regex",
     srcs = ["root_regex.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     tags = ["manual"],
     deps = ["@npm_features//:ansi-regex"],

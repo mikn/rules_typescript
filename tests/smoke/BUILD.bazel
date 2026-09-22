@@ -10,6 +10,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "hello",
     srcs = ["hello.ts"],
+    emit = True,  # keep
 )
 
 ts_compile(
@@ -18,6 +19,7 @@ ts_compile(
         "Button.tsx",
         "jsx-shim.d.ts",
     ],
+    emit = True,  # keep
 )
 
 filegroup(

@@ -77,6 +77,8 @@ func isLiteralAttrValue(e bzl.Expr) bool {
 	switch v := e.(type) {
 	case nil:
 		return true
+	case *bzl.Ident:
+		return v.Name == "True" || v.Name == "False"
 	case *bzl.StringExpr:
 		return true
 	case *bzl.ListExpr:

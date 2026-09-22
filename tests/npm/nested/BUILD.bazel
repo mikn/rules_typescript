@@ -21,6 +21,7 @@ node_modules_member(
 ts_compile(
     name = "nested_workspace_consumer",
     srcs = ["nested_workspace_consumer.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [":node_modules/nested-shared"],
 )
@@ -36,6 +37,7 @@ node_modules_member(
 ts_compile(
     name = "hoisted_member_consumer",
     srcs = ["hoisted_member_consumer.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     deps = [":node_modules/hoisted-member"],
 )

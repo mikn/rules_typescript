@@ -31,7 +31,7 @@ fi
 # TsInfo runs from `TsInfo = provider(` to the closing paren at column 0; a
 # field is an 8-space-indented quoted key at that depth.
 printf '%s\n' data declarations js js_maps manifest npm_files npm_packages \
-  owners runtime_sources sources transitive_data transitive_es_twins transitive_js \
+  owners runtime_source_owners runtime_sources sources transitive_data transitive_es_twins transitive_js \
   transitive_js_maps transitive_runtime_sources tsconfig > "${want}"
 sed -n '/^TsInfo = provider($/,/^)$/p' "${PROVIDERS}" \
   | sed -n 's/^        "\([a-z_]*\)": .*/\1/p' \

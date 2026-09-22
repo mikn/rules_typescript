@@ -23,6 +23,7 @@ ts_compile(
         "nested/helper.ts",
         "root.ts",
     ],
+    emit = True,  # keep
 )
 
 filegroup(

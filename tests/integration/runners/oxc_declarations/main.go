@@ -9,6 +9,9 @@ func main() {
 		Name:         "oxc_declarations",
 		WorkspaceRel: "tests/integration/oxc_declarations",
 	}, func(it *harness.IT) {
+		it.Write(it.Path("src/lib/package.json"), `{"main":"./annotated.js"}`+"\n")
+		it.Write(it.Path("src/bad/package.json"), `{"main":"./inferred.js"}`+"\n")
+		it.Write(it.Path("src/expando/package.json"), `{"main":"./expando.js"}`+"\n")
 		gz, err := it.BazelLog("gazelle.log", "run", "//:gazelle")
 		if err != nil {
 			gz.Dump()

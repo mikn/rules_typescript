@@ -139,6 +139,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		}
 	}
 
+	tc.programs.recordEmissionConsumers(c.RepoRoot, rel, f)
+	tc.programs.emission.lock = tc.lock
 	currentDir := filepath.Join(c.RepoRoot, rel)
 	// pnpm installs nothing for a package.json the lockfile has no importer
 	// for, so the project under it is foreign; an importer below ends that.

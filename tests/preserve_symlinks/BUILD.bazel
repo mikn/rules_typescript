@@ -25,6 +25,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "bindings",
     srcs = ["bindings.d.ts"],
+    emit = True,  # keep
 )
 
 # The shape the monorepo trial failed in: a wrangler-generated
@@ -32,6 +33,7 @@ ts_compile(
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.bindings.json",
     deps = [":bindings"],
 )

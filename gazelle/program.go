@@ -33,6 +33,7 @@ type program struct {
 // One run's listings, one store every directory's config shares: the packages
 // and their first-party files, each walked directory's files, the chains.
 type programStore struct {
+	emission          *emissionGraph
 	tsgoFlag          string
 	verbose           bool
 	tsgo              string

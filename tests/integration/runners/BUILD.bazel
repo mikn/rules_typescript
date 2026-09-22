@@ -55,7 +55,10 @@ _RUNNERS = [
         testonly = True,
         srcs = ["%s/main.go" % name],
         visibility = ["//tests/integration:__subpackages__"],
-        deps = ["//tests/integration/harness"],
+        deps = ["//tests/integration/harness"] + ([
+            "@com_github_bazelbuild_buildtools//build",
+            "@gazelle//rule",
+        ] if name == "gazelle_roundtrip" else []),
     )
     for name in _RUNNERS
 ]

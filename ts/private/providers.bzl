@@ -19,6 +19,7 @@ store; a workspace member's hub view forwards the member's.
         "js": "depset of File: the .js this target produces -- compiled " +
               "output and JavaScript srcs staged as-is.",
         "runtime_sources": "depset of File: directly published TypeScript runtime inputs.",
+        "runtime_source_owners": "depset of string: target labels requiring emit=True for a built-output consumer, including workspace members.",
         "transitive_runtime_sources": "depset of File: source-mode runtime inputs in the dependency closure, using store artifacts for npm members.",
         "js_maps": "depset of File: the .js.map beside them.",
         "declarations": "depset of File: the .d.ts this target produces and " +
@@ -119,6 +120,7 @@ def ts_info(
         js = js,
         js_maps = js_maps,
         runtime_sources = runtime_sources,
+        runtime_source_owners = depset([label_text(label)] if label and runtime_sources else []),
         transitive_runtime_sources = _or_direct(transitive_runtime_sources, runtime_sources),
         declarations = declarations,
         data = data,
@@ -335,3 +337,11 @@ Mode 2 — Generated config (use_generated_config = True):
         "use_generated_config": "bool: When True, ts_binary generates a vite.config.mjs and invokes bundler_binary in mode 2. Default False.",
     },
 )
+
+def require_emitted(consumer, info, requirement):
+    if not info.transitive_runtime_sources:
+        return
+
+    # Only the failure path materialises labels to identify the targets to fix.
+    owners = info.runtime_source_owners.to_list()
+    fail("{}: {} requires emitted JavaScript or declarations from {}. Set emit = True on those targets, or use a source-native consumer.".format(consumer, requirement, ", ".join(owners)))
