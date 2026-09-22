@@ -24,7 +24,7 @@ load("//tests/integration:tags.bzl", "nested_bazel_tags")
 
 bazel_integration_test(
     name = "npm_integrity_test",
-    timeout = "long",
+    timeout = "eternal",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],

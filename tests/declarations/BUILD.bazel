@@ -1,0 +1,59 @@
+"""A leaf runs TsgoCheck alone; TsgoDeclare emits the declarations where a
+dependent's compile reads them, or on request through the output group."""
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+load(
+    ":declarations_tests.bzl",
+    "check_reads_the_dep_declarations_test",
+    "leaf_declares_on_demand_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+# Two go_tests over one package, each with its own data: hand-named.
+# gazelle:exclude *_test.go
+
+ts_compile(
+    name = "lib",
+    srcs = ["lib.ts"],
+)
+
+ts_compile(
+    name = "app",
+    srcs = ["app.ts"],
+    deps = [":lib"],
+)
+
+leaf_declares_on_demand_test(
+    name = "leaf_declares_on_demand_test",
+    target_under_test = ":lib",
+)
+
+check_reads_the_dep_declarations_test(
+    name = "check_reads_the_dep_declarations_test",
+    dep = ":lib",
+    target_under_test = ":app",
+)
+
+filegroup(
+    name = "lib_declarations",
+    srcs = [":lib"],
+    output_group = "declarations",
+)
+
+go_test(
+    name = "default_outputs_test",
+    size = "small",
+    srcs = ["default_outputs_test.go"],
+    data = [":lib"],
+    deps = ["//tests/verify"],
+)
+
+go_test(
+    name = "on_request_test",
+    size = "small",
+    srcs = ["on_request_test.go"],
+    data = [":lib_declarations"],
+    deps = ["//tests/verify"],
+)

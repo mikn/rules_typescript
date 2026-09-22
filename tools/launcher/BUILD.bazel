@@ -1,4 +1,11 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//platforms:platforms.bzl", "constraints")
+load(
+    "//ts/private:toolchain.bzl",
+    "LAUNCHER_TOOLCHAIN_TYPE",
+    "TSGO_PLATFORMS",
+    "launcher_toolchain",
+)
 
 go_library(
     name = "launcher",
@@ -8,22 +15,23 @@ go_library(
         "exec_other.go",
         "exec_unix.go",
         "main.go",
-        "next.go",
         "node.go",
+        "nodetest.go",
         "plan.go",
+        "reads.go",
         "resolve.go",
         "run.go",
         "vitest.go",
-        "wrangler.go",
     ],
     importpath = "github.com/mikn/rules_typescript/tools/launcher",
     visibility = ["//visibility:public"],
-    deps = ["@rules_go//go/runfiles"],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
 )
 
 go_binary(
     name = "ts_launcher",
     embed = [":launcher"],
+    pure = "on",
     visibility = ["//visibility:public"],
 )
 
@@ -31,13 +39,30 @@ go_test(
     name = "launcher_test",
     srcs = [
         "config_test.go",
-        "next_test.go",
+        "nodetest_test.go",
         "plan_test.go",
+        "reads_test.go",
         "resolve_test.go",
-        "wrangler_test.go",
     ],
     # keep: this package's library is `launcher`, not the `launcher_lib` the Go
     # naming convention picks for a main package.
     embed = [":launcher"],
-    deps = ["@rules_go//go/runfiles"],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
 )
+
+launcher_toolchain(
+    name = "source_launcher",
+    launcher = ":ts_launcher",
+    visibility = ["//visibility:public"],
+)
+
+[
+    toolchain(
+        name = "source_toolchain_" + platform,
+        target_compatible_with = constraints(platform),
+        toolchain = ":source_launcher",
+        toolchain_type = LAUNCHER_TOOLCHAIN_TYPE,
+        visibility = ["//visibility:public"],
+    )
+    for platform in TSGO_PLATFORMS
+]

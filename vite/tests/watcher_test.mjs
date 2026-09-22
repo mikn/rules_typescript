@@ -1,19 +1,3 @@
-/**
- * watcher_test.mjs — the HMR watcher of the bundle a dev server actually loads.
- *
- *   node watcher_test.mjs <vite_plugin_bazel.mjs>
- *
- * Both watch paths are exercised: Vite's own `server.watcher` (what the plugin
- * injects) and the node:fs.watch fallback, against real files on disk. The
- * fallback case is what caught `import('chokidar')` — chokidar is bundled inside
- * Vite's dist, so it never resolved and every rebuild was silently ignored.
- *
- * The plugin-level tests model one more thing about Vite that a plugin can get
- * silently wrong: a function returned from `configureServer` is a POST HOOK,
- * which Vite CALLS as soon as its internal middlewares are installed. So the
- * fake server calls it, the way Vite does.
- */
-
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,7 +10,7 @@ if (!bundlePath || !fs.existsSync(bundlePath)) {
   process.exit(1);
 }
 
-const { BazelWatcher, bazelPlugin, bazelPathToModuleId } = await import(
+const { BazelWatcher, ConfigWatcher, bazelPlugin, bazelPathToModuleId } = await import(
   pathToFileURL(bundlePath).href
 );
 
@@ -118,7 +102,9 @@ function fakeDevServer(watcher) {
     },
     config: { root: tmpRoot, logger },
     moduleGraph: {
-      getModulesByFile: (file) => new Set([{ file }]),
+      getModulesByFile: (file) => file.startsWith(tmpRoot + path.sep)
+        ? new Set([{ file, url: "/@fs" + file }])
+        : undefined,
       invalidateModule: (mod) => invalidated.push(mod.file),
       invalidateAll: () => invalidated.push('*'),
     },
@@ -175,19 +161,10 @@ const NO_FS_EVENTS = 'recursive fs.watch delivered no events in this environment
 const ARM_SENTINEL = '__arm__.js';
 const ARM_DEADLINE_MS = 30000;
 
-/**
- * Start `watcher` and return only once its fs.watch is delivering events.
- *
- * `fs.watch` returns before the OS has armed the watch. On macOS recursive mode
- * is FSEvents, armed on a run loop, and a write landing before the stream
- * exists is dropped rather than delivered late -- so a burst issued straight
- * after start() can be lost whole and no deadline recovers it. Writing a
- * sentinel until one comes back is the only way to know the stream is live.
- * `batches` is left empty and quiescent, so the caller asserts on its own
- * writes alone.
- */
-async function startArmed(watcher, bin, batches, debounceMs) {
-  await watcher.start();
+// Darwin FSEvents can drop writes before its run loop arms the stream.
+// Observe a real sentinel event before testing subsequent filesystem changes.
+async function startArmed(start, bin, batches, debounceMs) {
+  const result = await start();
   const sentinel = path.join(bin, ARM_SENTINEL);
   const deadline = Date.now() + ARM_DEADLINE_MS;
   for (let n = 0; batches.length === 0; n += 1) {
@@ -209,6 +186,7 @@ async function startArmed(watcher, bin, batches, debounceMs) {
     await sleep(Math.max(debounceMs * 2, 200));
   }
   batches.length = 0;
+  return result;
 }
 
 // ── The fs.watch fallback: real files, real events ───────────────────────────
@@ -223,7 +201,7 @@ test('fs.watch fallback reports a newly written .js file', async () => {
     onRebuild: (changed) => batches.push([...changed]),
   });
 
-  await startArmed(watcher, bin, batches, 20);
+  await startArmed(() => watcher.start(), bin, batches, 20);
   try {
     fs.writeFileSync(path.join(bin, 'app.js'), 'export const a = 1;\n');
     await waitUntil('the first rebuild batch', () => batches.length > 0);
@@ -247,7 +225,7 @@ test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', as
     onRebuild: (changed) => batches.push([...changed].sort()),
   });
 
-  await startArmed(watcher, bin, batches, debounceMs);
+  await startArmed(() => watcher.start(), bin, batches, debounceMs);
   try {
     fs.mkdirSync(path.join(bin, 'app'), { recursive: true });
     fs.writeFileSync(path.join(bin, 'a.js'), '1');
@@ -291,7 +269,7 @@ test('fs.watch fallback stops reporting after stop()', async () => {
 
   // Armed first: an unarmed watcher reports nothing either, and would pass
   // this without stop() having done anything.
-  await startArmed(watcher, bin, batches, 20);
+  await startArmed(() => watcher.start(), bin, batches, 20);
   await watcher.stop();
   fs.writeFileSync(path.join(bin, 'late.js'), '1');
   await sleep(300);
@@ -343,26 +321,52 @@ test('start() rejects with an actionable message when bazel-bin is missing', asy
 
 // ── The plugin end to end ────────────────────────────────────────────────────
 
-test('configureServer wires the watcher to server.watcher and sends HMR updates', async () => {
+test('nested manual configs resolve tool paths from the selected workspace', () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'nested-config-'));
+  const appRoot = path.join(workspaceRoot, 'app');
+  fs.mkdirSync(appRoot);
+  const importer = path.join(appRoot, 'entry.ts');
+  fs.writeFileSync(importer, 'import "./generated.js";');
+  for (const options of [
+    { workspaceRoot, nodeModules: 'node_modules' },
+    { workspaceRoot, bazelBin: 'out', nodeModules: 'deps' },
+    { nodeModules: 'node_modules' },
+  ]) {
+    const base = options.workspaceRoot ?? appRoot;
+    const bin = path.join(base, options.bazelBin ?? 'bazel-bin');
+    const generated = path.join(bin, path.relative(base, appRoot), 'generated.js');
+    fs.mkdirSync(path.dirname(generated), { recursive: true });
+    fs.writeFileSync(generated, 'export const generated = true;');
+    const plugin = bazelPlugin(options);
+    const config = plugin.config({ root: appRoot }, { command: 'serve', mode: 'development' });
+    assert(config.server.fs.allow.includes(bin));
+    assert(config.server.fs.allow.includes(path.join(base, options.nodeModules)));
+    plugin.configResolved({ root: appRoot, logger: { info() {} } });
+    assert.equal(plugin.resolveId.handler('./generated.js', importer), generated);
+  }
+});
+
+test('configureServer owns its watcher and sends HMR updates', async () => {
   const bin = newBazelBin();
   const source = fakeViteWatcher();
   const server = fakeDevServer(source);
   const plugin = bazelPlugin({ bazelBin: bin, hmrDebounceMs: 20 });
 
   plugin.configResolved(server.config);
-  const post = await installPlugin(plugin, server);
+  const post = await startArmed(() => installPlugin(plugin, server), bin, server.sent, 20);
 
   assert.equal(post, undefined, 'configureServer must return nothing: Vite calls what it returns');
-  assert.deepEqual(source.added, [bin], 'the plugin must ride on server.watcher');
+  assert.deepEqual(source.added, [], 'the plugin does not depend on the server watcher');
 
   const changed = path.join(bin, 'app', 'page.js');
-  source.emit('change', changed);
+  fs.mkdirSync(path.dirname(changed), { recursive: true });
+  fs.writeFileSync(changed, 'export const page = 1;');
   await waitUntil('an HMR update on the wire', () => server.sent.length > 0);
 
   assert.equal(server.sent[0].type, 'update');
   assert.deepEqual(
     server.sent[0].updates.map((u) => u.path),
-    [bazelPathToModuleId(changed, bin)],
+    ["/@fs" + changed],
   );
   assert.deepEqual(server.warnings, []);
 
@@ -414,24 +418,44 @@ test('a changed config input restarts the server, a codegen rebuild does not', a
   });
 
   plugin.configResolved(server.config);
-  await installPlugin(plugin, server);
-  assert.ok(source.added.includes(configPath), 'the config input must be watched');
+  await startArmed(() => installPlugin(plugin, server), bin, server.sent, 20);
+  assert.deepEqual(source.added, []);
 
   // A rebuild that only rewrote generated code: the running server is still
   // configured for the graph it has.
   fs.writeFileSync(codegen, 'export const routes = [1, 2];\n');
-  source.emit('change', codegen);
   await waitUntil('the HMR update for the codegen rebuild', () => server.sent.length > 0);
   await sleep(200);
   assert.equal(server.restarts, 0, 'a codegen-only rebuild must not restart Vite');
 
   // A rebuild that rewrote the config: the graph it describes is gone.
-  fs.writeFileSync(configPath, '// v2 — new aliases\n');
-  source.emit('change', configPath);
+  fs.writeFileSync(configPath + '.tmp', '// v2 — new aliases\n');
+  fs.renameSync(configPath + '.tmp', configPath);
   await waitUntil('the restart', () => server.restarts > 0);
   assert.match(server.infos.join('\n'), /restarting: the generated vite config/);
 
   plugin.closeBundle();
+  const restarts = server.restarts;
+  fs.writeFileSync(configPath, '// after stop\n');
+  await sleep(100);
+  assert.equal(server.restarts, restarts);
+});
+
+test('config watcher closes earlier directory watches when startup fails', async () => {
+  const bin = newBazelBin();
+  const config = path.join(bin, 'config.mjs');
+  fs.writeFileSync(config, 'before');
+  let changes = 0;
+  const watcher = new ConfigWatcher({
+    inputs: [config, path.join(bin, 'missing', 'config.mjs')].map((file) => ({
+      label: file, path: file, digest: 'content', remedy: 'restart',
+    })),
+    onStale: () => changes++,
+  });
+  await assert.rejects(() => watcher.start(), /ENOENT/);
+  fs.writeFileSync(config, 'after');
+  await sleep(100);
+  assert.equal(changes, 0);
 });
 
 test('a config input a restart cannot fix says so', async () => {
@@ -453,7 +477,6 @@ test('a config input a restart cannot fix says so', async () => {
   await installPlugin(plugin, server);
 
   fs.writeFileSync(npmTree, '{"version":"7.0.0"}\n');
-  source.emit('change', npmTree);
   await waitUntil('the restart', () => server.restarts > 0);
   assert.match(server.warnings.join('\n'), /re-run `bazel run` on this target/);
 

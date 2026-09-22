@@ -1,0 +1,9 @@
+{
+  "name": "e2e-basic",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}

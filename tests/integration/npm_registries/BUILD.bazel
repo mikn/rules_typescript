@@ -1,0 +1,41 @@
+"""Integration test: fetching npm packages through the registries a workspace's
+settings name.
+
+A pnpm lockfile records no registry. pnpm reads the map from two files, the
+`.npmrc`'s `@scope:registry=` lines and `pnpm-workspace.yaml`'s `registries:`
+block, and takes a credential from the `.npmrc`'s `//host/:_authToken=` line or
+from `PNPM_CONFIG__AUTH`, its `auth` setting. The Starlark tests in //tests/npm
+cover the parsing; this test stands up two throwaway HTTP registries on
+127.0.0.1, maps one scope to each -- one through each file -- and asserts each
+tarball arrives from its registry with its own token on the wire, the
+`.npmrc`'s token expanded from `${ACME_TOKEN}` and the other read from
+`PNPM_CONFIG__AUTH`, which no file names.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy. A real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage -- the sibling tests dodge that with a --deleted_packages entry
+in //.bazelrc instead, which is one more place to remember on every addition.
+
+  bazel test //tests/integration/npm_registries:npm_registries_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "npm_registries_test",
+    timeout = "eternal",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(shard = "npm"),
+    test_runner = "//tests/integration/runners:npm_registries_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

@@ -1,0 +1,23 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -82,3 +82,7 @@
+ pub fn generated_files() -> Vec<std::path::PathBuf> {
+     include!(concat!(env!("OUT_DIR"), "/generated-files.rs"))
+ }
++
++pub fn isle_definitions() -> &'static str {
++    include_str!(concat!(env!("OUT_DIR"), "/assembler-definitions.isle"))
++}
+diff --git a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
+@@ -20,7 +20,7 @@
+     let mut vec_of_built_files = File::create(out_dir.join("generated-files.rs")).unwrap();
+     writeln!(vec_of_built_files, "vec![").unwrap();
+     for file in &built_files {
+-        writeln!(vec_of_built_files, "  {:?}.into(),", file.display()).unwrap();
++        writeln!(vec_of_built_files, "  {:?}.into(),", file.strip_prefix(out_dir).unwrap().display()).unwrap();
+     }
+     writeln!(vec_of_built_files, "]").unwrap();
+ }

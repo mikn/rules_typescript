@@ -99,8 +99,8 @@ export class BazelWatcher {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `cannot watch ${this.bazelBin} with node:fs.watch (${detail}). Pass Vite's ` +
-          'server.watcher as the `source` option — recursive fs.watch needs Node 20+ on Linux.',
+        `cannot watch ${this.bazelBin} with node:fs.watch (${detail}); ` +
+          'recursive watching requires Node 20+ on Linux.',
       );
     }
   }
@@ -178,35 +178,20 @@ export type StaleCallback = (changed: ConfigInput[]) => void;
 export interface ConfigWatcherOptions {
   inputs: ConfigInput[];
   onStale: StaleCallback;
-  /** Vite's `server.watcher`; without it nothing is watched. */
-  source?: WatchSource;
   /** Quiet period before the fingerprint is recomputed (default 50 ms). */
   debounceMs?: number;
 }
 
-/**
- * Watches the inputs that generated the running Vite config.
- *
- * Vite restarts itself when its own config file changes, but it has no concept
- * of the thing that GENERATES that config — natively nothing does. Under Bazel
- * something does: `ts_dev_server` regenerates the config from BUILD deps,
- * module_name aliases, the entry point and the npm tree. A rebuild that changes
- * any of those means the running server is configured for a graph that no
- * longer exists; a rebuild that only rewrites `ts_codegen` output means it is
- * still correct and HMR handles it.
- *
- * Content digests, not timestamps, decide which of the two happened: Bazel
- * rewrites outputs on every action, so an mtime says nothing.
- */
+// Watches the inputs that generated the running Vite config, which Vite itself
+// does not know of. Digests, not mtimes: each action run rewrites its outputs.
 export class ConfigWatcher {
   private readonly inputs: ConfigInput[];
   private readonly onStale: StaleCallback;
-  private readonly source: WatchSource | null;
   private readonly debounceMs: number;
 
   private digests: Map<string, string> = new Map();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private attached: WatchSource | null = null;
+  private watchers: fs.FSWatcher[] = [];
 
   private readonly onFileEvent = (): void => {
     this.scheduleCheck();
@@ -215,7 +200,6 @@ export class ConfigWatcher {
   constructor(options: ConfigWatcherOptions) {
     this.inputs = options.inputs;
     this.onStale = options.onStale;
-    this.source = options.source ?? null;
     this.debounceMs = options.debounceMs ?? 50;
   }
 
@@ -230,13 +214,23 @@ export class ConfigWatcher {
 
   async start(): Promise<void> {
     this.digests = this.snapshot();
-    if (this.source === null || this.inputs.length === 0) return;
+    const directories = new Map<string, Set<string>>();
     for (const input of this.inputs) {
-      this.source.add(input.path);
+      const directory = path.dirname(input.path);
+      const names = directories.get(directory) ?? new Set<string>();
+      names.add(path.basename(input.path));
+      directories.set(directory, names);
     }
-    this.source.on('add', this.onFileEvent);
-    this.source.on('change', this.onFileEvent);
-    this.attached = this.source;
+    try {
+      for (const [directory, names] of directories) {
+        this.watchers.push(fs.watch(directory, (_event, filename) => {
+          if (filename === null || names.has(filename.toString())) this.onFileEvent();
+        }));
+      }
+    } catch (err) {
+      await this.stop();
+      throw err;
+    }
   }
 
   async stop(): Promise<void> {
@@ -244,14 +238,8 @@ export class ConfigWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
-    if (this.attached !== null) {
-      this.attached.off?.('add', this.onFileEvent);
-      this.attached.off?.('change', this.onFileEvent);
-      for (const input of this.inputs) {
-        this.attached.unwatch?.(input.path);
-      }
-      this.attached = null;
-    }
+    for (const watcher of this.watchers) watcher.close();
+    this.watchers = [];
   }
 
   /**

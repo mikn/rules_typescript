@@ -1,46 +1,255 @@
-"""Module extension for the rules_typescript compiler toolchains."""
+"""Module extension for the rules_typescript toolchains, the linter and the
+source-built compiler."""
 
-load("//ts/private:toolchain.bzl", "TSGO_PLATFORMS", "tsgo_toolchain_repo")
+load("@gazelle//:deps.bzl", "go_repository")
+load("//npm:lazy.bzl", "lockfile_registries")
+load("//npm/private:npm_translate_lock.bzl", "workspace_registries")
+load("//ts/private:go_mod.bzl", "go_repo_name", "tsgo_source_modules")
+load(
+    "//ts/private:toolchain.bzl",
+    "TSGO_PLATFORMS",
+    "go_repository_table",
+    "tools_toolchain_repo",
+    "tsgo_source_repo",
+    "tsgo_toolchain_repo",
+)
+load(
+    "//ts/private:tools_lock.bzl",
+    "TOOLS_INTEGRITY",
+    "TOOLS_VERSION",
+    "tools_asset_prefix",
+    "tools_asset_url",
+)
+load("//ts/private:tsgo_lock.bzl", "tsgo_from_pnpm_lock", "tsgo_from_version")
+load("//ts/private/actions:lint.bzl", "lint_config_repo")
 
-# The tsgo release used unless the root module pins another with ts.tsgo().
-_DEFAULT_TSGO_VERSION = "7.0.0-dev.20260311.1"
+# Label(), not a string, so it resolves in this repository from any consumer.
+_DEFAULT_TSGO_LOCK = Label("//ts/private/tsgo:pnpm-lock.yaml")
+_TSGO_SOURCE_GO_MOD = Label("//ts/private/tsgo_source:go.mod")
+_TSGO_SOURCE_GO_SUM = Label("//ts/private/tsgo_source:go.sum")
+_TSGO_SOURCE_PATCHES = [
+    Label("//ts/private/tsgo_source:isolated-declarations-bound-expando.patch"),
+    Label("//ts/private/tsgo_source:module-augmentation-include-reason.patch"),
+]
 
-# One repository per platform, named "<prefix>_<platform>" to match the labels
-# declare_tsgo_toolchains() generates.  rules_typescript itself is the only
-# module that use_repo's them: a consumer reaches the toolchains through
-# register_toolchains("@rules_typescript//ts/toolchain:all"), which resolves
-# these names in rules_typescript's own repo mapping.
+# "<prefix>_<platform>", the labels the declare_*_toolchains() macros generate;
+# rules_typescript alone use_repo's them, in its own repo mapping.
 _TSGO_REPO_PREFIX = "tsgo"
+_TOOLS_REPO_PREFIX = "tools"
 
-def _ts_impl(module_ctx):
-    tsgo_version = _DEFAULT_TSGO_VERSION
+def _from_lock(module_ctx, pnpm_lock, package, npmrc):
+    return tsgo_from_pnpm_lock(
+        module_ctx.read(pnpm_lock),
+        package,
+        TSGO_PLATFORMS,
+        str(pnpm_lock),
+        lockfile_registries(module_ctx, pnpm_lock, npmrc),
+    )
+
+def _spec_for(module_ctx, tag):
+    if tag == None:
+        return _from_lock(module_ctx, _DEFAULT_TSGO_LOCK, "typescript", None)
+    if tag.pnpm_lock and tag.version:
+        fail("ts.tsgo(): set pnpm_lock or version, not both. pnpm_lock reads the version and the integrity of every download from the lockfile; version names a release and downloads it unverified.")
+    if tag.pnpm_lock:
+        return _from_lock(module_ctx, tag.pnpm_lock, tag.package, tag.npmrc)
+    if tag.version:
+        npmrc = module_ctx.read(tag.npmrc) if tag.npmrc else ""
+        return tsgo_from_version(
+            tag.package,
+            tag.version,
+            TSGO_PLATFORMS,
+            workspace_registries(npmrc, ""),
+        )
+    fail("ts.tsgo(): set pnpm_lock (the lockfile whose TypeScript the toolchain fetches, verified) or version (a release to download unverified).")
+
+def _lint_for(module_ctx):
     for mod in module_ctx.modules:
         if mod.is_root:
-            for tag in mod.tags.tsgo:
-                tsgo_version = tag.version
+            if len(mod.tags.lint) > 1:
+                fail(("ts.lint(): the root module calls it {} times; one " +
+                      "call names the linter every target runs.").format(
+                    len(mod.tags.lint),
+                ))
+            for tag in mod.tags.lint:
+                return tag
+    return None
+
+def _tsgo_source(module_ctx):
+    source = tsgo_source_modules(
+        module_ctx.read(_TSGO_SOURCE_GO_MOD),
+        module_ctx.read(_TSGO_SOURCE_GO_SUM),
+        str(_TSGO_SOURCE_GO_MOD),
+    )
+    if source.error:
+        fail(source.error)
+    go_repository_table(
+        name = "tsgo_source_modules",
+        importpaths = {go_repo_name(m.path): m.path for m in source.modules},
+    )
+    tool = source.tool
+    for module in source.modules:
+        patches = _TSGO_SOURCE_PATCHES if module.path == tool.module else []
+        go_repository(
+            name = go_repo_name(module.path),
+            build_config = "@tsgo_source_modules//:WORKSPACE",
+            build_file_generation = "on",
+            importpath = module.path,
+            patch_args = ["-p1"],
+            patches = patches,
+            sum = module.sum,
+            version = module.version,
+        )
+    tsgo_source_repo(
+        name = "tsgo_source",
+        binary = "@{}//{}:{}".format(
+            go_repo_name(tool.module),
+            tool.package[len(tool.module):].lstrip("/"),
+            tool.package.rsplit("/", 1)[-1],
+        ),
+        module = tool.module,
+        version = tool.version,
+    )
+
+def _prebuilt_toolchains_repo_impl(rctx):
+    rctx.file("BUILD.bazel", """load(%r, "declare_tools_toolchains", "declare_launcher_toolchains")
+package(default_visibility = ["//visibility:public"])
+declare_tools_toolchains(name = "tools", repo_prefix = "tools")
+declare_launcher_toolchains(name = "launcher", repo_prefix = "tools")
+""" % str(rctx.attr._defs))
+
+_prebuilt_toolchains_repo = repository_rule(
+    implementation = _prebuilt_toolchains_repo_impl,
+    attrs = {"_defs": attr.label(default = Label("//ts/private:toolchain.bzl"))},
+)
+
+def _ts_impl(module_ctx):
+    tag = None
+    for mod in module_ctx.modules:
+        if mod.is_root:
+            for candidate in mod.tags.tsgo:
+                tag = candidate
+
+    spec = _spec_for(module_ctx, tag)
+    if spec.error:
+        fail(spec.error)
+
+    lint = _lint_for(module_ctx)
+    lint_config_repo(
+        name = "lint_config",
+        binary = str(lint.binary) if lint else "",
+        config = str(lint.config) if lint and lint.config else "",
+        fail_on_warnings = lint.fail_on_warnings if lint else False,
+    )
 
     for platform in TSGO_PLATFORMS:
+        resolved = spec.platforms[platform]
         tsgo_toolchain_repo(
             name = "{}_{}".format(_TSGO_REPO_PREFIX, platform),
-            version = tsgo_version,
-            platform = platform,
+            package = resolved.package,
+            url = resolved.url,
+            integrity = resolved.integrity,
+            binary = spec.binary,
+            npmrc = tag.npmrc if tag != None else None,
         )
+    prebuilt = []
+    for mod in module_ctx.modules:
+        if mod.is_root:
+            prebuilt = mod.tags.prebuilt_tools
+    if len(prebuilt) > 1:
+        fail("ts.prebuilt_tools(): call once in the root module")
+    if prebuilt:
+        for platform in TSGO_PLATFORMS:
+            tools_toolchain_repo(
+                name = "{}_{}".format(_TOOLS_REPO_PREFIX, platform),
+                url = tools_asset_url(TOOLS_VERSION, platform),
+                integrity = TOOLS_INTEGRITY[platform],
+                strip_prefix = tools_asset_prefix(TOOLS_VERSION, platform),
+            )
+        _prebuilt_toolchains_repo(name = "tools_prebuilt")
+    _tsgo_source(module_ctx)
 
-_tsgo_version_tag = tag_class(
+_tsgo_tag = tag_class(
     attrs = {
+        "pnpm_lock": attr.label(
+            allow_single_file = True,
+            doc = """The pnpm-lock.yaml whose TypeScript the toolchain fetches.
+
+The root importer's entry for `package` names the version, and the lockfile's
+`packages:` entries for its platform packages carry the tarball and the
+integrity of each compiler binary, which Bazel verifies. A `pnpm install` that
+moves the version moves the toolchain.""",
+        ),
+        "package": attr.string(
+            default = "typescript",
+            doc = """The npm package the compiler comes from: `typescript` (a TypeScript 7
+release, whose binary is `tsc`) or `@typescript/native-preview` (a nightly, whose
+binary is `tsgo`).""",
+        ),
         "version": attr.string(
-            mandatory = True,
-            doc = "Version of @typescript/native-preview (tsgo) to use.",
+            doc = """A release of `package` to download from the registry, unverified.
+
+The alternative to `pnpm_lock` for a build no lockfile describes: a consumer
+without pnpm, or a nightly being bisected. Nothing checks the bytes.""",
+        ),
+        "npmrc": attr.label(
+            allow_single_file = True,
+            doc = """The workspace .npmrc, when it names a registry or a
+credential.
+
+`registry=` and `@typescript:registry=` decide the tarball host, with the
+`registries:` of the pnpm-workspace.yaml beside `pnpm_lock`, and
+`//host/:_authToken=` or `PNPM_CONFIG__AUTH` its credentials, as for
+npm.translate_lock; the token is read at fetch time and never becomes an
+attribute value.""",
         ),
     },
-    doc = """Pin the tsgo type-checker version used by this workspace.
+    doc = """Which TypeScript compiler the tsgo toolchain runs.
 
 Only the root module's ts.tsgo() call takes effect.  Transitive dependencies
-that also call ts.tsgo() are ignored.
+that also call ts.tsgo() are ignored.  With no call at all the toolchain is the
+`typescript` release rules_typescript's own ts/private/tsgo/pnpm-lock.yaml pins.
 
 Example:
     ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
-    ts.tsgo(version = "7.0.0-dev.20260311.1")
+    ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")
+
+The unverified alternative, for a version no lockfile states:
+    ts.tsgo(version = "7.0.2")
+    ts.tsgo(package = "@typescript/native-preview", version = "7.0.0-dev.20260311.1")
+""",
+)
+
+_lint_tag = tag_class(
+    attrs = {
+        "binary": attr.label(
+            mandatory = True,
+            doc = """The linter's executable: `@npm//:oxlint_bin` or
+`@npm//:eslint_bin` from the workspace's hub, so the lockfile decides which
+oxlint or eslint runs. There is no linter toolchain.""",
+        ),
+        "config": attr.label(
+            allow_single_file = True,
+            doc = """The linter's own config file, passed as `--config`. Unset,
+no flag is passed: oxlint runs its defaults, and eslint needs a flat config.
+Another repository names the file, so its package exports it
+(`exports_files`).""",
+        ),
+        "fail_on_warnings": attr.bool(
+            doc = "A warning fails the build: `--max-warnings=0`, which " +
+                  "oxlint and eslint spell alike.",
+        ),
+    },
+    doc = """The linter every ts_compile and ts_test runs over its sources as a
+validation action (docs/guides/lint.md).
+
+Only the root module's ts.lint() call takes effect, and it makes one; a module
+graph with no call lints nothing. The call writes the @lint_config repository,
+whose one target the //ts:lint label flag names.
+
+Example:
+    ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
+    ts.lint(binary = "@npm//:oxlint_bin", config = "//:oxlint.json")
 """,
 )
 
@@ -51,6 +260,8 @@ Example:
 ts = module_extension(
     implementation = _ts_impl,
     tag_classes = {
-        "tsgo": _tsgo_version_tag,
+        "tsgo": _tsgo_tag,
+        "lint": _lint_tag,
+        "prebuilt_tools": tag_class(attrs = {}, doc = "Opt into the pinned Go tools release from the root module."),
     },
 )

@@ -1,0 +1,11 @@
+--- a/build.rs
++++ b/build.rs
+@@ -729,5 +729,7 @@
+ 
+ fn static_lib_dir() -> PathBuf {
+-  build_dir().join("gn_out").join("obj")
++  PathBuf::from(env::var_os("OUT_DIR").unwrap())
++    .join("gn_out")
++    .join("obj")
+ }
+ 

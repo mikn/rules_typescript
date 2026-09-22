@@ -1,0 +1,90 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_test")
+
+package(default_visibility = ["//tests/npm:__pkg__"])
+
+# The importer declares minimatch@9 beside test-exclude, whose own edge is
+# minimatch@10: the top links the declared resolution, each tree its own.
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:test-exclude",
+    ],
+)
+
+# The same links read as an action input: a declared symlink is staged as the
+# same relative symlink, so a dependent's edge is found beside its tree.
+genrule(
+    name = "through_action",
+    srcs = [":node_modules"],
+    outs = ["through_action.txt"],
+    cmd = """set -eu
+d="$(BINDIR)/tests/npm/multi_version/node_modules"
+v() { awk -F'"' '/"version"/{print $$4; exit}' "$$1/package.json"; }
+beside() { echo "$$(dirname "$$(readlink -f "$$1")")/$$2"; }
+mm="$$d/minimatch"
+te="$$d/test-exclude"
+te_mm="$$(beside "$$te" minimatch)"
+{
+  printf 'minimatch %s\\n' "$$(v "$$mm")"
+  printf 'minimatch/brace-expansion %s\\n' \\
+    "$$(v "$$(beside "$$mm" brace-expansion)")"
+  printf 'test-exclude %s\\n' "$$(v "$$te")"
+  printf 'test-exclude/minimatch %s\\n' "$$(v "$$te_mm")"
+  printf 'test-exclude/minimatch/brace-expansion %s\\n' \\
+    "$$(v "$$(beside "$$te_mm" brace-expansion)")"
+} > $@
+""",
+)
+
+diff_test(
+    name = "npm_multi_version_action_input_test",
+    size = "small",
+    file1 = ":through_action",
+    file2 = "through_action.expected",
+)
+
+# The same edges at run time, on both runners: the test's minimatch is the
+# importer's, test-exclude's the one beside its own tree.
+ts_test(
+    name = "own_edge_node_test",
+    size = "small",
+    srcs = ["own_edge_node.test.ts"],
+    node_modules = ":node_modules",
+    runner = "//ts/runners:node_test",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:test-exclude",
+        "@npm//:types_node",
+    ],
+)
+
+ts_test(
+    name = "own_edge_vitest_test",
+    size = "small",
+    srcs = ["own_edge_vitest.test.ts"],
+    node_modules = ":node_modules",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:test-exclude",
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)
+
+# A relative path through the importer's link is the way to a module the
+# package's `exports` do not expose; the file is the tree the link enters.
+ts_test(
+    name = "link_internal_test",
+    size = "small",
+    srcs = ["link_internal.test.ts"],
+    node_modules = ":node_modules",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:vitest",
+    ],
+)

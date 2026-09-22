@@ -1,0 +1,26 @@
+"""A top-level await under a target below es2022 is kept, as tsc keeps it."""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.es2020.json
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "awaits",
+    srcs = ["awaits.ts"],
+    tsconfig = "tsconfig.es2020.json",
+)
+
+go_test(
+    name = "top_level_await_test",
+    size = "small",
+    srcs = ["top_level_await_test.go"],
+    data = [":awaits"],
+    deps = ["//tests/verify"],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

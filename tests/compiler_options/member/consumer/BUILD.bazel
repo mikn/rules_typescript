@@ -1,0 +1,20 @@
+"""A bare specifier resolving to another target's declarations: a workspace member."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# tests/npm/pnpm-lock.yaml links "@acme/ui" to the member lib/ beside this
+# package; the importer links node_modules/@acme/ui, its manifest as built.
+ts_compile(
+    name = "app",
+    srcs = ["main.ts"],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["//tests/npm:node_modules/@acme/ui"],
+)
+
+build_test(
+    name = "member_test",
+    targets = [":app"],
+)

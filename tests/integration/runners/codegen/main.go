@@ -9,8 +9,8 @@ func main() {
 		Name:         "codegen",
 		WorkspaceRel: "tests/integration/codegen",
 	}, func(it *harness.IT) {
-		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.MustBazel("build", "//...", "--output_groups=+declarations")
+		it.Pass("bazel build //... --output_groups=+declarations")
 
 		generated := it.Bin("generated/record.ts")
 		it.RequireFile(generated, "generated TypeScript not found: generated/record.ts")

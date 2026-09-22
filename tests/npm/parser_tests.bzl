@@ -14,9 +14,10 @@ silently pulling in catalog entries and override selectors. These tests fail if
 that happens.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
+load("@bazel_skylib//lib:partial.bzl", "partial")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//npm:lazy.bzl", "break_cycles", "patch_file_name")
-load("//npm/private:npm_import.bzl", "npmrc_auth")
+load("//npm/private:fetch_auth.bzl", "fetch_auth")
 load(
     "//npm/private:npm_translate_lock.bzl",
     "npm_tarball_url",
@@ -25,7 +26,9 @@ load(
     "parse_patched_dependencies",
     "parse_pnpm_lock",
     "peer_suffix_dir_name",
+    "pnpm_workspace_registries",
     "verify_integrity",
+    "workspace_registries",
 )
 
 # A lockfile with one of every block, in the order pnpm writes them.
@@ -83,6 +86,9 @@ importers:
       lodash:
         specifier: 4.18.1
         version: 4.18.1
+
+  # An importer with no dependencies: pnpm writes it inline.
+  packages/leaf: {}
 
   packages/nested:
     dependencies:
@@ -419,9 +425,29 @@ def _importer_links_are_importer_relative_test(ctx):
 
 importer_links_are_importer_relative_test = unittest.make(_importer_links_are_importer_relative_test)
 
-# A pnpm lockfile has no registry field, so this file is the only thing that says
-# where a package comes from. It also holds the credentials, which is why the two
-# are read in different places.
+def _inline_importer_test(ctx):
+    env = unittest.begin(ctx)
+    importers = parse_importers(_LOCKFILE)["importers"]
+
+    # `packages/leaf: {}` is how pnpm writes an importer that declares nothing;
+    # the indented comment above it, colon and all, is not an importer.
+    asserts.equals(
+        env,
+        {"deps": {}, "links": {}},
+        importers.get("packages/leaf"),
+    )
+    asserts.equals(
+        env,
+        [".", "packages/leaf", "packages/nested"],
+        sorted(importers.keys()),
+    )
+
+    return unittest.end(env)
+
+inline_importer_test = unittest.make(_inline_importer_test)
+
+# The .npmrc half of the registry map. It also holds credentials, which is why
+# the two are read in different places.
 _NPMRC = """; the workspace default
 registry=https://npm.example.com/artifactory/api/npm/npm-virtual/
 
@@ -499,58 +525,244 @@ def _npmrc_registry_picks_the_url_test(ctx):
 
 npmrc_registry_picks_the_url_test = unittest.make(_npmrc_registry_picks_the_url_test)
 
-def _npmrc_auth_test(ctx):
+# The pnpm-workspace.yaml half: a trailing comment, a comment line, a `${VAR}`
+# value, and the block ends at the next top-level key.
+_PNPM_WORKSPACE = """packages:
+  - packages/*
+
+registry: https://npm.example.com/mirror/   # the default for everything
+
+registries:
+  default: https://npm.example.com/below-registry/
+  "@acme": https://npm.acme.test/yaml/
+  '@castleio': https://npm.castle.io
+  "@env": https://${REGISTRY_HOST}/
+  # a comment inside the block
+frozenLockfile: true
+"""
+
+def _pnpm_workspace_registries_test(ctx):
+    env = unittest.begin(ctx)
+
+    # `registry:` sets the default over the block's `default`; a value naming
+    # `${VAR}` is dropped, as pnpm drops it from a project's file.
+    asserts.equals(env, {
+        "": "https://npm.example.com/mirror",
+        "@acme": "https://npm.acme.test/yaml",
+        "@castleio": "https://npm.castle.io",
+    }, pnpm_workspace_registries(_PNPM_WORKSPACE))
+
+    asserts.equals(env, {
+        "": "https://npm.example.com/blocks",
+        "@acme": "https://npm.acme.test",
+    }, pnpm_workspace_registries(
+        "registries: # private registries\n  default: https://npm.example.com/blocks/\n" +
+        "  \"@acme\": https://npm.acme.test/\n",
+    ))
+
+    asserts.equals(env, {}, pnpm_workspace_registries("packages:\n  - web\n"))
+    asserts.equals(env, {}, pnpm_workspace_registries(""))
+    asserts.equals(env, {}, pnpm_workspace_registries("registries:\n"))
+
+    return unittest.end(env)
+
+pnpm_workspace_registries_test = unittest.make(_pnpm_workspace_registries_test)
+
+def _registry_parse_impl(ctx):
+    pnpm_workspace_registries(ctx.attr.content)
+    return []
+
+_registry_parse = rule(
+    implementation = _registry_parse_impl,
+    attrs = {"content": attr.string()},
+)
+
+def _unsupported_registry_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "use an indented registries mapping")
+    return analysistest.end(env)
+
+_unsupported_registry_test = analysistest.make(
+    _unsupported_registry_test_impl,
+    expect_failure = True,
+)
+
+def _workspace_registries_test(ctx):
+    env = unittest.begin(ctx)
+
+    # pnpm's order: pnpm-workspace.yaml wins the keys it sets, the .npmrc
+    # keeps the rest.
+    merged = workspace_registries(_NPMRC, _PNPM_WORKSPACE)
+    asserts.equals(env, "https://npm.acme.test/yaml", merged["@acme"])
+    asserts.equals(env, "https://npm.example.com/mirror", merged[""])
+    asserts.equals(env, "https://npm.castle.io", merged["@castleio"])
+    asserts.equals(
+        env,
+        npmrc_registries(_NPMRC),
+        workspace_registries(_NPMRC, ""),
+    )
+
+    # A scope mapped by pnpm-workspace.yaml alone, an .npmrc with no registry
+    # line: the scoped tarball lives on that registry, the rest on npmjs.
+    castle = workspace_registries(
+        "# public-hoist-pattern[]=<package-name>\n",
+        "registries:\n  \"@castleio\": https://npm.castle.io\n",
+    )
+    asserts.equals(
+        env,
+        _CASTLE_JS,
+        npm_tarball_url("@castleio/castle-js", "3.2.262440810", {}, castle),
+    )
+    asserts.equals(
+        env,
+        "https://registry.npmjs.org/zod/-/zod-3.24.2.tgz",
+        npm_tarball_url("zod", "3.24.2", {}, castle),
+    )
+
+    return unittest.end(env)
+
+workspace_registries_test = unittest.make(_workspace_registries_test)
+
+_VIRTUAL = "https://npm.example.com/artifactory/api/npm/npm-virtual"
+_ELSEWHERE = "https://npm.example.com/elsewhere/zod/-/zod-3.24.2.tgz"
+_ACME_WIDGET = "https://npm.acme.test/@acme/widget/-/widget-1.2.3.tgz"
+_CASTLE_JS = (
+    "https://npm.castle.io/@castleio/castle-js/-/castle-js-3.2.262440810.tgz"
+)
+
+def _bearer(token):
+    return {
+        "type": "pattern",
+        "pattern": "Bearer <password>",
+        "login": "",
+        "password": token,
+    }
+
+def _password(auth, url):
+    return auth[url]["password"]
+
+def _fetch_auth_test(ctx):
     env = unittest.begin(ctx)
 
     def getenv(name, default):
         return {"NPM_VIRTUAL_TOKEN": "from-the-environment"}.get(name, default)
 
+    virtual_zod = _VIRTUAL + "/zod/-/zod-3.24.2.tgz"
+
     # Longest prefix wins: the host-wide token exists too, and taking it would
     # send the wrong credential to a registry mounted on a path.
-    asserts.equals(env, {
-        "https://npm.example.com/artifactory/api/npm/npm-virtual/zod/-/zod-3.24.2.tgz": {
-            "type": "pattern",
-            "pattern": "Bearer <password>",
-            "login": "",
-            "password": "from-the-environment",
-        },
-    }, npmrc_auth(
-        _NPMRC,
-        "https://npm.example.com/artifactory/api/npm/npm-virtual/zod/-/zod-3.24.2.tgz",
-        getenv,
-    ))
+    asserts.equals(
+        env,
+        {virtual_zod: _bearer("from-the-environment")},
+        fetch_auth(_NPMRC, virtual_zod, "zod", getenv),
+    )
 
     # A path the virtual repo does not cover falls back to the host-wide entry.
-    asserts.equals(env, "host-wide-token", npmrc_auth(
-        _NPMRC,
-        "https://npm.example.com/elsewhere/zod/-/zod-3.24.2.tgz",
-        getenv,
-    )["https://npm.example.com/elsewhere/zod/-/zod-3.24.2.tgz"]["password"])
+    asserts.equals(
+        env,
+        "host-wide-token",
+        _password(fetch_auth(_NPMRC, _ELSEWHERE, "zod", getenv), _ELSEWHERE),
+    )
 
     # `_auth` is already the base64 of user:pass, so it is a Basic header as-is.
     asserts.equals(env, {
-        "https://npm.acme.test/@acme/widget/-/widget-1.2.3.tgz": {
+        _ACME_WIDGET: {
             "type": "pattern",
             "pattern": "Basic <password>",
             "login": "",
             "password": "YWNtZTpodW50ZXIy",
         },
-    }, npmrc_auth(_NPMRC, "https://npm.acme.test/@acme/widget/-/widget-1.2.3.tgz", getenv))
+    }, fetch_auth(_NPMRC, _ACME_WIDGET, "@acme/widget", getenv))
 
     # An unrelated host gets no header rather than someone else's token.
-    asserts.equals(env, {}, npmrc_auth(_NPMRC, "https://registry.npmjs.org/zod/-/zod-3.24.2.tgz", getenv))
+    asserts.equals(env, {}, fetch_auth(
+        _NPMRC,
+        "https://registry.npmjs.org/zod/-/zod-3.24.2.tgz",
+        "zod",
+        getenv,
+    ))
 
     # An unset environment variable must not produce `Bearer ` with nothing after
     # it: an empty token is no token.
-    asserts.equals(env, {}, npmrc_auth(
+    asserts.equals(env, {}, fetch_auth(
         "//npm.example.com/:_authToken=${NOT_SET}\n",
         "https://npm.example.com/zod/-/zod-3.24.2.tgz",
+        "zod",
         lambda name, default: default,
+    ))
+
+    # pnpm's `auth` setting: JSON keyed by registry URL, then by scope, "@" for
+    # every package on that registry.
+    setting = json.encode({
+        "https://npm.acme.test": {"@acme": {"authToken": "acme-scoped"}},
+        _VIRTUAL + "/": {"@": {"authToken": "virtual-from-setting"}},
+        "https://npm.castle.io": {"@castleio": {"authToken": "castle-token"}},
+    })
+
+    def getenv_setting(name, default):
+        return {
+            "PNPM_CONFIG__AUTH": setting,
+            "NPM_VIRTUAL_TOKEN": "from-the-environment",
+        }.get(name, default)
+
+    def getenv_lower(name, default):
+        return {"pnpm_config__auth": setting}.get(name, default)
+
+    # No .npmrc at all: the setting alone authenticates the scope's registry.
+    asserts.equals(
+        env,
+        {_CASTLE_JS: _bearer("castle-token")},
+        fetch_auth("", _CASTLE_JS, "@castleio/castle-js", getenv_setting),
+    )
+    asserts.equals(
+        env,
+        {_CASTLE_JS: _bearer("castle-token")},
+        fetch_auth("", _CASTLE_JS, "@castleio/castle-js", getenv_lower),
+    )
+
+    # The package's scope entry outranks the .npmrc's credential on the same
+    # registry; a package of another scope there still takes the .npmrc's.
+    asserts.equals(
+        env,
+        {_ACME_WIDGET: _bearer("acme-scoped")},
+        fetch_auth(_NPMRC, _ACME_WIDGET, "@acme/widget", getenv_setting),
+    )
+    acme_zod = "https://npm.acme.test/zod/-/zod-3.24.2.tgz"
+    granted = fetch_auth(_NPMRC, acme_zod, "zod", getenv_setting)
+    asserts.equals(env, "YWNtZTpodW50ZXIy", _password(granted, acme_zod))
+
+    # "@" on one registry outranks the .npmrc's line for it, for a scoped
+    # package too; a path it does not cover keeps the .npmrc's host-wide token.
+    asserts.equals(
+        env,
+        {virtual_zod: _bearer("virtual-from-setting")},
+        fetch_auth(_NPMRC, virtual_zod, "zod", getenv_setting),
+    )
+    types_react = _VIRTUAL + "/@types/react/-/react-19.0.0.tgz"
+    asserts.equals(
+        env,
+        {types_react: _bearer("virtual-from-setting")},
+        fetch_auth(_NPMRC, types_react, "@types/react", getenv_setting),
+    )
+    granted = fetch_auth(_NPMRC, _ELSEWHERE, "zod", getenv_setting)
+    asserts.equals(env, "host-wide-token", _password(granted, _ELSEWHERE))
+
+    # A token granted to one port stays off another.
+    one_port = json.encode({"http://127.0.0.1:4873": {"@": {"authToken": "t"}}})
+
+    def getenv_one_port(name, default):
+        return {"PNPM_CONFIG__AUTH": one_port}.get(name, default)
+
+    asserts.equals(env, {}, fetch_auth(
+        "",
+        "http://127.0.0.1:4874/@acme/widget/-/widget-1.2.3.tgz",
+        "@acme/widget",
+        getenv_one_port,
     ))
 
     return unittest.end(env)
 
-npmrc_auth_test = unittest.make(_npmrc_auth_test)
+fetch_auth_test = unittest.make(_fetch_auth_test)
 
 def _patched_dependencies_test(ctx):
     env = unittest.begin(ctx)
@@ -784,6 +996,17 @@ def _cycles_peer_variants_are_separate_cycles_test(ctx):
 cycles_peer_variants_are_separate_cycles_test = unittest.make(_cycles_peer_variants_are_separate_cycles_test)
 
 def parser_test_suite(name):
+    failures = []
+    for suffix, content in {
+        "flow": "registries: {'@acme': 'https://npm.acme.test/'}\n",
+        "multiline_flow": "registries:\n  {\n    '@acme': 'https://npm.acme.test/'\n  }\n",
+        "alias": "private: &private {'@acme': 'https://npm.acme.test/'}\nregistries: *private\n",
+    }.items():
+        target = name + "_" + suffix
+
+        # Wildcard builds must not analyze this deliberately failing fixture.
+        _registry_parse(name = target, content = content, tags = ["manual"])
+        failures.append(partial.make(_unsupported_registry_test, target_under_test = ":" + target))
     unittest.suite(
         name,
         catalogs_are_not_importers_test,
@@ -799,9 +1022,12 @@ def parser_test_suite(name):
         peer_tokens_separate_peer_sets_test,
         importers_resolve_per_importer_test,
         importer_links_are_importer_relative_test,
+        inline_importer_test,
         npmrc_registries_test,
         npmrc_registry_picks_the_url_test,
-        npmrc_auth_test,
+        pnpm_workspace_registries_test,
+        workspace_registries_test,
+        fetch_auth_test,
         cycles_acyclic_graph_untouched_test,
         cycles_self_edge_broken_test,
         cycles_two_node_cycle_broken_test,
@@ -809,4 +1035,5 @@ def parser_test_suite(name):
         cycles_edge_between_two_cycles_survives_test,
         cycles_overlapping_peer_cycles_test,
         cycles_peer_variants_are_separate_cycles_test,
+        *failures
     )

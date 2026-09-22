@@ -10,8 +10,10 @@ func main() {
 	harness.Run(harness.Config{
 		Name:         "npm_deps",
 		WorkspaceRel: "tests/integration/npm_deps",
-		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
+		it.Install()
+		it.Pass("pnpm install")
+
 		it.MustBazel("run", "//:gazelle")
 		it.Pass("bazel run //:gazelle")
 
@@ -22,8 +24,8 @@ func main() {
 		it.RequireContains(build, "@npm//:zod", "src/models/BUILD.bazel does not reference @npm//:zod")
 		it.Pass("src/models/BUILD.bazel references @npm//:zod")
 
-		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.MustBazel("build", "//...", "--output_groups=+declarations")
+		it.Pass("bazel build //... --output_groups=+declarations")
 
 		for _, rel := range []string{"src/models/user.js", "src/models/user.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -35,12 +37,13 @@ func main() {
 
 		// The positive case (oxlint passing on clean sources) is //tests/lint_real.
 		// This is the other half, which needs a Bazel that is allowed to fail.
-		lint, err := it.BazelLog("violations_lint.log", "build", "//:violations_lint")
+		lint, err := it.BazelLog("violations.log", "build", "//:violations")
 		if err == nil {
 			lint.Dump()
-			it.Fail("//:violations_lint built successfully; a real oxlint violation must fail the build")
+			it.Fail("//:violations built; the linter ts.lint() names must fail " +
+				"it on `var`")
 		}
-		it.Pass("//:violations_lint failed to build, as a lint violation must")
+		it.Pass("//:violations failed to build, as a lint violation must")
 
 		if !strings.Contains(strings.ToLower(lint.Text), "no-var") {
 			lint.Dump()

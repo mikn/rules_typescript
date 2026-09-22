@@ -1,24 +1,5 @@
-/**
- * resolution_parity_test.mjs — one module graph, two resolution modes.
- *
- *   node resolution_parity_test.mjs <vite_plugin_bazel.mjs>
- *
- * Serving first-party source in dev and pre-compiled .js in prod means the same
- * import specifier travels two different code paths, and the failure mode of
- * that is "works under `bazel run //:dev`, fails under ts_bundle". Two suites
- * that each pass prove nothing about it. So this builds ONE fixture graph on
- * disk -- checked-in source, its bazel-bin output, an npm package -- and asserts
- * that each specifier lands on the same MODULE IDENTITY in both modes:
- * the same workspace-relative path, extension and root stripped.
- *
- * What differs is who transforms it (`precompiled`), which is asserted too.
- *
- * The alias table is the one `ts_dev_server` generates from TsModuleInfo, and it
- * is applied identically in both modes, because `resolve.alias` is honoured by
- * `vite dev` and `vite build` alike. Its shape is load-bearing: an exact-match
- * RegExp for the package plus a string prefix for subpaths, because a string
- * `find` in Vite's alias plugin also matches everything under it.
- */
+// One fixture graph, two resolution modes: each specifier must land on the same
+// module in dev and build. A RegExp alias: a string `find` matches by prefix.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -192,6 +173,21 @@ test('a ts_codegen output resolves to bazel-bin in dev, and nowhere else', () =>
   assert.equal(identity(serve), 'app/routes.gen');
   assert.equal(identity(build), identity(serve));
   assert.ok(serve.filePath.startsWith(bazelBin + path.sep), 'dev must read generated code from bazel-bin');
+});
+
+test('a canonical importer in a symlinked workspace still resolves generated output', () => {
+  write(path.join(bazelBin, 'app/routes.gen.ts'), 'export const routes = [];\n');
+  write(path.join(bazelBin, 'app/routes.gen.js'), 'export const routes = [];\n');
+  const linkedWorkspace = path.join(root, 'linked-ws');
+  fs.symlinkSync(workspaceRoot, linkedWorkspace, 'dir');
+  const importer = fs.realpathSync(path.join(workspaceRoot, 'app/main.ts'));
+  for (const mode of ['serve', 'build']) {
+    const resolver = new BazelResolver({ workspaceRoot: linkedWorkspace, bazelBin, mode });
+    const result = resolver.resolveId('./routes.gen.ts', importer);
+    assert.equal(result?.filePath, path.join(bazelBin, `app/routes.gen.${mode === 'serve' ? 'ts' : 'js'}`));
+    assert.deepEqual(resolver.resolveId('./routes.gen.ts', path.join(linkedWorkspace, 'app/main.ts')), result);
+    assert.equal(resolver.resolveId('./routes.gen.ts', path.join(root, 'outside/main.ts')), null);
+  }
 });
 
 let failed = 0;

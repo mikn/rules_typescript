@@ -1,0 +1,31 @@
+"""A dep's npm closure reaches the consumer's action through TsInfo.npm_files.
+
+lib.d.ts imports zod, which :consumer never declares. :lib's npm_files carry
+zod's store tree and the importer's link, and the emitted lib.d.ts resolves
+the import up through that importer's node_modules; without them `Props`
+keeps only its own member, and consumer.ts is TS2353.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "lib",
+    srcs = ["lib.ts"],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:zod"],
+)
+
+ts_compile(
+    name = "consumer",
+    srcs = ["consumer.ts"],
+    node_modules = "//tests/npm:node_modules",
+    deps = [":lib"],
+)
+
+build_test(
+    name = "dep_npm_closure_test",
+    targets = [":consumer"],
+)

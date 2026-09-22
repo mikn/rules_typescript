@@ -1,0 +1,5 @@
+{
+  "compilerOptions": {
+    "types": ["./bindings.d.ts"]
+  }
+}

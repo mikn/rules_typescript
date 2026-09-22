@@ -1,6 +1,4 @@
-"""Staging for a user-supplied Vite config and the modules it imports.
-
-Two problems, one shared by both rules that accept a `vite_config`.
+"""Staging for ts_dev_server's `vite_config` and the modules it imports.
 
 The config cannot be loaded from the source tree. The generated config imports
 it by path, and Node resolves that path to its real location before resolving
@@ -11,9 +9,10 @@ attr built.
 
 And one file is not a config. A real one imports local plugin modules, and
 copying only the entry leaves those relative imports pointing at nothing. So
-`vite_config_srcs` declares them and they are staged together, each at its path
-relative to the entry config's package, which is what makes `./plugins/foo`
-resolve inside the staged tree the same way it does in the source tree.
+`vite_config_srcs` declares them and they are staged together, each at its
+path relative to the entry config's package, which is what makes
+`./plugins/foo` resolve inside the staged tree the same way it does in the
+source tree.
 
 A file outside that package would stage above the staging root, so it is
 rejected rather than silently flattened.
@@ -27,11 +26,11 @@ def _package_relative(ctx, file, config_package):
     prefix = config_package + "/"
     if not short.startswith(prefix):
         fail(
-            "{}: vite_config_srcs contains '{}', which is not under the vite_config's\n".format(
+            "{}: '{}' is not under the config's package ('{}').\n".format(
                 ctx.label,
                 short,
+                config_package,
             ) +
-            "package ('{}').\n".format(config_package) +
             "The config and the modules it imports are staged relative to that package, " +
             "so a file above it has nowhere to land and its relative import would not " +
             "resolve.\nMove it under '{}', or import it as a bare npm specifier through ".format(config_package) +
@@ -61,15 +60,8 @@ def stage_vite_config(ctx, config_file, extra_srcs, subdir):
         # root, so its siblings keep resolving relative to it.
         config_package = config_file.short_path.rsplit("/", 1)[0] if "/" in config_file.short_path else ""
 
-    # Nothing above the staging root says what module system these files are in,
-    # so Node and Vite's native config loader both read them as CommonJS and the
-    # ESM syntax in them becomes a warning today and an error once that loader is
-    # the default. The manifest is what the staged tree is missing, not a
-    # workaround: it is the same file that makes the source tree unambiguous.
-    manifest = ctx.actions.declare_file("{}/package.json".format(subdir))
-    ctx.actions.write(output = manifest, content = '{"type": "module"}\n')
-
-    staged = [manifest]
+    staged = []
+    rels = []
     entry = None
     for f in [config_file] + extra_srcs:
         rel = _package_relative(ctx, f, config_package)
@@ -80,24 +72,19 @@ def stage_vite_config(ctx, config_file, extra_srcs, subdir):
             substitutions = {},
         )
         staged.append(out)
+        rels.append(rel)
         if f == config_file:
             entry = out
+
+    # Node and Vite's native loader read a tree with no manifest above it as
+    # CommonJS; the package's package.json, when the config imports it, does.
+    if "package.json" not in rels:
+        manifest = ctx.actions.declare_file("{}/package.json".format(subdir))
+        ctx.actions.write(output = manifest, content = '{"type": "module"}\n')
+        staged.append(manifest)
     return struct(entry = entry, files = staged)
 
-# A .ts config cannot be reached by a plain dynamic import: Node does not load
-# TypeScript. Vite's own loader does -- it is what Vite runs on a root config --
-# and it also resolves the extensionless relative imports that bundler-resolution
-# configs are written with. So that is tried first, and the dynamic import is the
-# fallback for a plain .mjs when vite is not in the tree (an oj target need not
-# have it).
-# What the generated config actually reads out of a user vite_config. Everything
-# else it would silently discard, and a real framework config sets several of
-# them -- `define`, `resolve.alias`, `build.target`, `optimizeDeps` -- so the
-# build fails naming them rather than producing a bundle that quietly ignores
-# half its configuration.
-#
-# The check runs where the config is loaded rather than at analysis time, because
-# only the loaded object says what keys it has.
+# Config keys are known only after loading the user config.
 def unhandled_keys_js(honoured, label):
     return (
         "const _honoured = " + json.encode(sorted(honoured)) + ";\n" +

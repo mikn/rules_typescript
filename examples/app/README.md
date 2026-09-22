@@ -5,11 +5,11 @@ A standard TypeScript library/service workflow with npm deps, vitest testing, an
 ## What This Demonstrates
 
 - npm dependency management (`zod`) via pnpm lockfile
-- `ts_test` with vitest (auto-generates `node_modules` from `@npm` deps)
+- `ts_test` with vitest, in the importer chain the root `node_modules` names
 - Cross-package dependencies via `.d.ts` compilation boundary
 - `ts_binary` bundling to a single ESM file
 - tsgo type-checking (enabled by default in `.bazelrc`)
-- Gazelle auto-generating BUILD files from TypeScript sources
+- Gazelle writing the BUILD files, one package per `tsconfig.json` program
 
 ## Structure
 
@@ -17,17 +17,21 @@ A standard TypeScript library/service workflow with npm deps, vitest testing, an
 examples/app/
   MODULE.bazel        # Workspace definition with npm extension
   .bazelrc            # Enables validation (--output_groups=+_validation)
+  .bazelignore        # node_modules: the installed tree Gazelle lists through
   pnpm-lock.yaml      # Locked npm deps (zod + vitest)
-  BUILD.bazel         # ts_binary bundle + gazelle target
+  tsconfig.json       # The compiler options every package extends; no program
+  BUILD.bazel         # ts_binary bundle, gazelle + pnpm targets, root importer
   src/
     schema/
+      tsconfig.json   # Extends the root's: the package's program
       user.ts         # Zod schema with explicit type annotations
       user.test.ts    # vitest test suite
       index.ts        # Barrel re-export
-      BUILD.bazel     # ts_compile + ts_test
+      BUILD.bazel     # ts_compile + ts_test + ts_config, written by Gazelle
     app/
+      tsconfig.json   # Extends the root's
       index.ts        # Uses schema package
-      BUILD.bazel     # ts_compile with cross-package dep
+      BUILD.bazel     # ts_compile with cross-package dep, written by Gazelle
 ```
 
 ## Quick Start
@@ -35,12 +39,25 @@ examples/app/
 ```bash
 bazel build //...    # compile + type-check (validation is on by default via .bazelrc)
 bazel test //...     # run vitest tests
-bazel run //:gazelle # regenerate BUILD files from source
+bazel run //:pnpm -- install --frozen-lockfile  # the tree Gazelle lists through
+bazel run //:gazelle # write the BUILD files from the tsconfig.json programs
 ```
 
 ## How It Works
 
-The `//src/schema` package uses `zod` as an npm dependency for runtime validation. The `ts_compile` target lists `@npm//:zod` in `deps`, which provides `.d.ts` files at compile time. The `ts_test` target runs vitest against the schema logic -- it lists its `@npm` deps directly and `ts_test` auto-generates the `node_modules` tree needed at runtime. No manual `node_modules` target is required.
+The `//src/schema` package uses `zod` as an npm dependency for runtime
+validation. The `ts_compile` target lists `@npm//:zod` in `deps`, which provides
+`.d.ts` files at compile time. The `ts_test` target runs vitest against the
+schema logic in the importer chain its `node_modules` names -- the root
+`node_modules` target, the root importer's links into the store -- and its deps
+carry the root `package.json`'s dependencies beside the imports tsgo lists.
+
+Gazelle writes one package per `tsconfig.json` program:
+`src/schema/tsconfig.json` and `src/app/tsconfig.json` extend the root
+`tsconfig.json`, which sets the compiler options and lists no files, so it is no
+program of its own. A run lists each program through the installed
+`node_modules`, so `bazel run //:pnpm -- install --frozen-lockfile` precedes it;
+`bazel run //:gazelle -- -mode=diff` prints nothing on this tree.
 
 The `//src/app` package depends on `//src/schema` via the `.d.ts` boundary. The root `ts_binary` bundles everything into a single ESM file. Zod's runtime code is resolved from the npm tree during bundling.
 

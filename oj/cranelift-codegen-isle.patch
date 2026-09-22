@@ -1,0 +1,18 @@
+--- a/src/isle.rs
++++ b/src/isle.rs
+@@ -83,9 +83,10 @@
+ 
+     // Assembler definitions.
+-    let asm_isle_definitions = cranelift_assembler_x64::generated_files()
+-        .into_iter()
+-        .filter(|p| p.extension() == Some(std::ffi::OsStr::new("isle")))
+-        .next()
+-        .unwrap();
++    let asm_isle_definitions = gen_dir.join("assembler-definitions.isle");
++    std::fs::write(
++        &asm_isle_definitions,
++        cranelift_assembler_x64::isle_definitions(),
++    )
++    .expect("write assembler definitions into the codegen output directory");
+ 
+     // This is a set of ISLE compilation units.

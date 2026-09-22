@@ -1,0 +1,79 @@
+"""A checked-in .d.mts / .d.cts is a declaration, admitted the way a .d.ts is.
+
+tsc pairs the two by name: "./esm.mjs" resolves to esm.d.mts ahead of esm.mjs,
+which is how a hand-written declaration types an untyped JavaScript module.
+`:types_only` is that pairing with the JavaScript nowhere in the program -- the
+monorepo shape, where the .mjs runs under vitest and the declaration is all the
+type check sees. `:with_runtime` is both files in one target; main.ts refuses
+the `any` the JavaScript alone would infer, so building it says which one the
+import resolved to, and each JavaScript file carries `// @ts-check` over an
+unannotated parameter, so a program that holds one says so as TS7006.
+
+ambient.d.mts has no import or export, and TypeScript exempts declaration files
+from the module-ness the .mts extension forces on a source: it is a script, and
+ESM_FLAVOUR is global. `:types_only` uses it from its own program, `:consumer`
+by naming it in its tsconfig `types`, the dep edge staging the file.
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.consumer.json
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+load(
+    ":declaration_tests.bzl",
+    "one_declaration_per_module_test",
+    "passes_declarations_through_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "types_only",
+    srcs = [
+        "ambient.d.mts",
+        "esm.d.mts",
+        "legacy.d.cts",
+        "typed.ts",
+    ],
+)
+
+ts_compile(
+    name = "consumer",
+    srcs = ["consumer.ts"],
+    tsconfig = "tsconfig.consumer.json",
+    deps = [":types_only"],
+)
+
+ts_compile(
+    name = "with_runtime",
+    srcs = [
+        "esm.d.mts",
+        "esm.mjs",
+        "legacy.cjs",
+        "legacy.d.cts",
+        "main.ts",
+    ],
+)
+
+passes_declarations_through_test(
+    name = "passes_declarations_through_test",
+    target_under_test = ":types_only",
+)
+
+one_declaration_per_module_test(
+    name = "one_declaration_per_module_test",
+    target_under_test = ":with_runtime",
+)
+
+go_test(
+    name = "js_declarations_test",
+    size = "small",
+    srcs = ["js_declarations_test.go"],
+    data = [
+        ":consumer",
+        ":types_only",
+        ":with_runtime",
+    ],
+    deps = ["//tests/verify"],
+)

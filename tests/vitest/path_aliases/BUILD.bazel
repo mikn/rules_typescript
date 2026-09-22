@@ -1,0 +1,26 @@
+"""ts_test with tsconfig `paths` aliases, as ts_compile takes them: a value
+import through one runs the module the alias named at compile time, compiled.
+"""
+
+# A BUILD file under shared/ would make it a package, and the alias value a
+# path across a package boundary.
+# gazelle:exclude shared
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.aliases.json
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "alias_test",
+    srcs = [
+        "alias.test.ts",
+        "shared/value.ts",
+    ],
+    node_modules = "//tests/npm:node_modules",
+    tsconfig = "tsconfig.aliases.json",
+    deps = [
+        "//tests/vitest:math",
+        "@npm//:vitest",
+    ],  # keep
+)

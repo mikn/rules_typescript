@@ -1,4 +1,4 @@
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
 
 ts_compile(
     name = "components",
@@ -7,5 +7,14 @@ ts_compile(
         "index.ts",
         "jsx-shim.d.ts",
     ],
+    node_modules = "//:node_modules",
+    tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+    deps = ["//:tsconfig"],
 )

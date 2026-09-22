@@ -27,6 +27,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,9 @@ func TestRelativeImportFromUserConfigFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, "tests", "dev_server"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.CommandContext(ctx, launcher.Abs())
 	cmd.Dir = ws
 	cmd.Env = append(os.Environ(),

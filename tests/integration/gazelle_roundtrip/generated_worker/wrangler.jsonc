@@ -1,0 +1,9 @@
+{
+  // Read by `wrangler types`: the bindings become `Env`, and the compatibility
+  // date selects the runtime declarations. Nothing here is deployed.
+  "name": "roundtrip-generated-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "vars": { "GREETING": "hello" },
+  "kv_namespaces": [{ "binding": "CACHE", "id": "0123456789abcdef0123456789abcdef" }]
+}

@@ -2,8 +2,8 @@
 
 Cutting a tag through to a Bazel Central Registry submission.
 
-Nothing has been released yet: there are no git tags and no GitHub releases, so
-every version number below (`0.2.0`, `0.2.1`, …) shows the shape a release takes.
+No module release has been cut: there is no `v*` tag, so every version number
+below (`0.2.0`, `0.2.1`, …) shows the shape a release takes. No tools release has been published. [Tools](#tools) describes the optional release path.
 `MODULE.bazel` reads `0.2.0` and every install snippet on the site names it, so
 that is the version a first release cuts. See
 [BCR Submission](BCR_SUBMISSION.md) for current status.
@@ -12,26 +12,22 @@ that is the version a first release cuts. See
 
 Before releasing, ensure:
 
-1. **All tests pass** — the lane CI runs, named in `.bazelrc`:
+1. **All tests pass**: the lane CI runs, named in `.bazelrc`:
    ```bash
    bazel test --config=ci //...
    bazel build --config=ci //... --output_groups=+_validation
    ```
    `e2e/` and `examples/` are separate workspaces, so they are separate
-   invocations: `cd e2e/basic && bazel test //...`, then `bazel build //...`
-   in each `examples/*` directory.
+   invocations. In each workspace, run `bazel run //:gazelle -- -mode=diff`
+   after `bazel run //:pnpm -- install --frozen-lockfile` where a root
+   `pnpm-lock.yaml` exists. Then run `bazel test //...` in `e2e/basic` and
+   `bazel build //...` in each `examples/*` directory.
 
-2. **Determinism is verified** — build one target from two empty output bases
-   and compare, which is what the `determinism` job in
-   `.github/workflows/ci.yml` does:
+2. **Determinism is verified**: `//tests/smoke:hello` and the four tools
+   built from two empty output bases and compared byte for byte, which is
+   what the `determinism` job in `.github/workflows/ci.yml` runs:
    ```bash
-   for base in a b; do
-     bazel --output_base="$HOME/.cache/det_$base" \
-       build --config=determinism //tests/smoke:hello
-   done
-   cmp \
-     "$(bazel --output_base="$HOME/.cache/det_a" info bazel-bin)/tests/smoke/hello.js" \
-     "$(bazel --output_base="$HOME/.cache/det_b" info bazel-bin)/tests/smoke/hello.js"
+   tools/ci/check_determinism.sh "$HOME/.cache/rules_ts_det"
    ```
 
 3. **Working tree is clean**
@@ -45,7 +41,7 @@ Before releasing, ensure:
    - Patch version: Bug fixes
    - Pre-release: X.Y.Z-rc.1, X.Y.Z-alpha, etc.
 
-5. **Fold the changelog** — entries since the last release live in
+5. **Fold the changelog**: entries since the last release live in
    `changelog.d/`, one file per PR, and are not in `CHANGELOG.md` until this
    runs:
    ```bash
@@ -55,9 +51,8 @@ Before releasing, ensure:
    git commit -m "docs(changelog): assemble v0.2.0"
    ```
    It inserts the assembled section above the newest release and deletes the
-   fragments it consumed. It belongs here rather than after Step 1:
-   `//tools/release` refuses to run against a dirty working tree, and the tag
-   has to carry the changelog.
+   fragments it consumed. It runs before Step 1: `//tools/release` refuses a
+   dirty working tree, and the tag has to carry the changelog.
 
 ## Step 1: Bump, Commit, Tag
 
@@ -71,7 +66,7 @@ and:
 
 1. Validates the version format
 2. Stops if the tag already exists or the working tree is dirty
-3. Rewrites the version inside `module()` in `MODULE.bazel` — and only there,
+3. Rewrites the version inside `module()` in `MODULE.bazel`, and only there,
    so `bazel_dep` versions are untouched
 4. Commits `MODULE.bazel` as `chore: release v0.2.0`
 5. Creates the annotated tag `v0.2.0`
@@ -162,6 +157,24 @@ Common issues:
 - **Non-deterministic build**: rerun the determinism check in Prerequisites and fix what differs
 - **Licensing**: Ensure LICENSE file is included in tarball
 
+## Tools
+
+Normal builds compile `tsaction`, `lcov_merger`, `copy_to_workspace` and `ts_launcher` from this source tree with rules_go. The action helpers use the execution platform. The launcher uses the target platform because it runs with the built program. No tools tag, release asset or lock-table update is needed to change these tools.
+
+Prebuilt tools are an explicit release option. No tools release has been published. A caller who selects this option needs the release named by `ts/private/tools_lock.bzl`, with the exact checksums in that file. A missing asset fails the fetch; Bazel does not choose a different version or silently change build modes.
+
+```starlark
+ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
+ts.prebuilt_tools()
+use_repo(ts, "tools_prebuilt")
+register_toolchains("@tools_prebuilt//:all")
+register_toolchains("@rules_typescript//ts/toolchain:all")
+```
+
+Only the root module can select this option. Register the prebuilt toolchains first. Without this tag, the extension declares no tools download repositories.
+
+To prepare a tools release, choose `TOOLS_VERSION`, build the four platform archives with `tools/ci/check_tools_lock.sh`, and put their integrity values in `TOOLS_INTEGRITY`. The owner can then publish the matching tag with `bazel run //tools/release -- tools <N> --push`. The release workflow checks those archives against the table before uploading them. This is a release step, not a prerequisite for normal pull requests. The source determinism check and the packer tests remain part of normal CI.
+
 ## Rollback and Fixes
 
 ### If Something Goes Wrong Before Push
@@ -193,7 +206,7 @@ Example:
 bazel run //tools/release -- 0.2.1 --push
 ```
 
-## Pre-release Workflow
+## Pre-Release Workflow
 
 For testing before a major release, use pre-release versions:
 
@@ -247,7 +260,7 @@ After releasing v0.2.0, prepare for v0.2.1:
 
 ## Troubleshooting
 
-### "Tag v0.2.0 already exists"
+### "tag v0.2.0 already exists"
 
 Someone has already released this version:
 
@@ -270,8 +283,7 @@ The tarball differs. Causes:
 Solution:
 
 ```bash
-# Verify determinism (see Prerequisites for the two-output-base sequence)
-bazel build --config=determinism //tests/smoke:hello
+tools/ci/check_determinism.sh "$HOME/.cache/rules_ts_det"
 
 # Check git status
 git status

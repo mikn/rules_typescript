@@ -1,0 +1,37 @@
+"""A CommonJS package's tests run as CommonJS.
+
+`module: commonjs` in the tsconfig and no `type` in package.json: the compiled
+test has `__dirname` and `require`, an extensionless relative `require` keeps
+the runfiles path, and a named import from a CommonJS dependency is that
+dependency's export, which ESM linking cannot see (typescript assigns
+`module.exports` an object).
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.cjs.json
+
+load("//ts:defs.bzl", "ts_config", "ts_test")
+
+ts_config(
+    name = "cjs_tsconfig",
+    src = "tsconfig.cjs.json",
+    module = "commonjs",
+)
+
+# keep
+ts_test(
+    name = "cjs_test",
+    srcs = [
+        "cjs.test.ts",
+        "helper.ts",
+        "package.json",
+    ],
+    data = ["fixtures/note.txt"],
+    node_modules = "//tests/npm:node_modules",
+    runner = "//ts/runners:node_test",
+    tsconfig = ":cjs_tsconfig",
+    deps = [
+        "@npm//:types_node",
+        "@npm//:typescript",
+    ],
+)

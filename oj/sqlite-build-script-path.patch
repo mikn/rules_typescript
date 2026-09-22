@@ -1,0 +1,5 @@
+--- a/build.rs
++++ b/build.rs
+@@ -147,1 +147,1 @@
+-        println!("cargo:include={}/{lib_name}", env!("CARGO_MANIFEST_DIR"));
++        println!("cargo:include={}/{lib_name}", env::var("CARGO_MANIFEST_DIR").unwrap());

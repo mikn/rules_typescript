@@ -1,275 +1,220 @@
 """Analysis-time coverage for the layout ts_compile gives a multi-directory target.
 
-The sh_test next to this file reads the files that were actually written. These
-tests read what the rule told the two compilers to write, which is where a
-single-common-directory assumption shows up first: one --strip-dir-prefix and
-one rootDir have to be the package, not the directory of whichever src sorted
-first.
+The go_test next to this file reads the files that were actually written. These
+tests read what the rule declared and told oxc, which is where a
+single-common-directory assumption shows up first: one --strip-dir-prefix has to
+be the package, not the directory of whichever src sorted first.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//ts/private:ts_compile.bzl", "explicitly_relative", "include_entry", "mixed_src_packages")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//ts:defs.bzl", "TsInfo")
 
 _PKG = "tests/compile_layout"
 
-def _tsconfig_of(env):
-    for action in analysistest.target_actions(env):
-        outputs = action.outputs.to_list()
-        if len(outputs) == 1 and outputs[0].basename.endswith(".tsconfig.json"):
-            return json.decode(action.content)
-    return None
+def _package_relative(f):
+    marker = _PKG + "/"
+    return f.path[f.path.find(marker) + len(marker):]
 
 def _declared_outputs_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
 
-    marker = _PKG + "/"
-    got = sorted([
-        f.path[f.path.find(marker) + len(marker):]
-        for f in target[DefaultInfo].files.to_list()
-    ])
+    asserts.equals(
+        env,
+        [
+            "alpha/one.js",
+            "alpha/one.js.map",
+            "alpha/three.js",
+            "alpha/three.js.map",
+            "beta/deep/two.js",
+            "beta/deep/two.js.map",
+        ],
+        sorted([
+            _package_relative(f)
+            for f in target[DefaultInfo].files.to_list()
+        ]),
+        "the default outputs",
+    )
     asserts.equals(
         env,
         [
             "alpha/one.d.ts",
             "alpha/one.d.ts.map",
-            "alpha/one.js",
-            "alpha/one.js.map",
             "alpha/three.d.ts",
             "alpha/three.d.ts.map",
-            "alpha/three.js",
-            "alpha/three.js.map",
             "beta/deep/two.d.ts",
             "beta/deep/two.d.ts.map",
-            "beta/deep/two.js",
-            "beta/deep/two.js.map",
         ],
-        got,
-        "declared outputs",
+        sorted([
+            _package_relative(f)
+            for f in target[OutputGroupInfo].declarations.to_list()
+        ]),
+        "the declarations output group",
     )
     return analysistest.end(env)
 
-declared_outputs_test = analysistest.make(_declared_outputs_impl)
+declared_outputs_test = analysistest.make(
+    _declared_outputs_impl,
+    config_settings = {str(Label("//ts:declaration_map")): True},
+)
 
-def _tsconfig_layout_impl(ctx):
+def _emit_root_impl(ctx):
     env = analysistest.begin(ctx)
-    config = _tsconfig_of(env)
-    asserts.true(env, config != None, "ts_compile generated no tsconfig")
-    if config == None:
+    emit_actions = [
+        action
+        for action in analysistest.target_actions(env)
+        if action.mnemonic == "TsEmit"
+    ]
+
+    # Two sibling directories are one source root, so one root.
+    asserts.equals(env, 1, len(emit_actions), "TsEmit actions")
+    if len(emit_actions) != 1:
         return analysistest.end(env)
 
-    opts = config["compilerOptions"]
-
-    # The declarations land in the directory Bazel declared them in, at the
-    # depth their path below the package gives them.
-    asserts.equals(env, ".", opts["outDir"], "outDir")
-    asserts.equals(env, opts["outDir"], opts["declarationDir"], "declarationDir")
+    argv = emit_actions[0].argv
+    asserts.equals(
+        env,
+        ["-root=" + _PKG],
+        [a for a in argv if a.startswith("-root=")],
+        "-root",
+    )
+    out_dirs = [a for a in argv if a.startswith("-out_dir=")]
     asserts.true(
         env,
-        opts["rootDir"].endswith("/" + _PKG),
-        "rootDir is the package, not a src's directory: " + opts["rootDir"],
+        len(out_dirs) == 1 and out_dirs[0].endswith("/" + _PKG),
+        "-out_dir is the package's bin directory: " + str(out_dirs),
     )
+    return analysistest.end(env)
 
-    # Every src at its own depth, and every include entry pointing back out of
-    # the bin directory the tsconfig sits in.
-    tails = sorted([entry[entry.find(_PKG):] for entry in config["include"]])
+emit_root_test = analysistest.make(_emit_root_impl)
+
+def _action(env, mnemonic):
+    for action in analysistest.target_actions(env):
+        if action.mnemonic == mnemonic:
+            return action
+    return None
+
+_DATA_SRCS = [
+    "gamma/README.md",
+    "gamma/data.json",
+    "gamma/logo.svg",
+    "gamma/package.json",
+    "gamma/styles.css",
+]
+
+def _data_srcs_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+
+    files = target[DefaultInfo].files.to_list()
     asserts.equals(
         env,
         [
-            _PKG + "/alpha/one.ts",
-            _PKG + "/alpha/three.ts",
-            _PKG + "/beta/deep/two.ts",
+            "gamma/README.md",
+            "gamma/data.json",
+            "gamma/index.js",
+            "gamma/index.js.map",
+            "gamma/logo.svg",
+            "gamma/package.json",
+            "gamma/styles.css",
         ],
-        tails,
-        "include",
+        sorted([_package_relative(f) for f in files]),
+        "DefaultInfo: the compiled module and every data src",
     )
-    for entry in config["include"]:
-        asserts.true(env, entry.startswith("../"), "include entry is not relative: " + entry)
-    return analysistest.end(env)
-
-tsconfig_layout_test = analysistest.make(_tsconfig_layout_impl)
-
-def _oxc_strip_prefix_impl(ctx):
-    env = analysistest.begin(ctx)
-    oxc_actions = [
-        action
-        for action in analysistest.target_actions(env)
-        if action.mnemonic == "OxcCompile"
-    ]
-
-    # Two sibling directories are one source root, so one invocation.
-    asserts.equals(env, 1, len(oxc_actions), "OxcCompile actions")
-    if len(oxc_actions) != 1:
-        return analysistest.end(env)
-
-    argv = oxc_actions[0].argv
-    asserts.equals(env, _PKG, argv[argv.index("--strip-dir-prefix") + 1], "--strip-dir-prefix")
-    asserts.true(
-        env,
-        argv[argv.index("--out-dir") + 1].endswith("/" + _PKG),
-        "--out-dir is the package's bin directory: " + argv[argv.index("--out-dir") + 1],
-    )
-    return analysistest.end(env)
-
-oxc_strip_prefix_test = analysistest.make(_oxc_strip_prefix_impl)
-
-def _include_entry_impl(ctx):
-    env = unittest.begin(ctx)
-
-    bin_dir = "bazel-out/k8-fastbuild/bin"
-
     asserts.equals(
         env,
-        "../../../../../tests/compile_layout/alpha/one.ts",
-        include_entry(bin_dir + "/" + _PKG, _PKG + "/alpha", "one.ts"),
-        "a src below the package keeps its depth",
+        [],
+        [_package_relative(f) for f in files if f.is_source],
+        "every file in DefaultInfo is staged under bazel-bin",
     )
 
-    # A src in the workspace root has no directory component at all, and the
-    # exec root is what that names: an entry relative to the tsconfig's own
-    # directory points at the bin tree, where no source is.
+    info = target[TsInfo]
     asserts.equals(
         env,
-        "../../../index.ts",
-        include_entry(bin_dir, "", "index.ts"),
-        "a src in the workspace root",
+        _DATA_SRCS,
+        sorted([_package_relative(f) for f in info.data.to_list()]),
+        "TsInfo.data",
     )
-
-    return unittest.end(env)
-
-include_entry_test = unittest.make(_include_entry_impl)
-
-def _paths_value_impl(ctx):
-    env = unittest.begin(ctx)
-
-    # A target under the tsconfig's own directory -- a ts_codegen tree in the
-    # consuming package, say -- relativizes to a bare segment, which TypeScript
-    # reads as a package name and rejects with TS5090.
     asserts.equals(
         env,
-        "./compiled/index.d.ts",
-        explicitly_relative("compiled/index.d.ts"),
-        "a bare segment names itself relative",
+        _DATA_SRCS,
+        sorted([
+            _package_relative(f)
+            for f in info.transitive_data.to_list()
+        ]),
+        "TsInfo.transitive_data on a target without deps",
     )
-    for already in ("./here", "../../there", "/abs/elsewhere"):
+
+    # The JSON srcs are tsgo inputs -- an import resolves to data.json, and the
+    # manifest decides the module format -- and nothing else among the data is.
+    tsgo = _action(env, "TsgoCheck")
+    asserts.true(env, tsgo != None, "ts_compile runs no TsgoCheck")
+    if tsgo != None:
         asserts.equals(
             env,
-            already,
-            explicitly_relative(already),
-            "an already-relative value is unchanged",
+            ["gamma/data.json", "gamma/index.ts", "gamma/package.json"],
+            sorted([
+                _package_relative(f)
+                for f in tsgo.inputs.to_list()
+                if not f.is_directory and "/gamma/" in f.path
+            ]),
+            "the tsgo action's inputs under gamma/",
         )
 
-    return unittest.end(env)
+    # `include` is the program's root files; a JSON is reached by import.
+    config = _action(env, "TsConfig")
+    asserts.true(env, config != None, "ts_compile runs no TsConfig action")
+    if config != None:
+        asserts.equals(
+            env,
+            [_PKG + "/gamma/index.ts"],
+            [arg for arg in config.argv if arg.startswith(_PKG + "/")],
+            "the tsconfig step's root files",
+        )
+    return analysistest.end(env)
 
-paths_value_test = unittest.make(_paths_value_impl)
+data_srcs_test = analysistest.make(_data_srcs_impl)
 
-def _mixed_src_packages_impl(ctx):
-    env = unittest.begin(ctx)
-
-    # The srcs of //tests/compile_layout:siblings. A BUILD file in alpha/ or
-    # beta/deep/ would make these labels cross a package boundary and change
-    # nothing else: both directories are still inside this package.
+def _transitive_data_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[TsInfo]
     asserts.equals(
         env,
         [],
-        mixed_src_packages(_PKG, ["alpha/one.ts", "beta/deep/two.ts", ":generated.ts"]),
-        "a subtree of one package is what a multi-directory target is made of",
+        info.data.to_list(),
+        "a consumer stages no data of its own",
     )
     asserts.equals(
         env,
-        [],
-        mixed_src_packages(_PKG, [
-            "three.ts",
-            "//" + _PKG + "/alpha:one.ts",
-            "//" + _PKG + "/beta/deep:two.ts",
+        _DATA_SRCS,
+        sorted([
+            _package_relative(f)
+            for f in info.transitive_data.to_list()
         ]),
-        "a descendant package's src hangs off this package, the root the own srcs do",
+        "TsInfo.transitive_data carries the dep's data srcs",
     )
+    return analysistest.end(env)
 
-    asserts.equals(
-        env,
-        ["//other:two.ts", "//tests:three.ts", "//tests/compile_layoutish:five.ts"],
-        mixed_src_packages(_PKG, [
-            "one.ts",
-            "//other:two.ts",
-            "//tests:three.ts",
-            "//" + _PKG + ":four.ts",
-            "//tests/compile_layoutish:five.ts",
-        ]),
-        "a sibling, an ancestor and a package this one only prefixes are all outside",
-    )
+transitive_data_test = analysistest.make(_transitive_data_impl)
 
-    # //tests/compiler_options/analysis:from_exec_root, and every ts_compile in
-    # the top-level package: one root, and it is the exec root.
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages(_PKG, ["//tests/compiler_options/subtree:root.ts"]),
-        "srcs that are ALL from elsewhere hang off one root like any other",
-    )
+def _dep_json_inputs_impl(ctx):
+    env = analysistest.begin(ctx)
 
-    # vite_types prepends this to every src list it touches, and a declaration is
-    # passed through rather than compiled: no output, no rootDir, no second copy.
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages(_PKG, ["one.ts", "@rules_typescript//ts:vite_env.d.ts"]),
-        "a declaration from another package is passed through",
-    )
+    # An import of a dep's .json is typed from the file, so it is an input of
+    # the consumer's program beside the dep's declarations; other data is not.
+    tsgo = _action(env, "TsgoCheck")
+    asserts.true(env, tsgo != None, "ts_compile runs no TsgoCheck")
+    if tsgo != None:
+        asserts.equals(
+            env,
+            ["gamma/data.json", "gamma/index.d.ts", "gamma/package.json"],
+            sorted([
+                _package_relative(f)
+                for f in tsgo.inputs.to_list()
+                if not f.is_directory and "/gamma/" in f.path
+            ]),
+            "the consumer's tsgo inputs under the dep's gamma/",
+        )
+    return analysistest.end(env)
 
-    # Only the label of a source file says where that file is. A rule's label
-    # stands for outputs the loading phase cannot place, so the analysis-time
-    # root check is the one that judges them.
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages(_PKG, ["one.ts", "//other:some_target"]),
-        "a label that names no source file locates nothing to compare",
-    )
-
-    asserts.equals(
-        env,
-        ["@other_repo//ts:one.ts"],
-        mixed_src_packages("ts", ["two.ts", "@other_repo//ts:one.ts"]),
-        "another repository is outside this tree even at the same path",
-    )
-
-    # An empty repository part -- `@//` and the canonical `@@//` -- is this one.
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages(_PKG, ["one.ts", "@@//" + _PKG + ":two.ts", "@//" + _PKG + ":three.ts"]),
-        "the canonical and apparent spellings of this package are this package",
-    )
-    asserts.equals(
-        env,
-        ["@@//other:two.ts"],
-        mixed_src_packages(_PKG, ["one.ts", "@@//other:two.ts"]),
-        "a canonical label still has a package to compare",
-    )
-
-    # The top-level package IS the exec root a foreign src hangs off: one root.
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages("", ["one.ts", "//other:two.ts"]),
-        "the top-level package and the exec root are the same root",
-    )
-
-    # A select decides its srcs after loading is over; iterating one fails.
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages(_PKG, select({"//conditions:default": ["one.ts", "//other:two.ts"]})),
-        "a select is not a list and holds nothing this phase can read",
-    )
-    asserts.equals(
-        env,
-        [],
-        mixed_src_packages(_PKG, ["one.ts"] + select({"//conditions:default": ["//other:two.ts"]})),
-        "a list concatenated with a select is a select too",
-    )
-
-    return unittest.end(env)
-
-mixed_src_packages_test = unittest.make(_mixed_src_packages_impl)
+dep_json_inputs_test = analysistest.make(_dep_json_inputs_impl)

@@ -1,37 +1,18 @@
 # Gazelle Directives Reference
 
-Directives go in `BUILD.bazel` files as comments and control how Gazelle generates BUILD rules for that directory and its children.
-
-## Full Reference
-
-| Directive | Effect |
-|-----------|--------|
-| `# gazelle:ts_declarations oxc` | Emit `declarations = "oxc"` on generated `ts_compile` and `ts_test` rules in this tree — syntactic `.d.ts` emit, so every export needs an explicit type |
-| `# gazelle:ts_declarations tsgo` | Return a subdirectory to the default emitter after a parent set `oxc` |
-| `# gazelle:ts_package_boundary every-dir` | (default) Every directory with `.ts` files becomes a package |
-| `# gazelle:ts_package_boundary index-only` | Only directories with `index.ts`/`.tsx` become packages (pre-0.2.0 behaviour) |
-| `# gazelle:ts_package_boundary tsconfig` | Only directories holding a `tsconfig.json` become packages, so one target covers one TypeScript project |
-| `# gazelle:ts_package_boundary true` | Mark this single directory as a boundary (useful in index-only mode without `index.ts`) |
-| `# gazelle:ts_ignore` | Suppress TypeScript rule generation for this directory and its children |
-| `# gazelle:ts_ignore false` | Re-enable generation after a parent used `ts_ignore` |
-| `# gazelle:ts_target_name my_lib` | Override the default target name (which is the directory basename) |
-| `# gazelle:ts_path_alias @/ src/` | Map a TypeScript path alias to a workspace-relative directory |
-| `# gazelle:ts_runtime_dep @npm//:happy-dom` | Append a label to every generated `ts_test` deps list |
-| `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
-| `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
-| `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
-| `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
-| `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
-| `# gazelle:ts_asset_declaration_type .svg <type>` | What an import of that asset extension resolves to in this tree, written into every `asset_library`'s `declaration_type` |
-
-That is the complete set: twelve directives. Gazelle warns on an unknown
-`# gazelle:ts_*` comment and continues, so a typo shows up in the run output.
+The TypeScript extension declares no directive: `KnownDirectives()` is empty. A
+package is a directory whose `tsconfig.json` lists a first-party file, its
+program is that listing, and its deps come from the listing's edges, the
+lockfile and the nearest `package.json` ([Overview](overview.md)). What a BUILD
+file says to Gazelle is core Gazelle's own three comments, `# keep`,
+`# gazelle:exclude` and `# gazelle:resolve`; everything else is the tsconfig's,
+the lockfile's or the manifest's to say.
 
 ## `# keep`
 
 `# keep` is Gazelle's own comment, understood by every language extension. Above
 an attribute it means "never rewrite this value"; above a whole rule, "never
-rewrite this rule". Reach for it whenever a run keeps undoing an edit you meant:
+rewrite this rule". Use it when a run keeps undoing an edit:
 
 ```python
 ts_compile(
@@ -44,91 +25,82 @@ ts_compile(
 
 `visibility` is the common case: it is a merged attribute and every rule Gazelle
 generates carries `//visibility:public`, so without `# keep` a hand-narrowed
-visibility widens back on every run. See
+visibility widens back on every run that re-emits the rule. See
 [getting the clean-tree diff to empty](overview.md#getting-the-clean-tree-diff-to-empty).
 
 ### Attributes Gazelle Owns
 
 Gazelle recomputes these from the tree on every run, so a value it cannot derive
-is replaced unless a `# keep` holds it. `ts_compile.deps` and
-`next_build.staging_srcs` are equally Gazelle's:
+is replaced unless a `# keep` holds it:
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
-| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `declarations`, `tsconfig` |
-| `ts_test` | `srcs`, `deps`, `tsconfig` |
-| `ts_config` | `src`, `visibility` — `deps`, the `extends` chain, is yours |
-| `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
-| `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
-| `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names — an extension no directive names is yours |
-| `ts_codegen` | `outs`, `out_dir`, `visibility` |
-| `next_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `tsconfig`, `node_modules` |
-| `next_dev_server` | `node_modules` |
-| `sveltekit_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `svelte_config`, `node_modules` |
-| `ts_bundle` (framework root) | `staging_srcs`, `entry_point`, `html`, `vite_config`, `mode`, `bundler` |
-| `vite_bundler` | `vite`, `node_modules` |
-| `node_modules` (framework root) | `deps` |
-| `filegroup(name = "sources")` | `srcs`, `visibility` |
+| `ts_compile` | `srcs`, `deps`, `tsconfig`, `visibility` |
+| `ts_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
+| `ts_config` | `src`, `deps`, `visibility` |
+| `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
+| `filegroup(name = "wrangler_config")` | `srcs`, `visibility` |
 
-Three kinds are the exception: `ts_dev_server`, `ts_pnpm` and `ts_add_package`.
-Each is written once, when no rule of that name exists, and left alone from then
-on. Gazelle emits no candidate for a rule that already exists, so the merger
-never runs on one. `ts_add_package` declares `pnpm_lock` mergeable and no merge
-ever reaches it. Their attributes are yours after the first run, `# keep` or not.
+`ts_config.deps` is the `extends` chain, a dep on the `ts_config` of every
+`tsconfig.json` the file extends by a relative path. A base of another name
+gets no label, and for an owned attribute that means the value goes: a
+hand-written `deps` needs a `# keep` on its line to survive the next run. See
+[the tsconfig and its ts_config](overview.md#the-tsconfig-and-its-ts_config).
 
-`# keep` works at three granularities: one value, one attribute, one rule. All
-three write paths honour all three — the merger's; the direct write a `glob()`
-needs, since the merger cannot merge a call expression; and the entry-by-entry
-merge `path_aliases` needs, since the merger has no case for a dict:
+!!! note "Upgrading"
+    `ts_config.deps` used to be write-once; it is Gazelle's now. On every
+    `ts_config` whose `deps` you wrote by hand, put `# keep` on the entry's own
+    line to hold that entry beside what Gazelle computes, or above the
+    attribute to keep the whole value. Without one, `deps` is recomputed entry
+    by entry and each dropped entry is named in the log.
+
+A tsconfig's `paths` and `types` are the rule's to read, so no attribute
+restates them. What a path-shaped `types` entry asks of Gazelle is the dep on
+the target that stages the file it names, written into `deps` like any other;
+see [a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
+
+`ts_codegen`, `ts_dev_server`, `ts_pnpm` and `ts_add_package` are outside all
+of this: Gazelle writes none of them and touches none, so each comes through
+every run as written, load symbol included, `# keep` or not. A `ts_codegen` is
+read, for its `outs` and `out_dir`, and never rewritten.
+
+A directory that is not a package has every rule Gazelle would write there
+withdrawn, under the names it would use; `# keep` above such a rule holds it.
+
+`# keep` works at three granularities: one value, one attribute, one rule:
 
 ```python
-next_build(
-    name = "app",
-    # A single pattern Gazelle did not derive: an assets tree the framework
-    # config points somewhere unconventional.
-    srcs = glob([
-        "app/**",
-        "content/**",  # keep
-    ]),
-    # A dep no import implies: next/image loads sharp at runtime.
-    node_modules = ":node_modules",
-    staging_srcs = [
-        "//lib",
-        "//vendor:vendor_hand",  # keep
-    ],
-    # keep
-    config = "custom.next.config.mjs",
-)
-
 ts_compile(
     name = "app",
-    srcs = ["main.ts"],
-    # One alias entry no import implies: a directory a codegen action writes.
-    path_aliases = {
-        "@/": "src/",
-        "@gen/": "src/generated/",  # keep
-    },
+    srcs = [
+        "main.ts",
+        "legacy.js",  # keep
+    ],
+    # keep
+    tsconfig = "//:tsconfig_build",
 )
 ```
 
 A run that drops a value from one of these attributes reports it:
 
 ```
-typescript: next_build(app) in BUILD.bazel: Gazelle generates staging_srcs and
-recomputed it from the tree, so "//vendor:vendor_hand" is no longer declared. A
+typescript: ts_compile(app) in BUILD.bazel: Gazelle generates srcs and
+recomputed it from the tree, so "legacy.js" is no longer declared. A
 value Gazelle cannot derive needs a "# keep" comment on its own line to survive
 the next run; "# keep" above the attribute hands the whole attribute back to you.
 ```
 
 Every dropped value is reported, whether it was a stale label Gazelle wrote
-itself or an edit of yours. That report is the whole difference from Gazelle's Go
-extension, which drops the same values silently: what survives a run is identical
-either way.
+itself or an edit of yours. `deps` is the exception: it is filled in after
+resolution, when the value on disk is no longer in hand, so a label you wrote
+into it goes without a report unless `# keep` holds it.
+Gazelle's Go extension drops the same values silently; what survives a run is
+identical either way.
 
-One case is deliberately silent: a value whose file or package is no longer on
-disk. Deleting a staged directory drops the label that named it, and holding that
-label with `# keep` would name a source nothing provides, which fails analysis. A
-value whose target is still on disk is always reported.
+One case is silent: a value whose file is no longer on disk. Deleting a source
+drops the entry that named it, and holding that entry with `# keep` would name a
+source nothing provides, which fails analysis. A value whose file is still on
+disk is always reported.
 
 #### Values Gazelle Cannot Merge
 
@@ -137,15 +109,15 @@ strings, the two shapes Gazelle's merger reconciles value by value. A value in
 any other shape it cannot merge at all: a module-level variable, two lists joined
 with `+`, a `select()`, or a list with one variable element.
 
-What happens then is Gazelle's merger's decision, and it goes two ways by shape.
-A bare variable is replaced with the value Gazelle derived, and whatever the
+What happens then is the merger's decision, and it goes two ways by shape. A
+bare variable is replaced with the value Gazelle derived, and whatever the
 variable held is gone. Two lists joined with `+` are refused: the attribute keeps
 your expression and Gazelle stops recomputing it. `rules_go`'s extension behaves
 the same way, since both call the same merger. Neither outcome is silent here:
 
 ```
-typescript: BUILD.bazel:28: next_build(app) declares staging_srcs as an
-expression Gazelle's merger cannot reconcile value by value, so staging_srcs is
+typescript: BUILD.bazel:28: ts_compile(app) declares srcs as an
+expression Gazelle's merger cannot reconcile value by value, so srcs is
 no longer an attribute Gazelle maintains: it either replaces the whole
 expression, losing what it computed, or leaves it untouched and stops updating
 it. A "# keep" comment above the attribute makes that yours deliberately.
@@ -156,342 +128,62 @@ Either way the attribute has stopped being maintained. Two resolutions: put
 strings with `# keep` on the entries Gazelle cannot derive, which hands the
 attribute back to it.
 
-A `glob()` is the one shape this extension decides itself, since the merger never
-sees it: `srcs` on `next_build` and `sveltekit_build` is written directly. A
-`glob()` whose arguments are not plain lists of strings is left alone, because
-`rule.ParseGlobExpr` reads only part of such a call and a rewrite would drop the
-rest. The run reports it with the file and the span of the value:
+## `# gazelle:exclude`
 
-```
-typescript: BUILD.bazel:28.20-28.25: could not merge expression -- next_build(app)
-declares srcs that is not a glob() of plain strings, so Gazelle left it alone. It
-now has to cover app/**, content/** by hand: a file srcs does not name is absent
-from the staged tree and does not resolve.
-```
-
-## Examples
-
-### Existing Codebase Without Explicit Return Types
-
-Nothing to configure. The `ts_compile` default (`declarations = "tsgo"`) emits
-declarations from the full type program, so inferred export types are fine:
+Core Gazelle's, and the one way to keep Gazelle out of a tree.
+`# gazelle:exclude <path>` in a BUILD file prunes the walk below that path, so
+no BUILD file is written there and nothing under it is visited; `.bazelignore`
+does the same for Bazel and Gazelle alike, and `# gazelle:ignore` in a
+directory's own BUILD file leaves that file untouched. A file a program lists
+under a pruned directory belongs to no package and is named in the log with
+the programs that reached it. What a package compiles is its tsconfig's
+`include`, `files` and `exclude`; what Bazel must not enter -- `node_modules`,
+a generated directory, a fixture workspace with a `MODULE.bazel` of its own --
+is excluded here.
 
 ```python
 # BUILD.bazel (repo root)
-load("@gazelle//:def.bzl", "gazelle")
-
-gazelle(
-    name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
-)
+# gazelle:exclude examples
 ```
 
-### Opt One Package into Oxc Declaration Emit
+## `# gazelle:resolve`
 
-Once every export in a package carries an explicit type, move it to Oxc's
-syntactic emit to take type-checking off the critical path. See
-[Isolated Declarations](../getting-started/isolated-declarations.md) for the full
-explanation.
-
-```python
-# src/my-package/BUILD.bazel
-
-# gazelle:ts_declarations oxc
-
-# Gazelle regenerates with declarations = "oxc". Oxc fails the build, naming
-# the file and line, for any export it cannot derive a type from.
-```
-
-An unrecognised value keeps the inherited emitter and logs a warning, so a typo
-cannot silently demand annotations across a whole tree.
-
-### Index-only package boundaries (pre-0.2.0 behaviour)
+Core Gazelle's override of one resolution:
+`# gazelle:resolve typescript <repository path> <label>`. The import string is
+the repository path of the file tsgo listed as the edge's target, not the
+specifier a source wrote, because `deps` is resolved by the file; the label is
+what every edge to that file becomes, ahead of the rule whose `srcs` hold it.
+It is the escape hatch for a first-party file no generated rule owns: a
+declaration under a directory Gazelle does not walk, a file a hand-written rule
+stages under another name. The directive is inherited by the directories below
+the BUILD file that carries it, as every core directive is.
 
 ```python
 # BUILD.bazel (repo root)
-
-# gazelle:ts_package_boundary index-only
+# gazelle:resolve typescript vendor/legacy/index.d.ts //vendor/legacy
 ```
 
-In this mode a directory without an index file is not a package: its sources roll
-up into the nearest ancestor that is one, and no BUILD file is written there. That
-dissolves the commonest package-level cycle, where a barrel re-exports `./rules`
-while `./rules` imports `../utils`: a cycle between two Bazel packages and none
-between files.
-
-### One Target per TypeScript Project
-
-```python
-# gazelle:ts_package_boundary tsconfig
-```
-
-A directory is a package when it holds a `tsconfig.json`, and everything below
-it that does not hold one of its own rolls up into it. The unit is then the same
-one `tsc` compiles, which is the only way to express two shapes that are legal
-in a single program and impossible to split across Bazel packages:
-
-- An ambient declaration that types sources in another directory, and refers
-  back to them. `wrangler types` writes exactly this: a `worker-configuration.d.ts`
-  beside the tsconfig declaring the globals `src/` is written against, holding a
-  `typeof import("./src/index")` of its own. Split by directory, the two targets
-  need each other.
-- Directories that import each other. At file granularity there is no cycle;
-  at directory granularity there is one.
-
-### More than One npm Hub
-
-A workspace can translate several lockfiles, and which hub a package's imports
-come from is a property of that package, so it is named where the package is:
-
-```python
-# eslint-plugin/BUILD.bazel
-
-# gazelle:ts_npm_hub npm_eslint
-```
-
-Generated deps in that tree then read `@npm_eslint//:eslint` rather than
-`@npm//:eslint`. Without it the label names a hub the package does not use, and
-that label does not exist. Both `npm_eslint` and `@npm_eslint` are accepted.
-
-Declaring a hub is `npm.translate_lock(name = ...)` plus a matching `use_repo`,
-and each hub needs its own `ts_add_package` target. See
-[More than one hub](../guides/npm.md#more-than-one-hub).
-
-### Path alias for `@/` imports
-
-```python
-# BUILD.bazel (repo root)
-
-# gazelle:ts_path_alias @/ src/
-```
-
-This maps `import { x } from "@/utils"` to `//src/utils`.
-
-A generated target carries the aliases its own imports match, plus any alias whose
-directory holds its own sources, which is exactly the set `ts_compile` accepts. It
-therefore cannot trip
-[its alias validation](../rules/ts-compile.md#the-two-hard-errors). The directive
-reaches `compilerOptions.paths` in the
-[IDE tsconfig](../getting-started/ide-setup.md) as soon as you declare it, before
-any source imports through it. Aliases Gazelle reads back out of a `tsconfig.json`
-this ruleset generated are not re-emitted.
-
-### Add Runtime Deps to All Tests
-
-```python
-# BUILD.bazel (repo root)
-
-# gazelle:ts_runtime_dep @npm//:happy-dom
-# gazelle:ts_runtime_dep @npm//:react
-```
-
-These labels are appended to every generated `ts_test` deps list in the repo.
-
-### Declare ambient `@types` once for the whole repo
-
-```python
-# BUILD.bazel (repo root)
-
-# gazelle:ts_ambient_types @npm//:types_node
-```
-
-Appended to every generated `ts_compile` and `ts_test` deps list in the tree,
-including a target whose sources import nothing at all.
-
-This is the one dep Gazelle cannot infer. Every other dep comes from a specifier
-in a source file, and an **ambient** declaration is one nothing imports: a file
-using `process`, `Buffer` or `__dirname` gives the resolver nothing to work from.
-A strict-deps failure over a global is therefore the one failure
-`bazel run //:gazelle` cannot repair, and the alternative is adding
-`@types/node` by hand to every target that touches a global.
-
-Scope it to a subtree by putting the directive in that directory's BUILD file; it
-is inherited by that tree only. Labels accumulate down the tree, so a root
-`@npm//:types_node` and a `web/BUILD.bazel` `@npm//:types_react` both apply under
-`web/`.
-
-It does not widen what the compiler accepts: the dep still has to exist, and
-`ts_compile` still names only direct `@types/*` deps in the tsconfig's `files`.
-See [ts_compile](../rules/ts-compile.md).
-
-### Suppress Generation for a Directory
-
-```python
-# legacy-code/BUILD.bazel
-
-# gazelle:ts_ignore
-```
-
-Gazelle will not generate `ts_compile` or `ts_test` targets in `legacy-code/` or any of its subdirectories. Write the BUILD file for this directory manually.
-
-### Register a Codegen Target
-
-```python
-# src/api/BUILD.bazel
-
-# gazelle:ts_codegen api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}
-```
-
-The fields are `<name> <generator_label> <outs> [srcs:<csv>] [args…]`, where
-`<outs>` is a comma-separated list of output file names and everything after the
-optional `srcs:` field is passed to the generator. `{srcs}` and `{out}` are
-substituted. Without a `srcs:` field the generator reads the directory's own
-TypeScript sources, which is what a route-tree or barrel generator wants; a
-generator that reads a schema names it:
-
-```python
-# gazelle:ts_codegen schema_types //tools:schemagen schema.gen.ts srcs:schema.graphql --out {out}
-```
-
-A `srcs:` entry may be a `glob()` call instead of a file name, and the two mix —
-a generator reading one settings file plus a directory of catalogues names both:
-
-```python
-# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json,glob(["messages/*.json"]) --outdir {out}
-```
-
-which writes `srcs = ["settings.json"] + glob(["messages/*.json"])`. Commas
-inside the call belong to it, so a glob may carry several patterns and an
-`exclude`. The field takes no whitespace: a directive is split on spaces before
-anything else, so write `glob(["a/*.json","b/*.json"])`, not `glob(["a/*.json", "b/*.json"])`.
-
-The directive is inherited by subdirectories the way every directive is, but the
-target it names is written in the one directory the directive was written in.
-
-Alongside the `ts_codegen`, Gazelle writes `<name>_compile`: the `ts_compile`
-that takes the codegen label in `srcs`, with `declarations = "oxc"`. That is the
-target an import of a generated module resolves to — `ts_compile.deps` takes
-providers `ts_codegen` does not return, so the generated source reaches a compile
-through `srcs`, and under the default `declarations = "tsgo"` emit one target
-cannot hold both checked-in and generated sources. See
-[Compiling the output](../rules/ts-codegen.md#compiling-the-output).
-
-A declared out that is also checked in is kept out of the package's
-`ts_compile.srcs`: a file that is both a source and an output of its package is
-a conflicting declaration Bazel rejects. Deleting the checked-in copy is
-optional, and nothing changes on the day you do.
-
-For a generator that writes a whole directory, prefix the outs field with
-`dir:`:
-
-```python
-# gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
-```
-
-The `dir:` form gets no `<name>_compile` and nothing in it resolves: Bazel
-declares the directory as one artifact, so no file inside it has a label, and
-`ts_compile` takes neither a directory in `srcs` nor a `ts_codegen` in `deps`.
-Reaching the output means writing a rule that adapts the directory to the
-providers `ts_compile.deps` reads, and depending on that by hand. The directive
-writes the target; wiring it up is yours.
-
-Gazelle also auto-detects Prisma, GraphQL codegen and OpenAPI generators, so a
-directive is only needed for a generator it does not recognise. Each of those
-three needs both halves in the same directory: the input file (`schema.prisma`,
-a `.graphql`/`.gql` file, `openapi.yaml` and its variants) and the generator's
-own npm dependency. One without the other emits nothing, which is what keeps a
-monorepo's shared `package.json` from generating targets everywhere.
-
-TanStack Router is deliberately excluded: its route tree is written by the Start
-Vite plugin during the bundle, into the writable staging directory `ts_bundle`
-hands it, so a second copy in `bazel-bin` would only drift from the one the build
-used.
-
-### Declare what an asset extension imports as
-
-`asset_library` writes a `<asset>.<ext>.d.ts` beside every asset it covers, and
-by default it says `string` — the URL a bundler hands back when it does not
-transform the file. A project running svgr gets a component from `*.svg`
-instead, and a `declare module "*.svg"` of its own does not fix it: TypeScript
-prefers the concrete declaration beside the asset over any pattern. The
-attribute that says so is `asset_library.declaration_type`, and this is the
-directive that fills it in:
-
-```python
-# BUILD.bazel
-
-# gazelle:ts_asset_declaration_type .svg import("react").FC<import("react").SVGProps<SVGSVGElement>>
-```
-
-Every `asset_library` in this directory and below whose `srcs` hold a `.svg`
-carries that type from the next run on — the ones Gazelle writes and the ones it
-has already written, which is the whole point: Gazelle writes one target per
-asset file, so a repo of any size has too many of them to edit by hand.
-
-Only the first space separates the extension from the expression, unlike
-`ts_codegen` above, so an expression with spaces in it needs no quoting:
-
-```python
-# gazelle:ts_asset_declaration_type .md { default: string; toc: string[] }
-```
-
-One directive per extension; a target takes an entry only for the extensions its
-own `srcs` have. A subdirectory overrides what it inherited by naming the
-extension again, and returns the subtree to the `string` default by naming the
-extension with nothing after it:
-
-```python
-# packages/legacy/BUILD.bazel
-
-# These are imported as URLs; the svgr transform does not run here.
-# gazelle:ts_asset_declaration_type .svg
-```
-
-The bare form is not "stop managing it": Gazelle removes the entry from the
-targets in that subtree, including one an inherited directive wrote on an
-earlier run. To hold a value against the directive, `# keep` it — on the entry,
-the attribute, or the rule:
-
-```python
-asset_library(
-    name = "sprite_svg",
-    srcs = ["sprite.svg"],
-    declaration_type = {
-        # keep
-        ".svg": "string",
-    },
-)
-```
-
-An extension no directive in scope names is not Gazelle's at all, so a repo that
-hand-wrote `declaration_type` before adopting the directive keeps every entry it
-wrote until a directive names that extension.
-
-The expression is written into the generated `.d.ts` verbatim and nothing checks
-it: a name that does not resolve widens the import to `any` in silence, because
-the declaration is a `.d.ts` and this ruleset compiles with `skipLibCheck`.
-Building the consuming target with `compiler_options = {"skipLibCheck": False}`
-is what surfaces it; the error names the generated `<asset>.d.ts`, whose header
-names the target and the attribute. See
-[`asset_library`](../rules/css-and-assets.md#when-an-asset-is-not-a-url).
-
-### A glob does not cross a package boundary
-
-`glob()` is evaluated in the package holding the rule and does not descend into
-a subpackage, and Bazel refuses to load a package whose glob matched nothing
-(`allow_empty` is `False`). So a pattern reaching into a subdirectory only works
-while that subdirectory has no BUILD file of its own — and a directory of
-message catalogues is exactly the kind of directory Gazelle would otherwise put
-one in, a `json_library` per file.
-
-Gazelle therefore leaves such a directory alone: the files an ancestor's
-`ts_codegen` glob collects are that rule's inputs, so they get no targets of
-their own and the directory stays part of the package above it. This holds only
-while the glob collects *everything* Gazelle would write a target for there. One
-file it does not — a stray `.ts`, a `README.md` — still needs a target, that
-target makes the directory a package again, and the ancestor's glob goes empty.
-Gazelle logs which files those are; the fixes are to move them out, or to put
-the tree under a rolled-up boundary (`# gazelle:ts_package_boundary index-only`
-or `tsconfig`) where a subdirectory is not a package to begin with.
-
-### Exclude Generated Files
-
-```python
-# src/graphql/BUILD.bazel
-
-# gazelle:ts_exclude *.generated.ts
-```
-
-Files matching `*.generated.ts` are excluded from `srcs` lists in this directory.
-Nothing is excluded by name on its own: a checked-in file is a source unless a
-rule in the package declares it as an output, however it is named.
+## Removed Directives
+
+!!! note "Upgrading"
+    Every `ts_*` directive line in a BUILD file goes: the extension declares
+    none, and core Gazelle reports an unknown directive and continues. The
+    table names what does each one's job.
+
+| Directive | What does its job |
+|-----------|-------------------|
+| `# gazelle:ts_package_boundary` | the `tsconfig.json`: a directory is a package when its program lists a first-party file, and everything the program lists belongs to it |
+| `# gazelle:ts_exclude` | the tsconfig's `include`, `files` and `exclude`; a tree Bazel must not enter is `# gazelle:exclude` or `.bazelignore` |
+| `# gazelle:ts_exclude_dir` | `# gazelle:exclude` |
+| `# gazelle:ts_ignore` | `# gazelle:ignore`, or no `tsconfig.json` |
+| `# gazelle:ts_target_name` | a hand-written rule under the name wanted; Gazelle writes and withdraws only the names it would generate |
+| `# gazelle:ts_js_srcs` | `allowJs` in the tsconfig: tsgo lists the `.mjs`, and it is a src |
+| `# gazelle:ts_ambient_types` | `compilerOptions.types`, or a `/// <reference types>` directive; both are edges in the listing |
+| `# gazelle:ts_runtime_dep` | the package's `package.json`: a `ts_test`'s deps carry its `dependencies` and `devDependencies` |
+| `# gazelle:ts_warn_unresolved` | tsgo prints no line for a specifier it could not resolve, so the type check's `TS2307` is the report; a project the lockfile has no importer for, where every bare import would be one, gets no target |
+| `# gazelle:ts_declarations` | the flag `--//ts:declarations`, one value for the whole build |
+| `# gazelle:ts_path_alias` | `compilerOptions.paths`, read by tsgo when it lists the program and by the rule when it checks it |
+| `# gazelle:ts_codegen` | a hand-written `ts_codegen`; Gazelle indexes its `outs` and `out_dir` and never writes one |
+| `# gazelle:ts_npm_hub` | every npm label Gazelle writes names `@npm`, the hub of the root lockfile it reads; a package on another hub writes its deps by hand under `# keep` |
+| `# gazelle:ts_npm_mapping` | the lockfile is the inventory; a package from a label of your own is a `# keep` dep |
+| `# gazelle:ts_asset_declaration_type` | the tsconfig or a declaration file in `srcs`: `vite/client` in `types`, or a `declare module "*.svg"` |

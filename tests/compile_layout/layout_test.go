@@ -34,3 +34,22 @@ func TestSiblingDirectoryLayout(t *testing.T) {
 	// on, so an unresolved import leaves no .d.ts behind.
 	tree.File("tests/compile_layout/alpha/one.d.ts").Contains("one")
 }
+
+// A data src is staged at its package-relative path, so a relative reference
+// from the compiled module beside it resolves at run time as it did in source.
+func TestDataSrcsAreStagedBesideTheirModule(t *testing.T) {
+	tree := verify.New(t)
+
+	for _, rel := range []string{
+		"gamma/index.js", "gamma/index.d.ts",
+		"gamma/README.md", "gamma/data.json", "gamma/logo.svg",
+		"gamma/package.json", "gamma/styles.css",
+	} {
+		tree.File("tests/compile_layout/" + rel).Exists()
+	}
+
+	// The declaration is the proof the JSON import resolved: data.json was a tsgo
+	// input, and its type was read under bundler resolution's resolveJsonModule.
+	tree.File("tests/compile_layout/gamma/index.d.ts").
+		Contains("export declare const name: string;")
+}

@@ -1,0 +1,56 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = [
+    "//npm:__subpackages__",
+    "//ts:__subpackages__",
+    "//vite:__subpackages__",
+])
+
+# //tests/api_surface reads TS_COMPILE_ATTRS, _TEST_ATTRS and the runner seam
+# out of them.
+exports_files(
+    [
+        "runners.bzl",
+        "ts_compile.bzl",
+        "ts_test.bzl",
+    ],
+    visibility = ["//tests/api_surface:__pkg__"],
+)
+
+bzl_library(
+    name = "ts_compile",
+    srcs = ["ts_compile.bzl"],
+    deps = [
+        "//ts/private:node_modules",
+        "//ts/private:providers",
+        "//ts/private:runtime",
+        "//ts/private:toolchain",
+        "//ts/private/actions:emit",
+        "//ts/private/actions:lint",
+        "//ts/private/actions:tsconfig",
+        "//ts/private/actions:tsgo",
+    ],
+)
+
+bzl_library(
+    name = "runners",
+    srcs = ["runners.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private/actions:vitest",
+        "//ts/private/actions:workers_pool",
+    ],
+)
+
+bzl_library(
+    name = "ts_test",
+    srcs = ["ts_test.bzl"],
+    deps = [
+        ":ts_compile",
+        "//ts/private:node_modules",
+        "//ts/private:providers",
+        "//ts/private:runtime",
+        "//ts/private:toolchain",
+        "//ts/private/actions:workers_pool",
+    ],
+)

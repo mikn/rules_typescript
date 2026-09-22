@@ -15,8 +15,10 @@ bzl_library(
     name = "lazy",
     srcs = ["lazy.bzl"],
     deps = [
+        "//npm/private:hoist",
         "//npm/private:npm_import",
         "//npm/private:npm_translate_lock",
+        "//npm/private:store",
         "//platforms",
     ],
 )

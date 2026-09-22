@@ -1,0 +1,108 @@
+diff --git a/internal/transformers/declarations/tracker.go b/internal/transformers/declarations/tracker.go
+index 532afee..45d8eed 100644
+--- a/internal/transformers/declarations/tracker.go
++++ b/internal/transformers/declarations/tracker.go
+@@ -61,7 +61,16 @@ func (s *SymbolTrackerImpl) isBoundExpando(node *ast.Node) bool {
+ 	if !(ast.IsExpandoPropertyDeclaration(node) && ast.IsPropertyAccessExpression(node.AsBinaryExpression().Left)) {
+ 		return false
+ 	}
+-	ref := s.resolver.GetReferencedValueDeclarationUnsafe(ast.GetLeftmostExpression(node.AsBinaryExpression().Left, true))
++	// An expando is bound by an assignment to a property of a named value;
++	// the resolver reads an identifier, so any other head is not one.
++	if node.AsBinaryExpression().OperatorToken.Kind != ast.KindEqualsToken {
++		return false
++	}
++	leftmost := ast.GetLeftmostExpression(node.AsBinaryExpression().Left, true)
++	if !ast.IsIdentifier(leftmost) {
++		return false
++	}
++	ref := s.resolver.GetReferencedValueDeclarationUnsafe(leftmost)
+ 	if ref == nil {
+ 		return false
+ 	}
+diff --git a/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.errors.txt b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.errors.txt
+new file mode 100644
+index 0000000..5c5d57f
+--- /dev/null
++++ b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.errors.txt
+@@ -0,0 +1,11 @@
++isolatedDeclarationsBoundExpandoCallee.ts(2,24): error TS9013: Expression type can't be inferred with --isolatedDeclarations.
++
++
++==== isolatedDeclarationsBoundExpandoCallee.ts (1 errors) ====
++    declare function f(): { p: string };
++    export const g = () => f().p || "";
++                           ~~~~~~~~~~~
++!!! error TS9013: Expression type can't be inferred with --isolatedDeclarations.
++!!! related TS9027 isolatedDeclarationsBoundExpandoCallee.ts:2:14: Add a type annotation to the variable g.
++!!! related TS9035 isolatedDeclarationsBoundExpandoCallee.ts:2:24: Add satisfies and a type assertion to this expression (satisfies T as T) to make the type explicit.
++    
+\ No newline at end of file
+diff --git a/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.js b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.js
+new file mode 100644
+index 0000000..8ec7985
+--- /dev/null
++++ b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.js
+@@ -0,0 +1,9 @@
++//// [tests/cases/compiler/isolatedDeclarationsBoundExpandoCallee.ts] ////
++
++//// [isolatedDeclarationsBoundExpandoCallee.ts]
++declare function f(): { p: string };
++export const g = () => f().p || "";
++
++
++//// [isolatedDeclarationsBoundExpandoCallee.js]
++export const g = () => f().p || "";
+diff --git a/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.symbols b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.symbols
+new file mode 100644
+index 0000000..6c02ee7
+--- /dev/null
++++ b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.symbols
+@@ -0,0 +1,13 @@
++//// [tests/cases/compiler/isolatedDeclarationsBoundExpandoCallee.ts] ////
++
++=== isolatedDeclarationsBoundExpandoCallee.ts ===
++declare function f(): { p: string };
++>f : Symbol(f, Decl(isolatedDeclarationsBoundExpandoCallee.ts, 0, 0))
++>p : Symbol(p, Decl(isolatedDeclarationsBoundExpandoCallee.ts, 0, 23))
++
++export const g = () => f().p || "";
++>g : Symbol(g, Decl(isolatedDeclarationsBoundExpandoCallee.ts, 1, 12))
++>f().p : Symbol(p, Decl(isolatedDeclarationsBoundExpandoCallee.ts, 0, 23))
++>f : Symbol(f, Decl(isolatedDeclarationsBoundExpandoCallee.ts, 0, 0))
++>p : Symbol(p, Decl(isolatedDeclarationsBoundExpandoCallee.ts, 0, 23))
++
+diff --git a/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.types b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.types
+new file mode 100644
+index 0000000..753f3b1
+--- /dev/null
++++ b/testdata/baselines/reference/compiler/isolatedDeclarationsBoundExpandoCallee.types
+@@ -0,0 +1,17 @@
++//// [tests/cases/compiler/isolatedDeclarationsBoundExpandoCallee.ts] ////
++
++=== isolatedDeclarationsBoundExpandoCallee.ts ===
++declare function f(): { p: string };
++>f : () => { p: string; }
++>p : string
++
++export const g = () => f().p || "";
++>g : () => string
++>() => f().p || "" : () => string
++>f().p || "" : string
++>f().p : string
++>f() : { p: string; }
++>f : () => { p: string; }
++>p : string
++>"" : ""
++
+diff --git a/testdata/tests/cases/compiler/isolatedDeclarationsBoundExpandoCallee.ts b/testdata/tests/cases/compiler/isolatedDeclarationsBoundExpandoCallee.ts
+new file mode 100644
+index 0000000..c38e3bc
+--- /dev/null
++++ b/testdata/tests/cases/compiler/isolatedDeclarationsBoundExpandoCallee.ts
+@@ -0,0 +1,5 @@
++// @isolatedDeclarations: true
++// @declaration: true
++
++declare function f(): { p: string };
++export const g = () => f().p || "";

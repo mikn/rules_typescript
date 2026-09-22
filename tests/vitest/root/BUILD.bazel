@@ -2,10 +2,12 @@
 
 load("//ts:defs.bzl", "ts_test")
 
+# keep
 ts_test(
     name = "root_test",
     srcs = ["root.test.ts"],
     config = "vitest.root.config.mjs",
     data = ["setup.mjs"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

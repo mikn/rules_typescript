@@ -20,7 +20,6 @@ process.stdout.write(
     host: config?.server?.host ?? null,
     root: config?.root ?? null,
     fsAllow: config?.server?.fs?.allow ?? null,
-    watchPaths: config?.server?.watch?.paths ?? null,
     // A `find` is a RegExp for an exact match and a string for the subpath
     // prefix; both go over the wire as text.
     alias: (config?.resolve?.alias ?? []).map((entry) => ({

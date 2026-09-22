@@ -23,10 +23,14 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_isolated_declarations::{IsolatedDeclarations, IsolatedDeclarationsOptions};
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
-use oxc_span::SourceType;
+use oxc_span::{GetSpan, SourceType};
 use oxc_transformer::{JsxOptions, JsxRuntime, TransformOptions, Transformer, TypeScriptOptions};
 
 use crate::options::CliOptions;
+
+#[cfg(test)]
+#[path = "transform_tests.rs"]
+mod tests;
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -138,6 +142,9 @@ pub fn transform_file(input_path: &Path, opts: &CliOptions) -> miette::Result<()
             None
         };
 
+        let starts_before: Vec<u32> =
+            parse_ret.program.body.iter().map(|s| s.span().start).collect();
+
         // Transform (mutates parse_ret.program in place).
         let transformer_ret = Transformer::new(
             &allocator,
@@ -153,6 +160,23 @@ pub fn transform_file(input_path: &Path, opts: &CliOptions) -> miette::Result<()
                 &transformer_ret.errors,
                 "Transform error(s)",
             ));
+        }
+
+        // A comment above an erased statement moves to the next kept one: a
+        // leading docblock outlives the `import type` it sits on.
+        let starts_after: Vec<u32> =
+            parse_ret.program.body.iter().map(|s| s.span().start).collect();
+        let end = parse_ret.program.span.end;
+        for comment in parse_ret.program.comments.iter_mut() {
+            let at = comment.attached_to;
+            if starts_before.contains(&at) && !starts_after.contains(&at) {
+                comment.attached_to = starts_after
+                    .iter()
+                    .copied()
+                    .filter(|&s| s > at)
+                    .min()
+                    .unwrap_or(end);
+            }
         }
 
         // Codegen for .js — optionally emit a source map.
@@ -234,7 +258,8 @@ fn compute_output_paths(input_path: &Path, opts: &CliOptions) -> miette::Result<
         .ok_or_else(|| miette!("Input path has no file name: {}", input_path.display()))?
         .to_string_lossy();
 
-    let stem = if file_name.ends_with(".tsx") {
+    let is_tsx = file_name.ends_with(".tsx");
+    let stem = if is_tsx {
         &file_name[..file_name.len() - 4]
     } else if file_name.ends_with(".ts") {
         &file_name[..file_name.len() - 3]
@@ -248,9 +273,15 @@ fn compute_output_paths(input_path: &Path, opts: &CliOptions) -> miette::Result<
     let parent = relative.parent().unwrap_or(Path::new(""));
     let base_dir = opts.out_dir.join(parent);
 
-    let js_path = base_dir.join(format!("{stem}.js"));
+    // tsc's naming: a .tsx whose JSX is preserved keeps the x.
+    let js_extension = if is_tsx && opts.jsx == "preserve" {
+        "jsx"
+    } else {
+        "js"
+    };
+    let js_path = base_dir.join(format!("{stem}.{js_extension}"));
     let js_map_path = if opts.source_map {
-        Some(base_dir.join(format!("{stem}.js.map")))
+        Some(base_dir.join(format!("{stem}.{js_extension}.map")))
     } else {
         None
     };
@@ -283,6 +314,10 @@ fn build_transform_options(opts: &CliOptions) -> miette::Result<TransformOptions
 
     transform_opts.jsx = jsx_opts;
     transform_opts.typescript = TypeScriptOptions::default();
+    if opts.top_level_await {
+        // oxc's top_level_await is the refusal below es2022, not a lowering.
+        transform_opts.env.es2022.top_level_await = false;
+    }
 
     Ok(transform_opts)
 }

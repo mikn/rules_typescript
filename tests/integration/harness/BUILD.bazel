@@ -7,7 +7,7 @@ own assertions.
 
 # gazelle:ignore
 
-load("@rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "harness",
@@ -17,6 +17,14 @@ go_library(
     visibility = ["//tests/integration:__subpackages__"],
     deps = [
         "//tests/hmrsocket",
-        "@rules_go//go/runfiles",
+        "@io_bazel_rules_go//go/runfiles",
     ],
+)
+
+# This unit test starts no nested Bazel server.
+go_test(
+    name = "harness_test",
+    size = "small",
+    srcs = ["harness_test.go"],
+    embed = [":harness"],
 )

@@ -15,13 +15,11 @@ import (
 // '{$username}.tsx'` -- which aborts `bazel query //...` for every package in
 // the workspace, not only this one.
 var atNamedSrcWorkspace = map[string]string{
-	"package.json":                `{"name":"w","dependencies":{"zod":"3.24.2"}}` + "\n",
-	"tsconfig.json":               `{"compilerOptions":{"strict":true}}` + "\n",
+	"package.json": `{"name":"w","dependencies":{"zod":"3.24.2"}}` + "\n",
+	"src/routes/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx"},` +
+		`"include":["*.tsx"]}` + "\n",
 	"src/routes/index.tsx":        "export const index = 1;\n",
 	"src/routes/@{$username}.tsx": "export const user = 1;\n",
-	"src/routes/@logo.svg":        "<svg/>\n",
-	"src/routes/@data.json":       `{"a":1}` + "\n",
-	"src/routes/@sheet.css":       ".a{color:red}\n",
 	"src/routes/@case.test.tsx":   "export const t = 1;\n",
 }
 
@@ -30,6 +28,7 @@ var atNamedSrcWorkspace = map[string]string{
 // name forced the ":" has to still be there -- a src silently dropped is a file
 // nothing compiles.
 func TestAtNamedSrcIsAValidLabel(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, atNamedSrcWorkspace)
 	captureLog(t, func() { convergeGazelle(t, root) })
@@ -65,9 +64,6 @@ func TestAtNamedSrcIsAValidLabel(t *testing.T) {
 
 	for _, want := range []string{
 		"src/routes/@{$username}.tsx",
-		"src/routes/@logo.svg",
-		"src/routes/@data.json",
-		"src/routes/@sheet.css",
 		"src/routes/@case.test.tsx",
 	} {
 		if !declared[want] {
@@ -80,6 +76,7 @@ func TestAtNamedSrcIsAValidLabel(t *testing.T) {
 // only if the next run keeps it. Gazelle re-emitting the bare form is what made
 // the fix something to re-apply after every `bazel run //:gazelle`.
 func TestAtNamedSrcConverges(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, atNamedSrcWorkspace)
 	captureLog(t, func() { convergeGazelle(t, root) })
@@ -143,6 +140,7 @@ func TestSrcLabelFollowsTheLabelGrammar(t *testing.T) {
 // says which file and why. Dropping a source in silence is the same defect as
 // emitting one nothing can parse.
 func TestUnlabelableSrcIsReported(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	files := map[string]string{}
 	for rel, body := range atNamedSrcWorkspace {

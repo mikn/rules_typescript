@@ -1,0 +1,15 @@
+[package]
+name = "direct-cargo-bazel-deps"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "unused.rs"
+
+[dependencies]
+oj = { version = "=0.2.1" }
+deno_core = { version = "=0.412.0", default-features = false }
+oj_server = { version = "=0.2.1" }
+cranelift-assembler-x64 = { version = "=0.117.2", default-features = false }
+cranelift-codegen-meta = { version = "=0.117.2", default-features = false }
+oj_deno_napi = { version = "=0.2.2", default-features = false }

@@ -1,0 +1,36 @@
+{
+    "compilerOptions": {
+        "jsx": "react-jsx",
+        "jsxImportSource": "preact",
+        "lib": [
+            "es2022"
+        ],
+        "paths": {
+            "@app/*": [
+                "src/*"
+            ],
+            "#lib": [
+                "lib/index.ts"
+            ]
+        },
+        "strict": true,
+        "target": "es2017",
+        "typeRoots": [
+            "../base/typings"
+        ],
+        "types": [
+            "./globals.d.ts",
+            "./generated.d.ts",
+            "node",
+            "@cloudflare/workers-types"
+        ],
+        "module": "es6",
+        "useDefineForClassFields": false
+    },
+    "files": [
+        "../../../../pkg/src/a.ts"
+    ],
+    "include": [
+        "src"
+    ]
+}

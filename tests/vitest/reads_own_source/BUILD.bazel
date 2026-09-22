@@ -1,0 +1,30 @@
+"""A test reads its package's tree where the checkout has it: its own sources
+and its ts_compile's are in the runfiles; another package's program is there
+and that package's sources are not."""
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+load(":runfiles_tests.bzl", "package_sources_runfiles_test")
+
+# keep
+ts_compile(
+    name = "reads_own_source",
+    srcs = ["src/index.ts"],
+)
+
+# keep
+ts_test(
+    name = "reads_own_source_test",
+    srcs = ["test/reads.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    deps = [
+        ":reads_own_source",
+        "//tests/vitest:math",
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
+)
+
+package_sources_runfiles_test(
+    name = "package_sources_runfiles_test",
+    target_under_test = ":reads_own_source_test",
+)

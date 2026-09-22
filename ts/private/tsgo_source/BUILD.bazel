@@ -1,0 +1,8 @@
+exports_files(
+    [
+        "go.mod",
+        "go.sum",
+        "isolated-declarations-bound-expando.patch",
+    ],
+    visibility = ["//ts:__subpackages__"],
+)

@@ -142,10 +142,7 @@ type response struct {
 	url    string
 	status int
 	body   string
-	// finalURL is where the request landed after redirects. A dev server may
-	// answer a resolved-dependency URL with one -- oj serves an id its plugin
-	// container resolved by redirecting to that file's own URL -- and which file
-	// it chose is only visible here.
+	// Plugin resolution may redirect to the dependency file.
 	finalURL string
 }
 
@@ -254,12 +251,7 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-// depURL is the first URL a served module imports, in whichever form the server
-// rewrites to: a pre-bundled dependency lands under the cacheDir the rule sets
-// inside bazel-bin, Vite names an un-optimised file directly (/@fs/<abs>), and
-// oj names an id its plugin container resolved (/@id/<hex>) and redirects to
-// the file. All three are "the URL this module's dependency is at"; where it
-// lands is the assertion, not how it is spelled.
+// Vite may expose dependencies through /@fs/, /@id/, or its pre-bundle cache.
 func depURL(body string) string {
 	m := regexp.MustCompile(`"(/(?:@(?:fs|id)/|bazel-bin/)[^"]+)"`).FindStringSubmatch(body)
 	if m == nil {

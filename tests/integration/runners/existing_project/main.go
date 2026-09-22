@@ -25,8 +25,8 @@ func main() {
 		}
 		it.Pass("src/lib/BUILD.bazel has no declarations attribute (tsgo default)")
 
-		it.MustBazel("build", "//src/lib:all")
-		it.Pass("bazel build //src/lib:all")
+		it.MustBazel("build", "//src/lib:all", "--output_groups=+declarations")
+		it.Pass("bazel build //src/lib:all --output_groups=+declarations")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -46,8 +46,7 @@ func main() {
 			"math.d.ts widened an export to 'unknown' or '{}'")
 		it.Pass("math.d.ts contains no widened exports")
 
-		// Note the absence of --output_groups=+_validation: because the .d.ts are
-		// real outputs of the tsgo action, a type error is a build failure.
+		// TsgoCheck is a validation: Bazel runs it with the build it belongs to.
 		broken, err := it.BazelLog("broken.log", "build", "//src/broken:all")
 		if err == nil {
 			broken.Dump()
@@ -70,11 +69,8 @@ func main() {
 	})
 }
 
-// A file listed by a target in another package used to reach analysis, where it
-// hit the one-rootDir check and was reported as "srcs hang off 2 different
-// roots ... a mix of checked-in and generated sources" -- which names neither
-// the file nor what is wrong with it. Written here rather than checked in so
-// that Gazelle, which runs first, has no say in it.
+// Srcs off two roots (the exec root and the package) fail at analysis under the
+// tsgo emit. Written here, not checked in: Gazelle runs first and has no say.
 func sharedSrc(it *harness.IT) {
 	it.Write(it.Path("shared/BUILD.bazel"), "exports_files([\"util.ts\"])\n")
 	it.Write(it.Path("shared/util.ts"), "export const util = 1;\n")
@@ -97,17 +93,17 @@ ts_compile(
 	}
 	it.Pass("//consumer:consumer failed")
 
-	for _, want := range []string{"//shared:util.ts", "outside it"} {
+	for _, want := range []string{
+		"hang off 2 different roots, and one declaration emit has one rootDir",
+		"the exec root",
+		"--//ts:declarations=oxc",
+	} {
 		if !log.Contains(want) {
 			log.Dump()
-			it.Fail("the failure does not mention %q, so it is not the loading-phase check", want)
+			it.Fail("the failure does not mention %q, so it is not the one-rootDir check", want)
 		}
 	}
-	if log.Contains("different roots") {
-		log.Dump()
-		it.Fail("the failure is still the analysis-time rootDir error")
-	}
-	it.Pass("the shared src is rejected while loading, naming the file")
+	it.Pass("the shared src is rejected at analysis, naming both roots and the flag")
 }
 
 // The four srcs shapes that are not the mix and build on origin/main: a
@@ -164,8 +160,9 @@ ts_compile(
 )
 `)
 
-	it.MustBazel("build", "//holder:holder", "//chooses:chooses", "//canonical:canonical", "//:toplevel")
-	it.Pass("bazel build //holder //chooses //canonical //:toplevel")
+	it.MustBazel("build", "//holder:holder", "//chooses:chooses",
+		"//canonical:canonical", "//:toplevel", "--output_groups=+declarations")
+	it.Pass("bazel build //holder //chooses //canonical //:toplevel, declarations")
 
 	for _, rel := range []string{
 		"holder/a.d.ts",

@@ -1,16 +1,46 @@
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
+# The srcs span src/; a BUILD file there would turn it into a package and make
+# those labels cross a package boundary.
+# gazelle:exclude src
 
-# Workspace package target that @npm//:shared aliases to.
-# The pnpm-lock.yaml in tests/npm/ has:
-#   shared: {specifier: workspace:*, version: link:packages/shared}
-# which causes npm_translate_lock to generate:
-#   alias(name = "shared", actual = "//packages/shared:shared")
-# zod is the lockfile's own dep for this importer, imported at run time so that
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+# The importer packages/shared: zod, its one declared package.
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    deps = ["@npm//packages/shared:zod"],
+)
+
+# @npm//:shared is the hub's view of this target. zod is imported at run time so
 # //tests/npm:workspace_runtime_test fails unless the member's closure travels.
+# keep
 ts_compile(
     name = "shared",
-    srcs = ["index.ts"],
-    module_name = "shared",
+    srcs = [
+        "package.json",
+        "src/banner.json",
+        "src/index.ts",
+        "src/wire/index.ts",
+        "src/wire/package.json",
+    ],
+    node_modules = ":node_modules",
     visibility = ["//visibility:public"],
-    deps = ["@npm//:zod"],
+    deps = ["@npm//packages/shared:zod"],
+)
+
+# The member's own test imports the member by name and by subpath, as
+# @lovable/canvas-sdk's does: a self-reference, the compiling target its dep.
+# keep
+ts_test(
+    name = "shared_test",
+    size = "small",
+    srcs = ["src/shared.test.ts"],
+    node_modules = ":node_modules",
+    visibility = ["//tests/npm:__pkg__"],
+    deps = [
+        ":shared",
+        "@npm//:vitest",
+    ],
 )

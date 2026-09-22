@@ -1,31 +1,27 @@
 """The Cloudflare Workers shape: ambient globals that collide with lib.dom."""
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.worker.json
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# target es2022 implies lib.es2022.full, which is es2022 + dom + dom.iterable +
-# scripthost. A lib declaration beats an ambient one, so with DOM in scope the
-# Workers globals in worker-configuration.d.ts lose to the browser ones and the
-# source does not compile. Narrowing lib to plain es2022 is the fix Cloudflare
-# documents, and it is only reachable through `lib`.
-# `types` is written the way wrangler writes it: relative to the package. It is
-# no longer the only route -- the dep edge carries the same globals since
-# TsGlobalDts -- so `lib` is the only thing this package still pins on its own.
+# target es2022 implies lib.es2022.full, whose DOM globals beat the Workers
+# ones, so lib is es2022. The `types` entry is relative, as wrangler writes it.
 ts_compile(
     name = "worker_configuration",
     srcs = ["worker-configuration.d.ts"],
 )
 
+# keep
 ts_compile(
     name = "worker",
     srcs = ["index.ts"],
-    lib = ["es2022"],
-    types = ["./worker-configuration.d.ts"],
+    tsconfig = "tsconfig.worker.json",
     visibility = ["//visibility:public"],
-    # `types` is not an import, so nothing Gazelle reads implies this dep.
-    deps = [":worker_configuration"],  # keep
+    deps = [":worker_configuration"],
 )
 
 build_test(

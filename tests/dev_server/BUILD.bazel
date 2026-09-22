@@ -1,6 +1,6 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "css_module", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -12,33 +12,20 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
-    enable_check = False,
 )
 
-# The dev servers' entry point, and a //:refresh_tsconfig root: its dep on a
-# `module_name` package feeds both the vite config alias and the IDE paths entry.
+# The dev servers' entry point, and a //:refresh_tsconfig root.
 ts_compile(
     name = "dev_app",
     srcs = ["dev_app.ts"],
-    enable_check = False,
     deps = ["//tests/dev_server/lib"],
 )
 
-# A stylesheet the dev-server lanes serve, and the export map css_module wrote
-# for it. Not in any dev server's graph: :css_module_test copies the stylesheet
-# into the throwaway workspace it serves, which is what a source tree looks like
-# to a running server, and compares what comes back against this map.
-css_module(
-    name = "panel_module_css",
-    srcs = ["panel.module.css"],
-)
-
-# One tree for every dev server here, and it has to be named "node_modules":
-# a package inside it resolves its own dependencies by Node's up-walk, which only
-# looks in directories of that name. @vitejs/plugin-react reaching react-refresh
-# is exactly that, and a tree named anything else silently loses Fast Refresh.
+# One node_modules for every dev server here.
+# keep
 node_modules(
     name = "node_modules",
+    hoist = "//tests/npm:node_modules/.pnpm/node_modules",
     deps = [
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
@@ -54,6 +41,7 @@ ts_dev_server(
     entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5173,
+    server = "//vite:dev_server",
 )
 
 # Dev server with the vite-plugin-bazel for enhanced .ts resolution and HMR.
@@ -64,6 +52,7 @@ ts_dev_server(
     node_modules = ":node_modules",
     plugin = "//vite:vite_plugin_bazel",
     port = 5174,
+    server = "//vite:dev_server",
 )
 
 # Dev server with React Fast Refresh — preserves component state across HMR.
@@ -73,6 +62,7 @@ ts_dev_server(
     node_modules = ":node_modules",
     port = 5175,
     react_refresh = True,
+    server = "//vite:dev_server",
 )
 
 # Dev server with both React Fast Refresh and vite-plugin-bazel.
@@ -83,6 +73,7 @@ ts_dev_server(
     plugin = "//vite:vite_plugin_bazel",
     port = 5176,
     react_refresh = True,
+    server = "//vite:dev_server",
 )
 
 # A vite_config naming a package in optimizeDeps.include -- the one resolution
@@ -92,6 +83,7 @@ ts_dev_server(
     entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5181,
+    server = "//vite:dev_server",
     vite_config = "optimize_deps_config.mjs",
 )
 
@@ -103,6 +95,7 @@ ts_dev_server(
     entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5177,
+    server = "//vite:dev_server",
     vite_config = "user_config.mjs",
 )
 
@@ -114,30 +107,34 @@ ts_dev_server(
     entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5180,
+    server = "//vite:dev_server",
     vite_config = "user_config_relative.mjs",
     vite_config_srcs = ["user_config_helper.mjs"],
 )
 
-# The same app under oj instead of Vite, which is the point of the server attr:
-# one generated config, two implementations reading it. oj needs no @npm//:vite
-# in the tree -- it is here only because the Vite variants above share this one.
-ts_dev_server(
-    name = "dev_oj",
-    entry_point = ":dev_app",
-    node_modules = ":node_modules",
-    port = 5179,
-    server = "//oj:dev_server",
-)
-
-# The other side of that boundary: only the config file itself is copied, so its
-# relative import of a sibling module resolves nowhere. :vite_config_boundary_test
-# starts this one and asserts it dies naming the file it could not load.
 ts_dev_server(
     name = "dev_with_relative_user_config",
     entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5178,
+    server = "//vite:dev_server",
     vite_config = "user_config_relative.mjs",
+)
+
+ts_dev_server(
+    name = "dev_oj",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5179,
+)
+
+ts_dev_server(
+    name = "dev_oj_with_plugin",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    plugin = "//vite:vite_plugin_bazel",
+    port = 5182,
+    vite_config = "oj_config.mjs",
 )
 
 # Each variant is started for real and interrogated over HTTP; the env says which
@@ -176,6 +173,8 @@ ts_dev_server(
     )
     for target, port, bazel_plugin, react_refresh, user_config, impl in [
         ("dev", "5173", "0", "0", "0", "vite"),
+        ("dev_oj", "5179", "0", "0", "0", "oj"),
+        ("dev_oj_with_plugin", "5182", "1", "0", "0", "oj"),
         ("dev_with_plugin", "5174", "1", "0", "0", "vite"),
         ("dev_with_react_refresh", "5175", "0", "1", "0", "vite"),
         ("dev_with_react_refresh_and_plugin", "5176", "1", "1", "0", "vite"),
@@ -183,9 +182,6 @@ ts_dev_server(
         # Same assertions, but the plugin comes from a module the config imports
         # relatively -- which only resolves because vite_config_srcs staged it.
         ("dev_with_composed_user_config", "5180", "0", "0", "1", "vite"),
-        # The same assertions against oj: what the seam is for is that one
-        # generated config drives either implementation.
-        ("dev_oj", "5179", "0", "0", "0", "oj"),
     ]
 ]
 
@@ -207,38 +203,6 @@ go_test(
         "//tests/verify",
     ],
 )
-
-# A .module.css through a running server, per implementation: the class names it
-# serves have to be the ones the .d.ts was generated from, or the dev loop and
-# the build disagree about every one of them.
-[
-    go_test(
-        name = "{}_css_module_test".format(target),
-        size = "medium",
-        srcs = [
-            "css_module_test.go",
-            "devserver_harness_test.go",
-            "launcher_config_test.go",
-        ],
-        data = [
-            ":panel_module_css",
-            ":{}".format(target),
-        ],
-        env = {
-            "DEV_IMPL": impl,
-            "DEV_TARGET": target,
-        },
-        tags = ["requires-network"],
-        deps = [
-            "//tests/hmrsocket",
-            "//tests/verify",
-        ],
-    )
-    for target, impl in [
-        ("dev", "vite"),
-        ("dev_oj", "oj"),
-    ]
-]
 
 # What a vite_config can and cannot import, and where the rule loads it from.
 # No server comes up here: a config that fails to load fails before Vite listens.
@@ -262,15 +226,7 @@ go_test(
     ],
 )
 
-# The edit-to-HMR benchmark, over both server implementations. It measures the
-# whole loop -- save, watcher, transform, frame on a held-open HMR socket -- so
-# it needs to know where that socket is, which is the one part of the protocol
-# the two servers do not share: Vite upgrades on the base path and only for the
-# "vite-hmr" subprotocol, oj upgrades on /__ws for anything.
-#
-# One lane per server, plus the plugin lane, because the plugin adds a second
-# watcher to the same process and that is exactly the kind of thing that would
-# cost the inner loop without anyone noticing.
+# Vite upgrades HMR sockets on the base path with the vite-hmr subprotocol.
 [
     go_test(
         name = "{}_hmr_latency_test".format(target),
@@ -296,7 +252,8 @@ go_test(
     )
     for target, impl, ws_path, ws_protocol in [
         ("dev", "vite", "/", "vite-hmr"),
-        ("dev_with_plugin", "vite", "/", "vite-hmr"),
         ("dev_oj", "oj", "/__ws", ""),
+        ("dev_oj_with_plugin", "oj", "/__ws", ""),
+        ("dev_with_plugin", "vite", "/", "vite-hmr"),
     ]
 ]

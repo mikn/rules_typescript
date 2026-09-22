@@ -31,7 +31,6 @@ import path from 'node:path';
 export type ResolverMode = 'serve' | 'build';
 
 export interface ResolverOptions {
-  /** Absolute path to the workspace root (Vite's `root`). */
   workspaceRoot: string;
   /** Absolute path to the bazel-bin output tree. */
   bazelBin: string;
@@ -119,9 +118,13 @@ export class BazelResolver {
   readonly bazelBin: string;
   readonly workspace: string | undefined;
   readonly mode: ResolverMode;
+  private readonly realWorkspaceRoot: string;
 
   constructor(options: ResolverOptions) {
     this.workspaceRoot = options.workspaceRoot;
+    this.realWorkspaceRoot = fs.existsSync(options.workspaceRoot)
+      ? fs.realpathSync(options.workspaceRoot)
+      : options.workspaceRoot;
     this.bazelBin = options.bazelBin;
     this.workspace = options.workspace;
     this.mode = options.mode ?? 'build';
@@ -140,7 +143,7 @@ export class BazelResolver {
     if (!isTsSourcePath(absoluteTsPath)) return null;
 
     // Compute the workspace-relative path of the source file.
-    const rel = path.relative(this.workspaceRoot, absoluteTsPath);
+    const rel = this.workspaceRelativePath(absoluteTsPath);
 
     // Bail out if the path escapes the workspace root (contains leading `..`).
     if (rel.startsWith('..')) return null;
@@ -175,13 +178,8 @@ export class BazelResolver {
     return fs.existsSync(mapPath) ? mapPath : null;
   }
 
-  /**
-   * Resolves a module `id` as seen by Vite's `resolveId` hook.
-   *
-   * Bare specifiers always return null in both modes: npm packages and
-   * first-party `module_name` packages are resolved through `resolve.alias` in
-   * the generated config, which is where the Bazel-computed mapping lives.
-   */
+  /** Bare specifiers return null in both modes: the launcher's node_modules
+   *  link and `resolve.alias` are Vite's to resolve. */
   resolveId(id: string, importer?: string): Resolution | null {
     if (this.mode === 'build') {
       const built = this.resolveIdForBuild(id, importer);
@@ -334,7 +332,7 @@ export class BazelResolver {
 
   /** Same workspace-relative path, rooted at bazel-bin instead. */
   private binPathForSourcePath(sourcePath: string): string | null {
-    const rel = path.relative(this.workspaceRoot, sourcePath);
+    const rel = this.workspaceRelativePath(sourcePath);
     if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
     return path.join(this.bazelBin, rel);
   }
@@ -347,8 +345,15 @@ export class BazelResolver {
   }
 
   private underWorkspace(absolute: string): boolean {
-    const rel = path.relative(this.workspaceRoot, absolute);
+    const rel = this.workspaceRelativePath(absolute);
     return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  }
+
+  private workspaceRelativePath(absolute: string): string {
+    const rel = path.relative(this.workspaceRoot, absolute);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+    // Vite canonicalizes importers, including Darwin's /var -> /private/var.
+    return path.relative(this.realWorkspaceRoot, absolute);
   }
 }
 
