@@ -1,6 +1,7 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:rust_tool.bzl", "rust_tool")
 load(":dev_server.bzl", "oj_dev_server")
 load(":v8_archive_env.bzl", "v8_archive_env")
 
@@ -76,4 +77,9 @@ v8_archive_env(
         "//platforms:is_darwin_arm64": "@oj_v8_darwin_arm64//file",
         "//platforms:is_windows_amd64": "@oj_v8_windows_amd64//file",
     }),
+)
+
+rust_tool(
+    name = "oj",
+    actual = "@oj_crates//:oj__oj",
 )

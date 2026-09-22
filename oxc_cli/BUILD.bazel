@@ -1,11 +1,12 @@
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//tools:rust_tool.bzl", "rust_tool")
 
 rust_binary(
-    name = "oxc-bazel",
+    name = "oxc-bazel_source",
     srcs = glob(["src/**/*.rs"]),
     edition = "2024",
-    visibility = ["//visibility:public"],
+    visibility = ["//visibility:private"],
     deps = [
         "@rules_typescript_crates//:clap",
         "@rules_typescript_crates//:miette",
@@ -23,5 +24,11 @@ rust_binary(
 
 rust_test(
     name = "oxc-bazel_test",
-    crate = ":oxc-bazel",
+    crate = ":oxc-bazel_source",
+)
+
+rust_tool(
+    name = "oxc-bazel",
+    actual = ":oxc-bazel_source",
+    visibility = ["//visibility:public"],
 )
