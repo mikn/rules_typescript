@@ -18,7 +18,7 @@ oj_dev_server = rule(
     implementation = _oj_dev_server_impl,
     attrs = {
         "oj": attr.label(
-            default = "@oj_crates//:oj__oj",
+            default = "//oj:oj",
             executable = True,
             cfg = "target",
         ),

@@ -21,12 +21,13 @@ bazel_dep(name = "llvm", version = "0.8.21")
 
 rust = use_extension("@rules_rs//rs/toolchains:module_extension.bzl", "toolchains")
 rust.toolchain(
+    name = "consumer_rust_toolchains",
     edition = "2024",
-    version = "1.98.0",
+    version = "1.91.0",
 )
-use_repo(rust, "default_rust_toolchains")
+use_repo(rust, "consumer_rust_toolchains", "default_rust_toolchains")
 
-register_toolchains("@default_rust_toolchains//...", "@llvm//toolchain:all")
+register_toolchains("@consumer_rust_toolchains//...", "@llvm//toolchain:all")
 
 crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
 crate.from_cargo(

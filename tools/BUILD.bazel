@@ -1,3 +1,5 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
 # Tools shipped with rules_typescript.
 # Shell scripts referenced by macros in ts/private/pnpm.bzl; the tsserver hook
 # and plugin scripts //:refresh_tsconfig copies into a consumer workspace.
@@ -25,4 +27,9 @@ filegroup(
 filegroup(
     name = "tsserver-plugin-worker",
     srcs = ["tsserver-hook-worker.js"],
+)
+
+bzl_library(
+    name = "rust_tool",
+    srcs = ["rust_tool.bzl"],
 )
