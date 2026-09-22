@@ -251,6 +251,7 @@ def _member_entry(name, path):
 def _member_manifest(module_ctx, workspace_root, path):
     """The member's named package.json as text and decoded, or None."""
     manifest = workspace_root.get_child(*(path.split("/") + ["package.json"]))
+    module_ctx.watch(manifest)
     if not manifest.exists:
         return None
     text = module_ctx.read(manifest)

@@ -23,6 +23,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude node_version
 # gazelle:exclude npm_deps
 # gazelle:exclude npm_integrity
+# gazelle:exclude npm_reproducible
 # gazelle:exclude npm_registries
 # gazelle:exclude oxc_declarations
 # gazelle:exclude store_cache
@@ -42,6 +43,7 @@ _RUNNERS = [
     "npm_deps",
     "npm_integrity",
     "npm_registries",
+    "npm_reproducible",
     "oxc_declarations",
     "store_cache",
     "tsgo_lockfile",

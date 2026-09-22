@@ -86,6 +86,8 @@ def _npm_impl(module_ctx):
         version = pnpm_version,
     )
 
+    return module_ctx.extension_metadata(reproducible = True)
+
 _translate_lock_tag = tag_class(attrs = {
     "name": attr.string(
         default = "npm",
