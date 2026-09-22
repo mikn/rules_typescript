@@ -131,6 +131,8 @@ bazel test //...
 
 ### Adding npm Dependencies
 
+The npm extension is reproducible: consumers’ `MODULE.bazel.lock` contains no npm extension metadata. Bazel derives repository definitions from the watched pnpm lockfile, workspace/npmrc files, member manifests and patch bytes; changing those inputs refreshes the graph. Package downloads still use the lockfile’s integrity checks.
+
 One-time setup in `MODULE.bazel`:
 
 ```python
