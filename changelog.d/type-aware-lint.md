@@ -1,0 +1,3 @@
+### Fixed
+
+- Type-aware lint actions now receive the program configuration, dependency types and npm inputs. `ts.lint(data = ..., args = ...)` declares config imports and plugins and accepts `{tsconfig}` in arguments. npm binaries preserve the caller’s working directory so relative config overrides resolve against the workspace. `tool_env` binds declared auxiliary executables to environment variables, including their runfiles; nested launchers prefer their own runfiles over inherited parent paths. Declared auxiliary executables can be bound through `tool_env`, with each launcher using its own runfiles.

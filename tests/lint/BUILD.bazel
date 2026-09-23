@@ -1,7 +1,7 @@
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load("//ts/private/actions:lint.bzl", "lint_config")
-load(":lint_tests.bzl", "lint_test_suite")
+load(":lint_tests.bzl", "invalid_tool_env_test", "lint_test_suite")
 
 # The analysis tests read the command line; nothing runs the stub.
 sh_binary(
@@ -9,11 +9,27 @@ sh_binary(
     srcs = ["fake_linter.sh"],
 )
 
+sh_binary(
+    name = "auxiliary_tool",
+    srcs = ["fake_linter.sh"],
+    data = ["auxiliary-data.txt"],
+)
+
 lint_config(
     name = "strict",
+    args = [
+        "--type-aware",
+        "--tsconfig={tsconfig}",
+    ],
     binary = ":fake_linter",
     config = "lint.json",
+    data = [
+        "plugin.mjs",
+        "plugin-options.json",
+        "//tests/npm:node_modules",
+    ],
     fail_on_warnings = True,
+    tool_env = {":auxiliary_tool": "LINT_AUXILIARY"},
 )
 
 lint_config(
@@ -43,4 +59,41 @@ ts_test(
     ],
 )
 
+ts_compile(
+    name = "types_only",
+    srcs = ["types.d.ts"],
+)
+
 lint_test_suite(name = "lint_tests")
+
+filegroup(
+    name = "non_executable_tool",
+    srcs = [
+        "auxiliary-data.txt",
+        "plugin-options.json",
+    ],
+)
+
+lint_config(
+    name = "invalid_tool_name",
+    tags = ["manual"],  # The analysis test requires this target to fail.
+    tool_env = {":auxiliary_tool": "NOT-A-NAME"},
+)
+
+invalid_tool_env_test(
+    name = "tool_env_rejects_invalid_environment_name_test",
+    expected = "needs an environment variable name",
+    target_under_test = ":invalid_tool_name",
+)
+
+lint_config(
+    name = "invalid_tool_executable",
+    tags = ["manual"],  # The analysis test requires this target to fail.
+    tool_env = {":non_executable_tool": "LINT_AUXILIARY"},
+)
+
+invalid_tool_env_test(
+    name = "tool_env_rejects_non_executable_target_test",
+    expected = "must be executable",
+    target_under_test = ":invalid_tool_executable",
+)

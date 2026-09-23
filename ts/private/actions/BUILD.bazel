@@ -15,7 +15,12 @@ exports_files(
 bzl_library(
     name = "lint",
     srcs = ["lint.bzl"],
-    deps = ["//ts/private:toolchain"],
+    deps = [
+        ":tsgo",
+        "//ts/private:node_modules",
+        "//ts/private:providers",
+        "//ts/private:toolchain",
+    ],
 )
 
 bzl_library(

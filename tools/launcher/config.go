@@ -47,10 +47,9 @@ type Config struct {
 // NodeConfig runs one .js entry point. NodeModules, here and below, is an
 // importer's node_modules: a directory no manifest entry names.
 type NodeConfig struct {
-	Entry         string        `json:"entry"`
-	NodeModules   string        `json:"node_modules,omitempty"`
-	ChdirRunfiles bool          `json:"chdir_runfiles,omitempty"`
-	OptionalDeps  []PackageLink `json:"optional_deps,omitempty"`
+	Entry        string        `json:"entry"`
+	NodeModules  string        `json:"node_modules,omitempty"`
+	OptionalDeps []PackageLink `json:"optional_deps,omitempty"`
 }
 
 // PackageLink is one npm package to expose under a private node_modules dir.

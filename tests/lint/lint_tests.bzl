@@ -1,17 +1,14 @@
 """Analysis-time proof of the TsLint action under each lint_config.
 
-The action runs the config's binary through `tsaction stamp` over the
-program's sources as execroot-anchored paths, passes `--config` and
-`--max-warnings=0` only when the config sets them, and its stamp is in
-`_validation`; a config naming no binary registers no action. The linter that
-runs for real is //tests/lint_real's oxlint, through the root module's tag.
+The action runs the configured tool inside tsgo's program layout, with config
+imports declared separately from the linted sources. The real linter is
+//tests/lint_real's oxlint, through the root module's tag.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 
 _LINT = str(Label("//ts:lint"))
 _PKG = "tests/lint"
-_FROM_EXECROOT = "{{EXECROOT}}/"
 
 def _tslint_actions(env):
     return [
@@ -43,7 +40,7 @@ def _lints_impl(ctx):
         "the stamp is in _validation",
     )
 
-    asserts.equals(env, "stamp", argv[1], "the tsaction subcommand")
+    asserts.equals(env, "tsgo", argv[1], "the shared program runner")
     linter = argv[argv.index("--") + 1]
     asserts.true(
         env,
@@ -62,17 +59,30 @@ def _lints_impl(ctx):
         "--config" in argv,
         "--config iff the config names a file",
     )
-    anchored = [
-        arg[len(_FROM_EXECROOT):]
-        for arg in argv
-        if arg.startswith(_FROM_EXECROOT)
-    ]
-    config = [ctx.attr.config] if ctx.attr.config else []
-    want = [_PKG + "/" + f for f in config + ctx.attr.linted]
-    asserts.equals(env, want, anchored, "the config and the srcs, anchored")
+    want = [_PKG + "/" + f for f in ctx.attr.linted]
+    asserts.equals(env, want, argv[-len(want):], "workspace-relative linted sources")
     inputs = [f.short_path for f in action.inputs.to_list()]
     for path in want:
         asserts.true(env, path in inputs, path + " is an input")
+    asserts.true(env, target.label.name + ".tsconfig.json" in [f.basename for f in action.inputs.to_list()])
+    asserts.true(env, "types.d.ts" in [f.basename for f in action.inputs.to_list()], "program declarations reach lint")
+    if ctx.attr.config:
+        config = _PKG + "/" + ctx.attr.config
+        asserts.equals(env, config, argv[argv.index("--config") + 1])
+        for path in [config, _PKG + "/plugin.mjs", _PKG + "/plugin-options.json"]:
+            asserts.true(env, path in inputs, path + " is an input")
+            asserts.true(env, "-copy=" + path in argv, path + " retains module resolution inside the program")
+        asserts.true(env, any([path.endswith("/node_modules/oxlint") for path in inputs]), "config npm imports are declared")
+        asserts.true(env, any([arg.startswith("-node_modules=") for arg in argv]), "config importer reaches dependency-free programs")
+        tools = [f for f in action.inputs.to_list() if f.basename == "auxiliary_tool"]
+        asserts.equals(env, 1, len(tools), "auxiliary executable is an action input")
+        if tools:
+            asserts.true(env, "-tool-env=LINT_AUXILIARY=" + tools[0].path in argv, "environment names the declared executable")
+        asserts.true(env, "--type-aware" in argv)
+        configs = [f.path for f in action.inputs.to_list() if f.basename == target.label.name + ".tsconfig.json"]
+        asserts.true(env, "--tsconfig=" + configs[0] in argv)
+    if target.label.name == "clean_test":
+        asserts.true(env, any(["/node_modules/vitest" in path for path in inputs]), "npm inputs reach lint")
     return analysistest.end(env)
 
 _LINTS_ATTRS = {
@@ -128,6 +138,13 @@ def lint_test_suite(name):
         config = "lint.json",
         fail_on_warnings = True,
     )
+    strict_lint_test(
+        name = name + "_declarations_only",
+        target_under_test = ":types_only",
+        linted = ["types.d.ts"],
+        config = "lint.json",
+        fail_on_warnings = True,
+    )
     loose_lint_test(
         name = name + "_loose",
         target_under_test = ":clean",
@@ -143,6 +160,18 @@ def lint_test_suite(name):
             ":" + name + "_strict",
             ":" + name + "_strict_ts_test",
             ":" + name + "_loose",
+            ":" + name + "_declarations_only",
             ":" + name + "_none",
         ],
     )
+
+def _invalid_tool_env_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, ctx.attr.expected)
+    return analysistest.end(env)
+
+invalid_tool_env_test = analysistest.make(
+    _invalid_tool_env_impl,
+    expect_failure = True,
+    attrs = {"expected": attr.string()},
+)

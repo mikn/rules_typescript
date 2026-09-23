@@ -16,6 +16,9 @@ ts.lint(
 |-----------|------|---------|-------------|
 | `binary` | `label` | required | The linter's executable from the workspace's hub: `@npm//:oxlint_bin` or `@npm//:eslint_bin`. The lockfile decides which oxlint or eslint runs; there is no linter toolchain |
 | `config` | `label` | `None` | The linter's own config file (`oxlint.json`, `.oxlintrc.json`, `eslint.config.mjs`, ...), passed as `--config`. Unset, no flag is passed: oxlint runs its defaults, eslint needs a flat config |
+| `data` | `label_list` | `[]` | Config imports, local plugins, ignore files and `node_modules` targets used by the config. Importer directories come from those targets and the program |
+| `args` | `string_list` | `[]` | Additional CLI arguments. `{tsconfig}` expands to the generated target-specific compiler config |
+| `tool_env` | `label_keyed_string_dict` | `{}` | Executable labels mapped to environment variable names. Values passed to the linter are absolute executable paths; tools and their runfiles are action inputs |
 | `fail_on_warnings` | `bool` | `False` | A warning fails the build: `--max-warnings=0`, which oxlint and eslint spell alike |
 
 Only the root module's call takes effect, and it makes one; a module graph
@@ -36,8 +39,7 @@ TypeScript, JavaScript and declaration srcs, never a data src, and writes
 - it runs during `bazel build`, without being asked for;
 - it does not block downstream compilation: a lint error in a library does not
   stop a binary that depends on it from being built;
-- it is cached like any action: unchanged sources and an unchanged config mean
-  no lint run at all.
+- it is cached against the declared source, config, plugin and program inputs.
 
 To run the checks alone, or where a `.bazelrc` turned validations off:
 
@@ -47,16 +49,17 @@ bazel build //... --output_groups=+_validation
 
 ## Paths
 
-Every source and the config reach the linter as **execroot-absolute** paths,
-substituted into the command line by `tsaction`, the tools toolchain's runner. An `npm_bin` wrapper
-`cd`s to `RUNFILES_DIR` before running the package's own binary, which
-invalidates every execroot-relative path it was given. A linter reporting
-`ENOENT` on a file that exists is this.
+TsLint runs from the same workspace-shaped program layout as tsgo, with the target's compiler config, its config chain, dependency type inputs and npm files. Sources and config paths stay workspace-relative, preserving config override and ignore patterns. npm binary launchers preserve their caller's working directory.
+
+Declare imported config modules, local plugins (including their dynamic imports), ignore files and any package manifests they need in `data`. Source config/data files are copied into the program layout because Node resolves imports from a file's real path; a symlink would send those imports outside the staged importer tree. Generated config/data remains at its output-tree path: it is not copied back to a source-package path. Generated JS/TS configs and plugins therefore do not get the source-file guarantee for relative imports, npm resolution or config-relative overrides. Use source configs/plugins when relying on that behavior.
+
+A config importing npm packages also needs its `node_modules` target in `data`, even when the target being linted has no npm dependencies. This supplies the config's package files and importer layout without adding lint-only packages to the TypeScript dependency graph.
+
+For oxlint type-aware checks, use `args = ["--type-aware", "--tsconfig={tsconfig}"]` and declare the importer holding the config’s npm dependencies in `data`. Set `tool_env = {"@npm//:oxlint-tsgolint_bin": "OXLINT_TSGOLINT_PATH"}` to provide the type-aware executable; package files in `data` do not create npm `.bin` launchers. Other CI flags, such as `--report-unused-disable-directives-severity=error`, belong in the same `args` list. The selected linter version must support the flags.
 
 ## Action Environment
 
-The action runs with `PATH=/bin:/usr/bin` and nothing else from the host
-environment. Node comes from the wrapper's own runfiles, staged because the
-linter's `FilesToRunProvider` is passed in `tools` and not `inputs`. A linter
+The action starts with `PATH=/bin:/usr/bin` and no inherited host environment. Each `tool_env` binding supplies the declared executable’s absolute execroot path before entering the program layout; it does not read a host variable or invoke a shell. Node comes from the wrapper's own runfiles, staged because the
+linter’s and auxiliary executables’ `FilesToRunProvider`s are passed in `tools`. A linter
 binary whose native sidecar or Node cannot be found is usually a non-executable
 target.

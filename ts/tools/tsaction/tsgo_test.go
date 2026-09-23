@@ -509,3 +509,84 @@ func captureStdout(t *testing.T) func() string {
 		return string(data)
 	}
 }
+
+func TestProgramCopiesConfigImportsWithoutLosingWorkspacePaths(t *testing.T) {
+	root, _ := newTsgoExecroot(t, "")
+	for file, body := range map[string]string{
+		"lint/config.mjs":          "import './plugins/rule.mjs';",
+		"lint/plugins/rule.mjs":    "import './options.mjs';",
+		"lint/plugins/options.mjs": "export default {};",
+	} {
+		writeFile(t, filepath.Join(root, file), body)
+	}
+	tool, _ := fakeTool(t, root, "lint-tool", `set -eu
+[ "$1" = "--config" ]
+[ "$2" = "lint/config.mjs" ]
+[ "$3" = "pkg/a.ts" ]
+[ -f "$3" ]
+[ ! -L lint/config.mjs ]
+[ ! -L lint/plugins/rule.mjs ]
+[ ! -L lint/plugins/options.mjs ]
+[ -f node_modules/zod/index.d.ts ]
+[ -f pkg/sub/node_modules/ms/index.d.ts ]
+[ -f bazel-out/k8-fastbuild/bin/pkg/lib.d.ts ]
+[ -f bazel-out/k8-fastbuild/bin/pkg/app.tsconfig.json ]
+`)
+	stamp := binDir + "/pkg/app.tslint"
+	args := []string{
+		"-root=" + programRoot,
+		"-source=pkg/a.ts",
+		"-source=lint/config.mjs",
+		"-copy=lint/config.mjs",
+		"-copy=lint/plugins/rule.mjs",
+		"-copy=lint/plugins/options.mjs",
+		"-node_modules=" + subImporter,
+		"-node_modules=" + rootImporter,
+		"-stamp=" + stamp,
+		"--", tool, "--config", "lint/config.mjs", "pkg/a.ts",
+	}
+	if err := runTsgo(args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(programRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("program root was not cleaned up: %v", err)
+	}
+	if got, err := os.ReadFile("lint/config.mjs"); err != nil || string(got) != "import './plugins/rule.mjs';" {
+		t.Fatalf("source config changed: %q, %v", got, err)
+	}
+}
+
+func TestProgramToolEnvironmentKeepsAbsoluteExecutableAndRunfiles(t *testing.T) {
+	root, _ := newTsgoExecroot(t, "")
+	sidecar := "tools/side car=declared"
+	writeFile(t, filepath.Join(root, sidecar), "#!/bin/sh\ncat \"$0.runfiles/payload\"\n")
+	if err := os.Chmod(sidecar, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, sidecar+".runfiles/payload"), "declared runfile")
+	tool, _ := fakeTool(t, root, "lint-tool", `set -eu
+case "$LINT_AUXILIARY" in /*) ;; *) exit 20;; esac
+[ "$LINT_AUXILIARY" = "$1" ]
+[ "$("$LINT_AUXILIARY")" = "declared runfile" ]
+[ -f pkg/a.ts ]
+`)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LINT_AUXILIARY", "must be replaced")
+	if err := runTsgo([]string{
+		"-root=" + programRoot,
+		"-source=pkg/a.ts",
+		"-tool-env=LINT_AUXILIARY=" + sidecar,
+		"--", tool, filepath.Join(cwd, sidecar),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("LINT_AUXILIARY"); got != "must be replaced" {
+		t.Fatalf("tool environment escaped the child process: %q", got)
+	}
+}

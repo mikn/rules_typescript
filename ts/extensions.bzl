@@ -140,6 +140,9 @@ def _ts_impl(module_ctx):
         binary = str(lint.binary) if lint else "",
         config = str(lint.config) if lint and lint.config else "",
         fail_on_warnings = lint.fail_on_warnings if lint else False,
+        data = [str(label) for label in lint.data] if lint else [],
+        args = lint.args if lint else [],
+        tool_env = {str(label): name for label, name in lint.tool_env.items()} if lint else {},
     )
 
     for platform in TSGO_PLATFORMS:
@@ -234,6 +237,16 @@ oxlint or eslint runs. There is no linter toolchain.""",
 no flag is passed: oxlint runs its defaults, and eslint needs a flat config.
 Another repository names the file, so its package exports it
 (`exports_files`).""",
+        ),
+        "tool_env": attr.label_keyed_string_dict(
+            doc = "Executable labels mapped to environment names receiving their absolute paths.",
+        ),
+        "data": attr.label_list(
+            allow_files = True,
+            doc = "Config imports, plugins and ignore files available at their workspace paths.",
+        ),
+        "args": attr.string_list(
+            doc = "Linter arguments. {tsconfig} expands to the target-specific compiler config.",
         ),
         "fail_on_warnings": attr.bool(
             doc = "A warning fails the build: `--max-warnings=0`, which " +

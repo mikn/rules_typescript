@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,34 @@ type Resolver struct {
 }
 
 func NewResolver() (*Resolver, error) {
+	return resolverForExecutable(os.Args[0])
+}
+
+func resolverForExecutable(argv0 string) (*Resolver, error) {
+	// A subprocess can inherit another executable's runfiles environment.
+	for _, executable := range candidateArgv0(argv0) {
+		executable, err := filepath.Abs(executable)
+		if err != nil {
+			return nil, err
+		}
+		directory := executable + ".runfiles"
+		for _, manifest := range []string{executable + ".runfiles_manifest", filepath.Join(directory, "MANIFEST")} {
+			if !isRegular(manifest) {
+				continue
+			}
+			r, err := newResolver(runfiles.ManifestFile(manifest))
+			if err != nil {
+				return nil, err
+			}
+			if st, err := os.Stat(directory); err == nil && st.IsDir() {
+				r.dir = directory
+			}
+			return r, nil
+		}
+		if st, err := os.Stat(directory); err == nil && st.IsDir() {
+			return directoryResolver(directory)
+		}
+	}
 	return newResolver()
 }
 
@@ -31,11 +60,11 @@ func newResolver(opts ...runfiles.Option) (*Resolver, error) {
 // directoryResolver resolves through the runfiles tree at dir, whatever the
 // environment names.
 func directoryResolver(dir string) (*Resolver, error) {
-	rf, err := runfiles.New(runfiles.Directory(dir))
+	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, fmt.Errorf("ts_launcher: %w", err)
+		return nil, err
 	}
-	return &Resolver{rf: rf, dir: dir}, nil
+	return &Resolver{dir: abs}, nil
 }
 
 // runfilesDir returns the absolute runfiles directory, or "" when the layout is
@@ -72,12 +101,24 @@ func runfilesEnv(env []string, name string) string {
 func (r *Resolver) Dir() string { return r.dir }
 
 // Env returns the runfiles variables to hand to child processes.
-func (r *Resolver) Env() []string { return r.rf.Env() }
+func (r *Resolver) Env() []string {
+	if r.rf == nil {
+		return []string{"RUNFILES_DIR=" + r.dir, "JAVA_RUNFILES=" + r.dir, "RUNFILES_MANIFEST_FILE="}
+	}
+	return r.rf.Env()
+}
 
 // Path resolves one runfiles path to an absolute filesystem path.
 func (r *Resolver) Path(rlocation string) (string, error) {
 	if rlocation == "" {
 		return "", fmt.Errorf("ts_launcher: empty runfiles path")
+	}
+	if r.rf == nil {
+		if !fs.ValidPath(rlocation) || !filepath.IsLocal(filepath.FromSlash(rlocation)) {
+			return "", fmt.Errorf("ts_launcher: non-normalized runfiles path %q", rlocation)
+		}
+		// Rule-generated config paths already use canonical repository names.
+		return filepath.Join(r.dir, filepath.FromSlash(rlocation)), nil
 	}
 	p, err := r.rf.Rlocation(rlocation)
 	if err != nil {
