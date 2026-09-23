@@ -908,26 +908,32 @@ func TestResolveEdges_NoPoolEdgeWritesNoPoolAttributes(t *testing.T) {
 	}
 }
 
-// The pool with istanbul in no lockfile: wrangler_config comes, the provider
-// and its dep stay off, and one line names the package to declare.
-func TestResolveEdges_PoolWithoutIstanbulIsSaid(t *testing.T) {
-	c, tc := poolRepo(t, poolRepoLockNoIstanbul)
-	r, logged := resolvePooledTest(t, c, tc, []explainfiles.Edge{poolEdge})
-	if got := r.AttrString("wrangler_config"); got != "//worker:wrangler_config" {
-		t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
-	}
-	if r.Attr("coverage_provider") != nil {
-		t.Errorf("coverage_provider = %q, want unset: istanbul is in no lockfile",
-			r.AttrString("coverage_provider"))
-	}
-	want := []string{"//worker", "@npm//worker:cloudflare_vitest-pool-workers",
-		"@npm//worker:vitest"}
-	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-		t.Errorf("deps = %q, want %q", got, want)
-	}
-	if !strings.Contains(logged, "@vitest/coverage-istanbul") ||
-		strings.Count(logged, "\n") != 1 {
-		t.Errorf("log, want one line naming @vitest/coverage-istanbul:\n%s", logged)
+func TestResolveEdges_UnlinkedCoverageDoesNotBreakWorkersTestAnalysis(t *testing.T) {
+	for name, lock := range map[string]string{
+		"absent":           poolRepoLockNoIstanbul,
+		"transitive only":  strings.Replace(poolRepoLock, "  .:\n    devDependencies:\n      '@vitest/coverage-istanbul':\n        specifier: 4.1.11\n        version: 4.1.11", "  .: {}", 1),
+		"sibling importer": strings.Replace(poolRepoLock, "  .:\n", "  sibling:\n", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, tc := poolRepo(t, lock)
+			r, logged := resolvePooledTest(t, c, tc, []explainfiles.Edge{poolEdge})
+			if got := r.AttrString("wrangler_config"); got != "//worker:wrangler_config" {
+				t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
+			}
+			if r.Attr("coverage_provider") != nil {
+				t.Errorf("coverage_provider = %q, want unset: istanbul is not linked",
+					r.AttrString("coverage_provider"))
+			}
+			want := []string{"//worker", "@npm//worker:cloudflare_vitest-pool-workers",
+				"@npm//worker:vitest"}
+			if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+				t.Errorf("deps = %q, want %q", got, want)
+			}
+			if !strings.Contains(logged, "@vitest/coverage-istanbul") ||
+				strings.Count(logged, "\n") != 1 {
+				t.Errorf("log, want one line naming @vitest/coverage-istanbul:\n%s", logged)
+			}
+		})
 	}
 }
 
