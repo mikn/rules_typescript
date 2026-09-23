@@ -22,6 +22,7 @@ go_library(
         "pnpm_lock.go",
         "program.go",
         "resolve.go",
+        "source_inventory.go",
         "tsconfig.go",
         "workers_pool.go",
     ],
@@ -61,6 +62,7 @@ go_test(
         "owner_test.go",
         "program_test.go",
         "resolve_test.go",
+        "source_inventory_test.go",
         "tsconfig_extends_test.go",
         "workers_pool_test.go",
     ],
@@ -79,6 +81,7 @@ go_test(
         "@gazelle//merger",
         "@gazelle//resolve",
         "@gazelle//rule",
+        "@gazelle//walk",
     ],
 )
 

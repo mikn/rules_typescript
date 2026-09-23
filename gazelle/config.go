@@ -120,6 +120,10 @@ func handWrittenTsConfigIn(dir, repoRoot string) string {
 // configureTsConfig is tsLang.Configure for one directory: the parent's config
 // cloned, the codegens declared here, the program listed.
 func configureTsConfig(c *config.Config, rel string, f *rule.File) {
+	configureProgram(c, rel, f, true)
+}
+
+func configureProgram(c *config.Config, rel string, f *rule.File, listProgram bool) {
 	var tc *tsConfig
 	if parent, ok := c.Exts[languageName]; ok {
 		tc = parent.(*tsConfig).clone()
@@ -154,7 +158,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		tc.programs.foreign[rel] = tc.foreignManifest
 	}
 	tc.recordCodegens(c.RepoName, rel, f)
-	if handWrittenTsConfigIn(currentDir, c.RepoRoot) != "" {
+	if listProgram && handWrittenTsConfigIn(currentDir, c.RepoRoot) != "" {
 		listTsConfigProgram(c.RepoRoot, rel, tc)
 	}
 

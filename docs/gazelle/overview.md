@@ -50,7 +50,7 @@ Five things, and no directive of its own.
 
 1. **Every `tsconfig.json`**, listed through tsgo from the repository root:
    `tsgo -p <dir>/tsconfig.json --noEmit --listFilesOnly --explainFiles
-   --pretty false`. The listing is the program's files and every edge between
+--pretty false`. The listing is the program's files and every edge between
    them -- each import, module augmentation, `/// <reference>` directive and
    `types` entry, with the file it resolved to. The binary is the toolchain's,
    carried in `gazelle_typescript`'s runfiles, so the program Gazelle reads is
@@ -149,17 +149,17 @@ a source, and a BUILD file there is emptied and named the same way.
 
 ## What Gazelle Writes
 
-| Rule | Name | Attributes Gazelle owns |
-|------|------|-------------------------|
-| `ts_compile` | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
-| `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
-| `ts_dev_server` | `dev` (`dev_server` when the compile target is `dev`) | `entry_point`, `plugin`, `node_modules`, `visibility` |
-| `filegroup` | `vitest_config` | `srcs`, `visibility` |
-| `filegroup` | `wrangler_config` | `srcs`, `visibility` |
-| `node_modules` | `node_modules` | `deps`, `parent`, `hoist`, `visibility` |
-| `node_modules_member` | `node_modules/<member name>` | `member`, `visibility` |
-| `npm_virtual_store` | `node_modules/.pnpm` | |
+| Rule                  | Name                                                    | Attributes Gazelle owns                                                                     |
+| --------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `ts_compile`          | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility`                                                    |
+| `ts_test`             | `<basename>_test`                                       | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
+| `ts_config`           | `tsconfig`                                              | `src`, `deps`, `visibility`                                                                 |
+| `ts_dev_server`       | `dev` (`dev_server` when the compile target is `dev`)   | `entry_point`, `plugin`, `node_modules`, `visibility`                                       |
+| `filegroup`           | `vitest_config`                                         | `srcs`, `visibility`                                                                        |
+| `filegroup`           | `wrangler_config`                                       | `srcs`, `visibility`                                                                        |
+| `node_modules`        | `node_modules`                                          | `deps`, `parent`, `hoist`, `visibility`                                                     |
+| `node_modules_member` | `node_modules/<member name>`                            | `member`, `visibility`                                                                      |
+| `npm_virtual_store`   | `node_modules/.pnpm`                                    |                                                                                             |
 
 Per package: a `ts_compile` when the program has a library file, holding the
 library files, every owned declaration and the data files; a `ts_test` when it
@@ -534,3 +534,25 @@ and none is drift:
   `# keep` is Gazelle's own directive. Above an attribute it means "never
   touch this value"; above a whole rule, "never touch this rule". See the
   [Directives Reference](directives.md).
+
+## Refreshing adopted source inventories
+
+`//gazelle/sources:gazelle` refreshes only `srcs` on an existing canonical
+`ts_compile` (the directory's basename, or `root` at the repository root).
+Use it as a separate invocation with Gazelle's `generation_mode update_only`.
+The directory's existing `tsconfig.json` remains the compiler input owner.
+The operation preserves dependencies, emission settings and other target families;
+it does not adopt directories or resolve new imports.
+
+Gazelle's existing BUILD boundaries determine ownership. A nested tsconfig
+without a BUILD stays within its parent package. Existing child BUILD files
+remain boundaries even when they declare no TypeScript compile target.
+The same compiler listing and data-file classification as normal generation
+supply the refreshed sources, including nested files collected by `update_only`.
+
+Custom Gazelle binaries can register `//gazelle/sources:sources`, which exports
+`NewSourceInventoryLanguage` from the TypeScript language package. Run this
+operation separately from the ordinary language; both use the same config key.
+Root language and exclude directives still apply. Callers needing different
+traversal policy can supply a rebuildable BUILD-file view with Gazelle's standard
+read/write BUILD-directory flags while leaving `repo_root` at the source tree.

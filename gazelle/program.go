@@ -117,14 +117,22 @@ func (s *programStore) binary() (string, error) {
 var tsSourceExtensions = []string{".ts", ".tsx", ".mts", ".cts"}
 
 func (s *programStore) visit(rel string, files []string) {
-	s.walked[rel] = true
-	if s.foreign[rel] != "" {
-		return
-	}
-	s.files[rel] = files
+	byDir := map[string][]string{rel: nil}
 	for _, f := range files {
-		if slices.Contains(tsSourceExtensions, path.Ext(f)) {
-			s.visited[rel] = append(s.visited[rel], path.Join(rel, f))
+		file := path.Join(rel, f)
+		dir := parentDir(file)
+		byDir[dir] = append(byDir[dir], path.Base(file))
+	}
+	for dir, names := range byDir {
+		s.walked[dir] = true
+		if s.foreign[dir] != "" {
+			continue
+		}
+		s.files[dir] = names
+		for _, name := range names {
+			if slices.Contains(tsSourceExtensions, path.Ext(name)) {
+				s.visited[dir] = append(s.visited[dir], path.Join(dir, name))
+			}
 		}
 	}
 }

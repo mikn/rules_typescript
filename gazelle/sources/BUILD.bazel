@@ -1,0 +1,19 @@
+load("@gazelle//:def.bzl", "gazelle_binary")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "sources",
+    srcs = ["language.go"],
+    importpath = "github.com/mikn/rules_typescript/gazelle/sources",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gazelle:typescript",
+        "@gazelle//language",
+    ],
+)
+
+gazelle_binary(
+    name = "gazelle",
+    languages = [":sources"],
+    visibility = ["//visibility:public"],
+)
