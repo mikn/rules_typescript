@@ -15,7 +15,7 @@ ts_proto_library(name = "messages", proto = ":messages_proto", out_dir = "genera
 
 The rule calls protobuf's `proto_common.compile` with its protoc executable and the declared protobuf-es plugin. The proto dependency enables protobuf's source-info flag to preserve comments. Only direct files are generated; imported TypeScript modules belong to their own generated libraries.
 
-The Bazel target graph selects schemas. The rule does not interpret Buf configuration or apply managed schema options. Schema options affecting generated descriptors belong in the proto sources. Migration from managed generation requires comparing committed outputs against the declared schema graph.
+The Bazel target graph selects schemas. The rule does not interpret Buf configuration or apply managed schema options. Schema options affecting generated descriptors belong in the proto sources. Migration checks compare the exact generated path set and TypeScript text outside embedded descriptors, then compare decoded `FileDescriptorProto` messages with top-level `FileOptions` cleared and absent or empty descriptor-options messages treated equally. Decode custom extensions with their schemas so wire-field ordering does not count as a change; retain extension values, scalar presence, repeated-value order, and unknown fields. Other message presence remains significant.
 
 ## Generated BUILD targets
 
