@@ -17,9 +17,8 @@ import (
 	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
-// effectiveOptions is the part of the printed compilerOptions the action config
-// rewrites or hands to oxc. tsgo 7 prints every enum by its lowercase name.
 type effectiveOptions struct {
+	compilerOptions      map[string]json.RawMessage
 	Target               string    `json:"target"`
 	Jsx                  string    `json:"jsx"`
 	JsxImportSource      string    `json:"jsxImportSource"`
@@ -75,13 +74,22 @@ func showConfig(tsgo, project string) (*effectiveOptions, []string, error) {
 
 func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 	var config struct {
-		CompilerOptions effectiveOptions `json:"compilerOptions"`
-		Files           []string         `json:"files"`
+		CompilerOptions json.RawMessage `json:"compilerOptions"`
+		Files           []string        `json:"files"`
 	}
 	if err := json.Unmarshal(out, &config); err != nil {
 		return nil, nil, fmt.Errorf("printed no config (%v):\n%s", err, out)
 	}
-	return &config.CompilerOptions, config.Files, nil
+	var options effectiveOptions
+	if len(config.CompilerOptions) != 0 {
+		if err := json.Unmarshal(config.CompilerOptions, &options); err != nil {
+			return nil, nil, err
+		}
+		if err := json.Unmarshal(config.CompilerOptions, &options.compilerOptions); err != nil {
+			return nil, nil, err
+		}
+	}
+	return &options, config.Files, nil
 }
 
 // actionConfig is what the rule knows about one program and the user's
@@ -103,10 +111,9 @@ func (l *stringList) String() string     { return strings.Join(*l, ",") }
 func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
 type tsconfigFile struct {
-	Extends         []string       `json:"extends"`
 	CompilerOptions map[string]any `json:"compilerOptions"`
 	Include         []string       `json:"include"`
-	Files           []string       `json:"files"`
+	Files           []string       `json:"files,omitempty"`
 	Exclude         []string       `json:"exclude"`
 	References      []string       `json:"references"`
 }
@@ -262,10 +269,12 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	if err != nil {
 		return nil, err
 	}
-	// typeRoots stays unset: a custom one stops tsgo's node_modules walk, and
-	// that walk is where a `types` entry naming a package outside @types resolves.
 	declaration := a.isolatedDeclarations || effective.IsolatedDeclarations
-	opts := map[string]any{
+	opts := make(map[string]any, len(effective.compilerOptions))
+	for name, value := range effective.compilerOptions {
+		opts[name] = value
+	}
+	for name, value := range map[string]any{
 		"rootDirs":    []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
 		"rootDir":     relativePath(dir, ""),
 		"composite":   false,
@@ -275,6 +284,8 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		"declarationMap":      false,
 		"emitDeclarationOnly": false,
 		"declarationDir":      nil,
+	} {
+		opts[name] = value
 	}
 	if types != nil {
 		opts["types"] = types
@@ -315,7 +326,6 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		}
 	}
 	return &tsconfigFile{
-		Extends:         a.extends(dir),
 		CompilerOptions: opts,
 		Include:         include,
 		Files:           files,

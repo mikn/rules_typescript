@@ -221,6 +221,7 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 		t.Errorf("roots = %q, want %q", roots, wantRoots)
 	}
 	want := &effectiveOptions{
+		compilerOptions: got.compilerOptions,
 		Target:          "es2017",
 		Jsx:             "react-jsx",
 		JsxImportSource: "preact",
@@ -283,8 +284,7 @@ func TestOxcOptionsFlags_TopLevelAwaitFollowsTheModule(t *testing.T) {
 	}
 }
 
-// The written config extends the baseline then the user's file, rewrites paths
-// and the chain's include, roots an unmatched src and a path-shaped types entry
+// Native showConfig owns inherited options; action paths keep their existing owner.
 func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
@@ -295,8 +295,15 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 		t.Errorf("tsgo ran with %q, want %q", got, want)
 	}
 	assertJSON(t, "pkg.tsconfig.json", readJSON(t, binDir+"/pkg/pkg.tsconfig.json"), `{
-  "extends": ["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"],
   "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "lib": ["es2022"],
+    "strict": true,
+    "target": "es2017",
+    "typeRoots": ["../base/typings"],
+    "module": "es6",
+    "useDefineForClassFields": false,
     "composite": false,
     "declaration": false,
     "declarationDir": null,
@@ -313,7 +320,6 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
   },
   "include": ["../../../../pkg/src", "../../../../pkg/globals.d.ts",
     "./generated.d.ts"],
-  "files": [],
   "exclude": [],
   "references": []
 }`)
@@ -330,14 +336,14 @@ func TestTsconfigStep_RootsAreTheChainsPatterns(t *testing.T) {
 	}{
 		"leaf": {
 			patternLeaf, "showconfig-roots.json",
-			`[]`,
+			`null`,
 			`["../../../../pkg/src/**/*", "../../../../pkg/globals.d.ts",
 			  "../../../../other/c.ts"]`,
 			`["../../../../pkg/src/**/*.test.ts"]`,
 		},
 		"inherited": {
 			inheritedRootsLeaf, "showconfig-chain.json",
-			`[]`,
+			`null`,
 			`["../../../../pkg/src", "../../../../pkg/globals.d.ts",
 			  "../../../../other/c.ts", "./generated.d.ts"]`,
 			`["../../../../base/**/*.test.ts"]`,
@@ -427,9 +433,7 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	assertJSON(t, "types with no @types dep", opts.(map[string]any)["types"], `[]`)
 }
 
-// A chain that sets typeRoots bounded automatic inclusion itself, and tsgo
-// skips the node_modules walk for a `types` name under it: none is written.
-func TestTsconfigStep_NoTypesUnderTypeRootsWritesNone(t *testing.T) {
+func TestTsconfigStep_InheritedTypeRootsDoNotGainImplicitTypes(t *testing.T) {
 	capture := readTestdata(t, "showconfig-no-types.json")
 	e := newExecroot(t, noTypesLeaf, capture)
 
@@ -438,20 +442,16 @@ func TestTsconfigStep_NoTypesUnderTypeRootsWritesNone(t *testing.T) {
 	))
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	opts := config["compilerOptions"].(map[string]any)
-	for _, key := range []string{"types", "typeRoots"} {
-		if value, ok := opts[key]; ok {
-			t.Errorf("compilerOptions.%s = %v, want unset: the chain's "+
-				"typeRoots ../base/typings bounds what tsgo includes", key, value)
-		}
+	if value, ok := opts["types"]; ok {
+		t.Errorf("compilerOptions.types = %v, want unset: inherited typeRoots bounds inclusion", value)
 	}
+	assertJSON(t, "typeRoots", opts["typeRoots"], `["../base/typings"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
 		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
 		  "module": "nodenext"}`)
 }
 
-// A target with no tsconfig extends the baseline alone: no chain, no paths, no
-// pattern, so include names each src by its path.
-func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
+func TestTsconfigStep_NoTsconfigRetainsResolvedBaselineOptions(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, `{"compilerOptions": {"target": "es2022", "jsx": "react-jsx"}}`)
 	args := []string{
 		"-tsgo=" + e.tsgo,
@@ -465,13 +465,17 @@ func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 	mustWriteTsconfig(t, args)
 
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
-	assertJSON(t, "extends", config["extends"], `["./pkg.tsconfig_baseline.json"]`)
+	if _, ok := config["extends"]; ok {
+		t.Fatal("resolved program must not reread its discovery config")
+	}
 	opts := config["compilerOptions"].(map[string]any)
 	if _, ok := opts["paths"]; ok {
 		t.Errorf("paths = %v, want none: no chain sets one", opts["paths"])
 	}
 	assertJSON(t, "types", opts["types"], `["node"]`)
-	assertJSON(t, "files", config["files"], `[]`)
+	if _, ok := config["files"]; ok {
+		t.Fatal("empty files without extends rejects an include-owned program with TS18002")
+	}
 	assertJSON(t, "include", config["include"], `["../../../../pkg/src/a.ts"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"), `{"target": "es2022", "jsx": "react-jsx"}`)
 }
@@ -537,8 +541,7 @@ func TestTsconfigStep_WritesNoEmitShape(t *testing.T) {
 	}
 }
 
-// A chain that sets isolatedDeclarations keeps declaration on, which the
-// option requires (TS5069); the chain's own key stays in force via extends.
+// isolatedDeclarations requires declaration (TS5069).
 func TestTsconfigStep_ChainIsolatedDeclarationsKeepsDeclaration(t *testing.T) {
 	capture := readTestdata(t, "showconfig-isolated.json")
 	e := newExecroot(t, isolatedLeaf, capture)
@@ -555,8 +558,8 @@ func TestTsconfigStep_ChainIsolatedDeclarationsKeepsDeclaration(t *testing.T) {
 				key, got, ok, want)
 		}
 	}
-	if got, ok := opts["isolatedDeclarations"]; ok {
-		t.Errorf("compilerOptions.isolatedDeclarations = %v, want unset", got)
+	if got := opts["isolatedDeclarations"]; got != true {
+		t.Errorf("compilerOptions.isolatedDeclarations = %v, want the inherited true", got)
 	}
 }
 

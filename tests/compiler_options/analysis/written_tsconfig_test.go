@@ -22,8 +22,6 @@ func readConfig(t *testing.T, target string) actionConfig {
 	return config
 }
 
-// The keys Bazel owns are the written config's; every option the target chose
-// is the tsconfig's, reached through `extends`.
 func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	config := readConfig(t, "everything")
 	opts := config.CompilerOptions
@@ -39,11 +37,11 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	if !strings.HasPrefix(rootDir, "../") || strings.HasSuffix(rootDir, "/bin") {
 		t.Errorf("rootDir = %q, want the exec root", rootDir)
 	}
-	if _, ok := opts["checkJs"]; ok {
-		t.Errorf("checkJs = %v in the written config; the tsconfig's options stay in the chain", opts["checkJs"])
+	if opts["checkJs"] != true {
+		t.Errorf("checkJs = %v, want the inherited compiler setting", opts["checkJs"])
 	}
-	if len(config.Extends) != 2 || !strings.HasSuffix(config.Extends[1], "/tsconfig.checkjs.json") {
-		t.Errorf("extends = %v, want the baseline then the target's tsconfig", config.Extends)
+	if len(config.Extends) != 0 {
+		t.Errorf("extends = %v, want a resolved program without discovery cycles", config.Extends)
 	}
 
 	// The tsconfig names no include, so the roots are tsc's default pattern
@@ -71,22 +69,17 @@ func TestWrittenConfigForASourceFromTheExecRoot(t *testing.T) {
 	}
 }
 
-// The baseline is the file the config extends FIRST: a later entry overrides an
-// earlier one, so the baseline reaches only keys the user's chain never sets.
-func TestWrittenConfigExtendsTheBaselineThenTheTsconfig(t *testing.T) {
+func TestWrittenConfigPreservesResolvedBaselineAndUserOptions(t *testing.T) {
 	config := readConfig(t, "over_tsconfig")
-	if len(config.Extends) != 2 {
-		t.Fatalf("extends = %v, want the baseline and the user's file", config.Extends)
+	if len(config.Extends) != 0 {
+		t.Fatalf("extends = %v, want resolved compiler options", config.Extends)
 	}
-	if !strings.HasSuffix(config.Extends[0], ".tsconfig_baseline.json") {
-		t.Errorf("extends[0] = %q, want the baseline first", config.Extends[0])
-	}
-	if !strings.HasSuffix(config.Extends[1], "/silent.tsconfig.json") {
-		t.Errorf("extends[1] = %q, want the user's file last", config.Extends[1])
-	}
-	for _, key := range []string{"strict", "module", "target", "jsx", "skipLibCheck", "esModuleInterop", "moduleResolution"} {
-		if value, ok := config.CompilerOptions[key]; ok {
-			t.Errorf("compilerOptions.%s = %v in the written file, want it left to the chain", key, value)
+	for key, want := range map[string]any{
+		"strict": true, "module": "preserve", "target": "es2022", "jsx": "react-jsx",
+		"skipLibCheck": true, "esModuleInterop": true, "noUnusedLocals": true,
+	} {
+		if value := config.CompilerOptions[key]; value != want {
+			t.Errorf("compilerOptions.%s = %v, want inherited %v", key, value, want)
 		}
 	}
 }

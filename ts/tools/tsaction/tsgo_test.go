@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 const (
@@ -531,6 +534,8 @@ func TestProgramCopiesConfigImportsWithoutLosingWorkspacePaths(t *testing.T) {
 [ -f pkg/sub/node_modules/ms/index.d.ts ]
 [ -f bazel-out/k8-fastbuild/bin/pkg/lib.d.ts ]
 [ -f bazel-out/k8-fastbuild/bin/pkg/app.tsconfig.json ]
+[ -f pkg/tsconfig.json ]
+[ ! -L pkg/tsconfig.json ]
 `)
 	stamp := binDir + "/pkg/app.tslint"
 	args := []string{
@@ -540,6 +545,7 @@ func TestProgramCopiesConfigImportsWithoutLosingWorkspacePaths(t *testing.T) {
 		"-copy=lint/config.mjs",
 		"-copy=lint/plugins/rule.mjs",
 		"-copy=lint/plugins/options.mjs",
+		"-discover-tsconfig=" + binDir + "/pkg/app.tsconfig.json",
 		"-node_modules=" + subImporter,
 		"-node_modules=" + rootImporter,
 		"-stamp=" + stamp,
@@ -556,6 +562,62 @@ func TestProgramCopiesConfigImportsWithoutLosingWorkspacePaths(t *testing.T) {
 	}
 	if got, err := os.ReadFile("lint/config.mjs"); err != nil || string(got) != "import './plugins/rule.mjs';" {
 		t.Fatalf("source config changed: %q, %v", got, err)
+	}
+}
+
+func TestLintDiscoveryDoesNotReenterOriginalOrNestedConfigs(t *testing.T) {
+	for _, original := range []string{"pkg/tsconfig.json", "configs/browser.json"} {
+		t.Run(original, func(t *testing.T) {
+			root, _ := newTsgoExecroot(t, "")
+			base := `{"compilerOptions":{"types":["node"]}}`
+			project := `{"extends":"../base.json","include":["../pkg/**/*.ts"]}`
+			generated := binDir + "/pkg/app.tsconfig.json"
+			generatedBody := `{"compilerOptions":{"module":"ESNext","types":["node"],"rootDirs":["../../../..",".."]},"include":["../../../../pkg/**/*.ts"]}`
+			writeFile(t, filepath.Join(root, "base.json"), base)
+			writeFile(t, filepath.Join(root, original), project)
+			writeFile(t, filepath.Join(root, generated), generatedBody)
+			nested := `{"compilerOptions":{"module":"CommonJS"}}`
+			writeFile(t, filepath.Join(root, "pkg/nested/tsconfig.json"), nested)
+			sources := []string{original, "base.json", "pkg/a.ts", "pkg/nested/tsconfig.json"}
+			if err := layOutProgramRoot(programRoot, sources, nil, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := discoverProgramConfig(programRoot, generated, sources); err != nil {
+				t.Fatal(err)
+			}
+			shim := filepath.Join(programRoot, "pkg/tsconfig.json")
+			data, err := os.ReadFile(shim)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if len(fields) != 2 || fields["extends"] != fileRelative("pkg", generated) {
+				t.Fatalf("discovery must reference the canonical program: %s", data)
+			}
+			if !reflect.DeepEqual(fields["compilerOptions"], map[string]any{"noEmit": true}) {
+				t.Fatalf("lint must validate JavaScript without attempting to overwrite its inputs: %s", data)
+			}
+			resolved, err := tsconfig.Resolve(shim)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolved.Module != "ESNext" || resolved.Types == nil || !reflect.DeepEqual(*resolved.Types, []string{"node"}) || resolved.Include == nil || !reflect.DeepEqual(*resolved.Include, []string{"../../../../pkg/**/*.ts"}) {
+				t.Fatalf("lost generated or original compiler configuration: %+v", resolved)
+			}
+			nestedResolved, err := tsconfig.Resolve(filepath.Join(programRoot, "pkg/nested/tsconfig.json"))
+			if err != nil || !reflect.DeepEqual(nestedResolved, resolved) {
+				t.Fatalf("nearer declared config bypassed the target program: %+v, %v", nestedResolved, err)
+			}
+			for file, want := range map[string]string{"base.json": base, original: project, generated: generatedBody, "pkg/nested/tsconfig.json": nested} {
+				got, err := os.ReadFile(file)
+				if err != nil || string(got) != want {
+					t.Fatalf("changed original input %s: %q, %v", file, got, err)
+				}
+			}
+		})
 	}
 }
 
