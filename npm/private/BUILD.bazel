@@ -19,6 +19,7 @@ bzl_library(
     name = "npm_bin",
     srcs = ["npm_bin.bzl"],
     deps = [
+        ":store",
         "//ts/private:providers",
         "//ts/private:runtime",
         "//ts/private:toolchain",

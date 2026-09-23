@@ -24,6 +24,7 @@ load(
     "//ts/private:tsconfig_aspect.bzl",
     _ts_refresh_tsconfig = "ts_refresh_tsconfig",
 )
+load("//ts/private/actions:format.bzl", _ts_format = "ts_format")
 load("//ts/private/rules:ts_compile.bzl", _ts_compile = "ts_compile")
 load("//ts/private/rules:ts_test.bzl", _ts_test = "ts_test")
 
@@ -41,6 +42,7 @@ ts_compile = _ts_compile
 ts_codegen = _ts_codegen
 ts_config = _ts_config
 ts_test = _ts_test
+ts_format = _ts_format
 
 # Runnable entry point; `bundler` takes any target returning BundlerInfo.
 ts_binary = _ts_binary

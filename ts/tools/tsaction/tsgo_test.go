@@ -590,3 +590,33 @@ case "$LINT_AUXILIARY" in /*) ;; *) exit 20;; esac
 		t.Fatalf("tool environment escaped the child process: %q", got)
 	}
 }
+
+func TestFormatterCannotRepairBadInputAndReportSuccess(t *testing.T) {
+	root, _ := newTsgoExecroot(t, "printf 'fixed\\n' > pkg/a.ts\n")
+	tool := filepath.Join(root, "external/tsgo/tsc")
+	before, err := os.ReadFile("pkg/a.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := filepath.Join(binDir, "format.stamp")
+	err = runTsgo([]string{"-root=" + programRoot, "-source=pkg/a.ts", "-copy=pkg/a.ts", "-verify-copies", "-stamp=" + stamp, "--", tool})
+	if err == nil || !strings.Contains(err.Error(), "validation changed input pkg/a.ts") {
+		t.Fatalf("got %v", err)
+	}
+	after, err := os.ReadFile("pkg/a.ts")
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("source changed: %q, %v", after, err)
+	}
+	if _, err := os.Stat(stamp); !os.IsNotExist(err) {
+		t.Fatalf("failed formatter wrote stamp: %v", err)
+	}
+}
+
+func TestFormatterPathsStayAbsoluteInsideProgramRoot(t *testing.T) {
+	root, _ := newTsgoExecroot(t, "case \"$1\" in /*) ;; *) exit 19;; esac\nprintf 'fixed\\n' > \"$1\"\n")
+	tool := filepath.Join(root, "external/tsgo/tsc")
+	err := runTsgo([]string{"-root=" + programRoot, "-source=pkg/a.ts", "-copy=pkg/a.ts", "-absolute-copy-args", "-verify-copies", "--", tool, "pkg/a.ts"})
+	if err == nil || !strings.Contains(err.Error(), "validation changed input pkg/a.ts") {
+		t.Fatalf("formatter did not receive the absolute copied input: %v", err)
+	}
+}

@@ -59,6 +59,7 @@ nav:
     - Monorepo Layout: guides/monorepo.md
     - Troubleshooting: guides/troubleshooting.md
     - Lint: guides/lint.md
+    - Format: guides/format.md
     - Benchmark: guides/benchmark.md
   - Gazelle:
     - Overview: gazelle/overview.md

@@ -1,0 +1,32 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//ts:defs.bzl", "ts_compile")
+load("//ts/private/actions:format.bzl", "format_config")
+load(":format_tests.bzl", "format_test_suite")
+
+sh_binary(
+    name = "formatter",
+    srcs = ["formatter.sh"],
+)
+
+format_config(
+    name = "configured",
+    binary = ":formatter",
+    config = "config.json",
+)
+
+genrule(
+    name = "generated",
+    outs = ["generated.ts"],
+    cmd = "echo 'export const generated = 1;' > $@",
+)
+
+ts_compile(
+    name = "program",
+    srcs = [
+        "data.json",
+        "source.ts",
+        ":generated",
+    ],
+)
+
+format_test_suite(name = "format_tests")
