@@ -395,6 +395,13 @@ func resolveProtoLibrary(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule, 
 	for _, dep := range imps.identity.Deps {
 		deps[dep] = true
 	}
+	tc := getConfig(c)
+	reported := map[string]bool{}
+	for _, edge := range configTypeEdges(c, ix, imps.identity.Tsconfig, imps.identity.owner) {
+		if dep := edgeDep(c, ix, tc, edge, from, reported); dep != "" {
+			deps[dep] = true
+		}
+	}
 	for _, native := range imps.nativeDeps {
 		found := ix.FindRulesByImport(resolve.ImportSpec{Lang: languageName, Imp: protoWrapperKey(path.Join(imps.identity.owner, imps.identity.OutDir), native)}, languageName)
 		if len(found) != 1 {

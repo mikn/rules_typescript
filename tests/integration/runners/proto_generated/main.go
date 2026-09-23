@@ -120,6 +120,33 @@ ts_proto_config(name = "invalid", out_dir = "invalid", `+invalid.attrs+`)
 			}
 			it.Write(it.Path("schema/BUILD.bazel"), before)
 		}
+		it.Write(it.Path("package.json"), it.Read(filepath.Join(it.RulesTSRoot, "proto/private/package.json")))
+		it.Write(it.Path("BUILD.bazel"), `load("@rules_typescript//ts:defs.bzl", "ts_pnpm")
+`+it.Read(it.Path("BUILD.bazel"))+"\nts_pnpm(name = \"pnpm\")\n")
+		it.Install()
+		it.Write(it.Path("settings/tsconfig.json"), `{"compilerOptions":{"module":"ESNext","moduleResolution":"Bundler","target":"ES2022","strict":true,"types":["./ambient"]},"include":["contract.ts"]}`)
+		it.Write(it.Path("settings/ambient.d.ts"), "declare const generatedAmbient: unique symbol;\n")
+		it.Write(it.Path("settings/contract.ts"), "export interface GeneratedContext { token: typeof generatedAmbient }\n")
+		it.MustBazel("run", "//:gazelle", "--", "settings")
+		it.Write(it.Path("schema/BUILD.bazel"), strings.ReplaceAll(before, `tsconfig = "//:compiler.json"`, `tsconfig = "//settings:tsconfig"`))
+		it.MustBazel("run", "//:gazelle", "--", "schema")
+		ambient := it.Read(it.Path("schema/BUILD.bazel"))
+		if !strings.Contains(ambient, `"//settings"`) {
+			it.Fail("selected compiler ambient declaration has no generated dependency")
+		}
+		it.MustBazel("build", "//schema:plain/messages/example_messages_proto", "//schema:json/messages/example_messages_proto", "--output_groups=+_validation")
+		it.Write(it.Path("schema/BUILD.bazel"), strings.ReplaceAll(ambient, `"//settings",`, ""))
+		missingAmbient, err := it.BazelLog("missing-ambient-dependency.log", "build", "//schema:plain/messages/example_messages_proto", "--output_groups=+_validation")
+		if err == nil || !missingAmbient.Contains("compilerOptions.types entry") {
+			missingAmbient.Dump()
+			it.Fail("removing the ambient owner did not reject the missing declared input")
+		}
+		it.Write(it.Path("schema/BUILD.bazel"), ambient)
+		it.MustBazel("test", "//consumer:generated_identity_test")
+		it.MustBazel("run", "//:gazelle", "--", "schema")
+		if after := it.Read(it.Path("schema/BUILD.bazel")); after != ambient {
+			it.Fail("ambient dependency generation changed on repeat")
+		}
 		it.Pass("ordinary generated wrappers compile and execute both output identities")
 	})
 }

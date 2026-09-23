@@ -21,6 +21,20 @@ import (
 // each src, what an edge target is looked up by, and a ts_codegen by its tree.
 func importsForRule(c *config.Config, r *rule.Rule, f *rule.File) []resolve.ImportSpec {
 	switch r.Kind() {
+	case "ts_config":
+		specs := []resolve.ImportSpec{{Lang: languageName, Imp: "ts_config_label:" + label.New(c.RepoName, f.Pkg, r.Name()).String()}}
+		src, err := label.Parse(r.AttrString("src"))
+		if err != nil || r.AttrString("src") == "" {
+			return specs
+		}
+		src = src.Abs(c.RepoName, f.Pkg)
+		if src.Repo == "" {
+			src.Repo = c.RepoName
+		}
+		if src.Repo != c.RepoName {
+			return specs
+		}
+		return append(specs, resolve.ImportSpec{Lang: languageName, Imp: "ts_config_source:" + path.Join(src.Pkg, src.Name)})
 	case "ts_proto_library":
 		return protoImportsForRule(c, r, f)
 	case "ts_codegen":
@@ -245,4 +259,34 @@ func reportEdge(from label.Label, e explainfiles.Edge, why string,
 	said[e.To] = true
 	log.Printf("typescript: %s: %s imports %s: %s; no dep",
 		from, e.From, e.To, why)
+}
+
+func configTypeEdges(c *config.Config, ix *resolve.RuleIndex, selected string, owner string) []explainfiles.Edge {
+	configLabel, err := label.Parse(selected)
+	if err != nil {
+		return nil
+	}
+	configLabel = configLabel.Abs(c.RepoName, owner)
+	if configLabel.Repo == "" {
+		configLabel.Repo = c.RepoName
+	}
+	if configLabel.Repo != c.RepoName {
+		return nil
+	}
+	configs := ix.FindRulesByImport(resolve.ImportSpec{Lang: languageName, Imp: "ts_config_label:" + configLabel.String()}, languageName)
+	for _, p := range getConfig(c).programs.programs {
+		if p.manifest || p.refused != "" {
+			continue
+		}
+		source := tsconfigIn(p.dir)
+		if len(configs) == 0 && path.Join(configLabel.Pkg, configLabel.Name) == source {
+			return p.typeEdges()
+		}
+		for _, match := range ix.FindRulesByImport(resolve.ImportSpec{Lang: languageName, Imp: "ts_config_source:" + source}, languageName) {
+			if match.Label == configLabel {
+				return p.typeEdges()
+			}
+		}
+	}
+	return nil
 }

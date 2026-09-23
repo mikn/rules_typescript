@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bazelbuild/rules_go/go/runfiles"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 func protoGazelle(t *testing.T, root string, args ...string) (string, error) {
@@ -455,5 +458,78 @@ func TestProtoNativePackageMovesAncestorSourceExportWithoutCompilerProgram(t *te
 	}
 	if next := buildFileText(t, root, "schema"); next != parent {
 		t.Fatalf("ancestor relocation unstable:\n%s", lineDiff(parent, next))
+	}
+}
+
+func TestProtoAmbientDependenciesFollowSelectedConfigInsteadOfWrapperDirectory(t *testing.T) {
+	for _, test := range []struct {
+		name, selected, configName, configSource string
+		wantAmbient                              bool
+	}{
+		{"generated_config", "//web:tsconfig", "tsconfig", "tsconfig.json", true},
+		{"kept_custom_name", "//web:chosen", "chosen", "tsconfig.json", true},
+		{"absolute_source", "//web:chosen", "chosen", "//web:tsconfig.json", true},
+		{"raw_listed_source", "//web:tsconfig.json", "", "", true},
+		{"raw_unlisted_config", "//web:compiler.json", "", "", false},
+		{"custom_unlisted_source", "//web:chosen", "chosen", "compiler.json", false},
+		{"target_named_like_raw_source", "//web:tsconfig.json", "tsconfig.json", "compiler.json", false},
+		{"nonliteral_target_source", "//web:tsconfig.json", "tsconfig.json", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c, tc := edgeRepo(t, edgeListings)
+			c.RepoName = "fixture"
+			tc.programs.programs["web"].Types = []explainfiles.TypeEntry{{Entry: "react", File: storeTypesReact}}
+			tc.programs.programs["web"].Implicit = nil
+			other := programOf(t, "schema", listingOf("schema", "schema/unrelated.ts"))
+			other.Types = []explainfiles.TypeEntry{{Entry: "node", File: storeTypesNode}}
+			tc.programs.record(other)
+			lang := &tsLang{}
+			ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
+			if test.configName != "" {
+				file, err := rule.LoadData("web/BUILD.bazel", "web", []byte("ts_config(\n name = \""+test.configName+"\", # keep\n src = \""+test.configSource+"\",\n)\n"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if test.configSource == "" {
+					file.Rules[0].SetAttr("src", &bzl.Ident{Name: "CONFIG_SOURCE"})
+				}
+				ix.AddRule(c, file.Rules[0], file)
+			}
+			ix.Finish()
+			id := &protoIdentity{Name: "plain", owner: "schema", Tsconfig: test.selected, Deps: []string{"@npm//:bufbuild_protobuf"}}
+			wrapper := rule.NewRule("ts_proto_library", "plain/message_proto")
+			from := label.New(c.RepoName, "schema", wrapper.Name())
+			want := []string{"@npm//:bufbuild_protobuf"}
+			if test.wantAmbient {
+				want = append(want, "@npm//web:types_react")
+			}
+			for range 2 {
+				resolveProtoLibrary(c, ix, wrapper, &protoRuleImports{identity: id}, from)
+				if got := wrapper.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+					t.Fatalf("deps = %v, want %v", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestProtoAmbientSourceDependencySurvivesSeparateOwnerUpdates(t *testing.T) {
+	tree := protoTree()
+	tree["settings/tsconfig.json"] = `{"compilerOptions":{"module":"ESNext","moduleResolution":"Bundler","target":"ES2022","types":["./ambient"]},"include":["contract.ts"]}`
+	tree["settings/ambient.d.ts"] = "declare const generatedAmbient: unique symbol;\n"
+	tree["settings/contract.ts"] = "export interface GeneratedContext { token: typeof generatedAmbient }\n"
+	root := writeTree(t, tree)
+	for _, dir := range []string{"settings", "schema", "schema"} {
+		output, err := protoGazelle(t, root, "-ts_verbose", dir)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", dir, err, output)
+		}
+		if dir == "schema" {
+			b, _ := os.ReadFile(filepath.Join(root, "schema/BUILD.bazel"))
+			if !strings.Contains(string(b), `"//settings"`) {
+				settings, _ := os.ReadFile(filepath.Join(root, "settings/BUILD.bazel"))
+				t.Fatalf("ambient owner missing: %s\nsettings: %s\nschema: %s", output, settings, b)
+			}
+		}
 	}
 }
