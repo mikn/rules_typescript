@@ -319,6 +319,8 @@ func TestProtoReusedLanguageCannotCarryAnEarlierInvocationGraph(t *testing.T) {
 	old.identities["first"] = &protoIdentity{Name: "first", owner: "first", OutDir: "generated"}
 	old.observations["first"] = []protoObservation{{native: label.New("", "first", "schema_proto")}}
 	old.roots = []string{"first"}
+	old.graphPath = "earlier.json"
+	old.graph = &protoGraph{Roots: map[string]string{"@earlier//:schema": "@@earlier+//:schema"}}
 
 	second := emptyConfig()
 	second.WorkDir = second.RepoRoot
@@ -328,7 +330,72 @@ func TestProtoReusedLanguageCannotCarryAnEarlierInvocationGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := getConfig(second).protos
-	if current == old || len(current.identities) != 0 || len(current.observations) != 0 || len(current.roots) != 1 || current.roots[0] != "" {
+	if current == old || current.graph != nil || current.graphPath != "" || len(current.identities) != 0 || len(current.observations) != 0 || len(current.roots) != 1 || current.roots[0] != "" {
 		t.Fatalf("a reused language carried the earlier generation graph: %+v", current)
 	}
+}
+
+func TestProtoExternalNativeEdgesCannotBeRetargetedByLocalImportOverrides(t *testing.T) {
+	c := emptyConfig()
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	f := rule.EmptyFile("BUILD.bazel", "")
+	f.Directives = []rule.Directive{{Key: "resolve", Value: "proto foreign/b.proto @renamed//:unused"}}
+	(&resolve.Configurer{}).Configure(c, "", f)
+	file := filepath.Join(t.TempDir(), "graph.json")
+	if err := os.WriteFile(file, []byte(`{"roots":{"@renamed//:a":"@@a+//:a","@renamed//:unused":"@@a+//:unused"},"nodes":[{"label":"@@a+//:a","sources":["foreign/a.proto"],"deps":["@@b+//:b"]},{"label":"@@b+//:b","sources":["foreign/b.proto"]},{"label":"@@a+//:unused","sources":["foreign/b.proto"]}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := loadProtoGraph(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := getConfig(c).protos
+	store.graph = graph
+	id := &protoIdentity{Name: "json", owner: "schema", OutDir: "generated"}
+	observations, err := store.externalObservations([]protoObservation{{config: c, native: label.New("", "schema", "local"), identity: id, paths: []string{"local.proto"}, imports: []string{"foreign/a.proto"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, obs := range observations {
+		seen[obs.native.String()] = true
+		if obs.native.String() == "@@a+//:a" && (len(obs.nativeDeps) != 1 || obs.nativeDeps[0].String() != "@@b+//:b") {
+			t.Fatalf("native A dependency was rewritten: %+v", obs.nativeDeps)
+		}
+	}
+	if !seen["@@b+//:b"] || seen["@@a+//:unused"] {
+		t.Fatalf("external availability or local override changed native closure: %v", seen)
+	}
+}
+
+func TestProtoExplicitExternalOverrideCannotBeHiddenByLocalMembership(t *testing.T) {
+	c := emptyConfig()
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	f := rule.EmptyFile("BUILD.bazel", "")
+	f.Directives = []rule.Directive{{Key: "resolve", Value: "proto shared.proto @external//:shared"}}
+	(&resolve.Configurer{}).Configure(c, "", f)
+	file := filepath.Join(t.TempDir(), "graph.json")
+	if err := os.WriteFile(file, []byte(`{"roots":{"@external//:shared":"@@external+//:shared"},"nodes":[{"label":"@@external+//:shared","sources":["shared.proto"]}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := loadProtoGraph(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := getConfig(c).protos
+	store.graph = graph
+	id := &protoIdentity{Name: "plain", owner: "schema", OutDir: "generated"}
+	observations, err := store.externalObservations([]protoObservation{
+		{config: c, native: label.New("", "schema", "local"), identity: id, paths: []string{"shared.proto"}},
+		{config: c, native: label.New("", "schema", "consumer"), identity: id, paths: []string{"consumer.proto"}, imports: []string{"shared.proto"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, obs := range observations {
+		if obs.native.String() == "@@external+//:shared" {
+			return
+		}
+	}
+	t.Fatal("local membership hid the explicit external native owner")
 }

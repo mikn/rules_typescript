@@ -18,6 +18,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/repo"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
 const languageName = "typescript"
@@ -41,12 +42,24 @@ func (l *tsLang) RegisterFlags(fs *flag.FlagSet, _ string, c *config.Config) {
 		"say which tsgo lists the programs, one line per tsconfig.json with "+
 			"what it listed or why it is not a package, how many are, and the "+
 			".ts files no program lists")
+	fs.StringVar(&tc.protos.graphPath, "ts_proto_graph", "", "declared native external protobuf graph artifact")
 	l.programs = tc.programs
 	c.Exts[languageName] = tc
 }
 
 func (l *tsLang) CheckFlags(fs *flag.FlagSet, c *config.Config) error {
 	store := getConfig(c).protos
+	if store.graphPath != "" {
+		graphFile, err := runfiles.Rlocation(store.graphPath)
+		if err != nil {
+			return err
+		}
+		graph, err := loadProtoGraph(graphFile)
+		if err != nil {
+			return err
+		}
+		store.graph = graph
+	}
 	dirs := fs.Args()
 	if len(dirs) == 0 {
 		dirs = []string{"."}

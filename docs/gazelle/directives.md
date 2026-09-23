@@ -22,11 +22,21 @@ ts_proto_config(
 
 `ts_proto_config` defines an identity without selecting it; generation defaults off. `# gazelle:ts_proto` selects space-separated identity names for the current directory and descendants; `none` disables generation there. Native proto rules still own schema membership and canonical import names. This configuration adds no schema globs or protobuf namespace filters. Declare multiple identities when one schema needs different outputs.
 
-Wrappers are generated in the identity's ancestor package, with target names `<identity>/<native-package-relative-path>/<native-target>`. All wrappers for one identity share its output root, preserving relative generated imports across native packages. The compiler configuration and runtime labels are relative to the ancestor package. Generated sibling dependencies resolve only within the same identity. Runtime-provided well-known imports come from the pinned protobuf runtime's metadata. Every other imported schema needs a generated wrapper in the same owner and output identity. Adding an external proto target to `deps` does not adopt its schemas; external targets are outside the local native-rule census.
+Wrappers are generated in the identity's ancestor package, with target names `<identity>/<native-package-relative-path>/<native-target>`. All wrappers for one identity share its output root, preserving relative generated imports across native packages. The compiler configuration and runtime labels are relative to the ancestor package. Generated sibling dependencies resolve only within the same identity. Runtime-provided well-known imports come from the pinned protobuf runtime's metadata. Every other imported schema needs a generated wrapper in the same owner and output identity. Adding an external proto target to `deps` does not adopt its schemas; declare its native graph as described below.
 
 Run ordinary Gazelle recursively on the configured ancestor or the repository root. A child-only or nonrecursive update affecting that owner fails before BUILD writes and gives the complete rerun command. Excluded or disabled directories do not contribute wrappers. Compose a Gazelle binary with the native proto language before TypeScript. The default standalone TypeScript binary retains its TypeScript-only scope.
 
 Generated protobuf target names use the reserved `<identity>/<relative proto package>/<native target>` shape. Removing an identity removes its targets on the next complete owner update; ordinary target names and `# keep` remain outside that transition.
+
+### External native graphs
+
+`proto_graph` from `@rules_typescript//gazelle:proto_graph.bzl` takes native root labels in `deps`. It derives canonical source paths and configured native dependency edges through an aspect, under the same protobuf source-info configuration as generation. The artifact contains no generation options or output roots; identities retain those facts.
+
+Add the graph target to the custom `gazelle` runner's `data` and pass `-ts_proto_graph=$(rlocationpath :external_graph)` through `args`. The [integration fixture](https://github.com/mikn/rules_typescript/blob/c8be058bf72d19612a1d622d3da3cbc2df6f8507/tests/integration/proto_generated/BUILD.bazel) shows this attachment. Declare roots only in the graph rule. Available schemas are emitted only when a selected local identity reaches them; unrelated available roots stay absent.
+
+External dependencies retain their native labels. A local import override cannot rewrite an external target's configured dependency. Declared-root spellings map to their Bazel-resolved canonical identities; transitive targets use canonical labels. An apparent-name override for a target that is not a declared root fails with an actionable diagnostic; use its canonical label.
+
+External wrappers use `<identity>/_external/<canonical repository>/<native package>/<native target>`. Empty forwarding targets and aliases lead to their direct source owners without duplicating wrappers. Removing the importing selection removes its unused external wrappers on the next complete update. The graph is a rebuildable Bazel output, never a manually maintained schema inventory.
 
 ## `# keep`
 

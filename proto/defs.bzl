@@ -2,18 +2,8 @@
 
 load("@protobuf//bazel/common:proto_common.bzl", "proto_common")
 load("@protobuf//bazel/common:proto_info.bzl", "ProtoInfo")
+load("//proto/private:configuration.bzl", "proto_source_info")
 load("//ts/private/rules:ts_compile.bzl", "ts_compile")
-
-_SOURCE_INFO = str(Label("@protobuf//bazel/flags:experimental_proto_descriptor_sets_include_source_info"))
-
-def _source_info_impl(_settings, _attr):
-    return {_SOURCE_INFO: True}
-
-_source_info = transition(
-    implementation = _source_info_impl,
-    inputs = [],
-    outputs = [_SOURCE_INFO],
-)
 
 def _generate_impl(ctx):
     proto = ctx.attr.proto[0][ProtoInfo]
@@ -43,7 +33,7 @@ def _generate_impl(ctx):
 _generate = rule(
     implementation = _generate_impl,
     attrs = {
-        "proto": attr.label(mandatory = True, providers = [ProtoInfo], cfg = _source_info),
+        "proto": attr.label(mandatory = True, providers = [ProtoInfo], cfg = proto_source_info),
         "_allowlist_function_transition": attr.label(default = "@bazel_tools//tools/allowlists/function_transition_allowlist"),
         "out_dir": attr.string(mandatory = True),
         "options": attr.string_list(),
