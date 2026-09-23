@@ -160,8 +160,9 @@ unchanged; a `package.json` at the package's root also gets
 The tsconfig the actions read is written by `tsaction tsconfig`, one `TsConfig`
 action per target. It `extends` two files, the ruleset's baseline and then the
 target's `tsconfig`, runs `tsgo --showConfig` over that chain to read the
-effective options and the roots the chain names, and writes the keys Bazel
-owns over both. The pass that runs `--showConfig` reads the chain's own roots;
+effective options and the roots the chain names, and writes the resolved
+options with Bazel's existing overrides into one config without `extends`.
+The pass that runs `--showConfig` reads the chain's own roots;
 a chain naming neither `include` nor `files` gets tsc's default `**/*` over
 the tsconfig's directory, so tsc walks the project and not the output
 directory the written file sits in, and a JavaScript src puts `allowJs` on

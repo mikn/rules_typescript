@@ -1,6 +1,7 @@
 package typeroots_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mikn/rules_typescript/tests/verify"
@@ -10,14 +11,18 @@ type actionConfig struct {
 	CompilerOptions map[string]any `json:"compilerOptions"`
 }
 
-// The chain's typeRoots bounds automatic inclusion, so the written config
-// names no `types` and sets no `typeRoots` of its own.
-func TestWrittenConfigLeavesTypesToTheChainsTypeRoots(t *testing.T) {
+func TestWrittenConfigPreservesCustomTypeRootsWithoutImplicitTypes(t *testing.T) {
 	var config actionConfig
 	verify.New(t).File("tests/npm/type_roots/probe.tsconfig.json").JSON(&config)
-	for _, key := range []string{"types", "typeRoots"} {
-		if value, ok := config.CompilerOptions[key]; ok {
-			t.Errorf("compilerOptions.%s = %v, want unset", key, value)
-		}
+	if value, ok := config.CompilerOptions["types"]; ok {
+		t.Errorf("compilerOptions.types = %v, want no implicit type package inclusion", value)
+	}
+	roots, _ := config.CompilerOptions["typeRoots"].([]any)
+	if len(roots) != 1 {
+		t.Fatalf("typeRoots = %v, want the one source configuration root", roots)
+	}
+	root, _ := roots[0].(string)
+	if !strings.HasPrefix(root, "../") || !strings.HasSuffix(root, "/tests/npm/type_roots/node_modules/@types") {
+		t.Errorf("typeRoots = %q, want the native resolved source-package root", root)
 	}
 }

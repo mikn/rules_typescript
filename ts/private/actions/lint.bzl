@@ -145,6 +145,8 @@ def lint_action(ctx, lint, srcs, tsconfig, inputs, chain, dep_dts, npm_files, im
         manifests,
     )
     args.add_all(depset(config_files, transitive = [lint.data]), map_each = source_path, format_each = "-copy=%s", expand_directories = False)
+    if tsconfig:
+        args.add(tsconfig, format = "-discover-tsconfig=%s")
     for name, tool in lint.tool_env.items():
         args.add(tool.executable, format = "-tool-env=" + name + "=%s")
     args.add(stamp, format = "-stamp=%s")

@@ -65,6 +65,8 @@ def _lints_impl(ctx):
     for path in want:
         asserts.true(env, path in inputs, path + " is an input")
     asserts.true(env, target.label.name + ".tsconfig.json" in [f.basename for f in action.inputs.to_list()])
+    configs = [f.path for f in action.inputs.to_list() if f.basename == target.label.name + ".tsconfig.json"]
+    asserts.true(env, "-discover-tsconfig=" + configs[0] in argv, "automatic discovery uses the generated compiler program")
     asserts.true(env, "types.d.ts" in [f.basename for f in action.inputs.to_list()], "program declarations reach lint")
     if ctx.attr.config:
         config = _PKG + "/" + ctx.attr.config
@@ -79,7 +81,6 @@ def _lints_impl(ctx):
         if tools:
             asserts.true(env, "-tool-env=LINT_AUXILIARY=" + tools[0].path in argv, "environment names the declared executable")
         asserts.true(env, "--type-aware" in argv)
-        configs = [f.path for f in action.inputs.to_list() if f.basename == target.label.name + ".tsconfig.json"]
         asserts.true(env, "--tsconfig=" + configs[0] in argv)
     if target.label.name == "clean_test":
         asserts.true(env, any(["/node_modules/vitest" in path for path in inputs]), "npm inputs reach lint")

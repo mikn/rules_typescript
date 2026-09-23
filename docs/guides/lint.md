@@ -55,7 +55,9 @@ Declare imported config modules, local plugins (including their dynamic imports)
 
 A config importing npm packages also needs its `node_modules` target in `data`, even when the target being linted has no npm dependencies. This supplies the config's package files and importer layout without adding lint-only packages to the TypeScript dependency graph.
 
-For oxlint type-aware checks, use `args = ["--type-aware", "--tsconfig={tsconfig}"]` and declare the importer holding the config’s npm dependencies in `data`. Set `tool_env = {"@npm//:oxlint-tsgolint_bin": "OXLINT_TSGOLINT_PATH"}` to provide the type-aware executable; package files in `data` do not create npm `.bin` launchers. Other CI flags, such as `--report-unused-disable-directives-severity=error`, belong in the same `args` list. The selected linter version must support the flags.
+The program layout exposes the generated compiler config through a `tsconfig.json` reference at the target package and any declared nested config locations. Linters that discover the nearest config therefore see the same target program as native checking. The reference sets `noEmit` for lint validation, so JavaScript programs do not request output over their inputs. The canonical config retains the native compiler's resolved options, including inherited type roots, so discovery does not reenter the original extends chain. Original source configs stay unchanged.
+
+For oxlint type-aware checks, use `args = ["--type-aware"]` and declare the importer holding the config’s npm dependencies in `data`. Set `tool_env = {"@npm//:oxlint-tsgolint_bin": "OXLINT_TSGOLINT_PATH"}` to provide the type-aware executable; package files in `data` do not create npm `.bin` launchers. Other CI flags, such as `--report-unused-disable-directives-severity=error`, belong in the same `args` list. The selected linter version must support the flags.
 
 ## Action Environment
 

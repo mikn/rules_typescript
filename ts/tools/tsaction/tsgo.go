@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,6 +25,7 @@ func runTsgo(args []string) error {
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
 	absoluteCopyArgs := flags.Bool("absolute-copy-args", false, "pass copied file arguments as absolute paths")
 	verifyCopies := flags.Bool("verify-copies", false, "fail if the tool changes a copied input")
+	discoverConfig := flags.String("discover-tsconfig", "", "generated program config exposed to tools that discover tsconfig.json beside sources")
 	var sources, copies, importers, overlays, manifests, toolEnv stringList
 	flags.Var(&sources, "source",
 		"an input of the action in the source tree, linked at its path under "+
@@ -89,6 +91,11 @@ func runTsgo(args []string) error {
 			return err
 		}
 	}
+	if *discoverConfig != "" {
+		if err := discoverProgramConfig(*root, *discoverConfig, sources); err != nil {
+			return err
+		}
+	}
 
 	tool, err := filepath.Abs(cmdline[0])
 	if err != nil {
@@ -150,6 +157,40 @@ func runTsgo(args []string) error {
 		return nil
 	}
 	return os.WriteFile(*stamp, nil, 0o644)
+}
+
+func discoverProgramConfig(root, configArtifact string, sources []string) error {
+	dir := filepath.Dir(binRelative(configArtifact))
+	configs := map[string]bool{filepath.Join(dir, "tsconfig.json"): true}
+	for _, source := range sources {
+		source = filepath.FromSlash(source)
+		if filepath.Base(source) == "tsconfig.json" && (dir == "." || strings.HasPrefix(source, dir+string(filepath.Separator))) {
+			configs[source] = true
+		}
+	}
+	for config := range configs {
+		at := filepath.Join(root, config)
+		data, err := json.Marshal(struct {
+			Extends         string          `json:"extends"`
+			CompilerOptions map[string]bool `json:"compilerOptions"`
+		}{
+			Extends:         fileRelative(filepath.ToSlash(filepath.Dir(config)), filepath.ToSlash(configArtifact)),
+			CompilerOptions: map[string]bool{"noEmit": true},
+		})
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+			return err
+		}
+		if err := os.Remove(at); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.WriteFile(at, append(data, '\n'), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkedRun keeps the listing off stdout: a failing tsgo relays its
