@@ -22,7 +22,7 @@ ts_refresh_tsconfig(
     test = True,
     deps = [
         "//apps/web",
-        "//packages/ui",
+        "//packages/design-system",
     ],
 )
 ```
@@ -159,7 +159,7 @@ ts_refresh_tsconfig(
     name = "refresh_tsconfig",
     test = True,
     extra_exclude = ["**/e2e", "**/examples"],
-    deps = ["//apps/web", "//packages/ui"],
+    deps = ["//apps/web", "//packages/design-system"],
 )
 ```
 

@@ -247,7 +247,7 @@ with each importer's `node_modules` at the importer's directory -- the
 lockfile's root importer's at the program root's `node_modules` -- so a source
 at `web/src/a.ts` walks up through
 `web/node_modules` to the root's, and a dep's declaration under
-`bazel-out/<cfg>/bin/packages/ui/` through `packages/ui/node_modules`
+`bazel-out/<cfg>/bin/packages/design-system/` through `packages/design-system/node_modules`
 ([ts_compile](ts-compile.md#the-node_modules-chain)). A `ts_test` runs in
 the same layout: the runfiles hold the links and store files at their own
 paths, `NODE_PATH` names the chain's directories nearest first, and where the

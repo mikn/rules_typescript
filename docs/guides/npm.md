@@ -449,7 +449,7 @@ directory -- at `@npm//:<name>`; each importer that links the member holds a
 target names in `deps`. An importer that declares the member's name with a
 version instead of `workspace:` installs the published package of that name,
 and a target under it names the importer-scoped label,
-`@npm//npm-packages/lovite:lovable-tagger`, not the view. The view is that
+`@npm//packages/bundler-plugin:example-transform`, not the view. The view is that
 member as an npm package: its store tree,
 `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`, holds the
 member's `package.json` as built beside the member's `.js`, `.js.map` and
@@ -510,8 +510,8 @@ lies outside `node_modules`.
 
 The tree holds the member's own files and nothing outside them, so a member's
 file names another package by its package name. A relative path that leaves
-the member (`../../../../web/shared/lib/proto/x.ts` from
-`packages/app-mcp/src/generated/`) resolves under pnpm alone, where
+the member (`../../../../apps/frontend/generated/x.ts` from
+`packages/bridge/src/generated/`) resolves under pnpm alone, where
 `node_modules/<name>` is a symlink to the member's directory and node resolves
 the importer to its real path first. Here the member is its files in the store
 tree, and tsgo and both runners resolve a package's file at its realpath there,
@@ -519,7 +519,7 @@ so the path lands beside the other store trees, where the file is not:
 the run fails with `Cannot find module`, and tsgo reports `TS2307`
 in the member's `.d.ts` under `--//ts:lib_check` and, without it, widens every
 name the file re-exported to `any`. A `.ts` subpath into a member with no
-`exports` map (`web/shared/lib/proto/x.ts`, the shape an application package
+`exports` map (`apps/frontend/generated/x.ts`, the shape an application package
 is imported by) resolves as the member's emitted files do: tsgo maps the `.ts`
 to the `.d.ts` beside it, and the runners map it to the `.js`
 ([`.ts` Specifiers](../rules/ts-test.md#ts-specifiers)).

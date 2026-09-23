@@ -469,8 +469,7 @@ this is a design question, not a checklist.
 - [x] Generic CI steps documented (docs/CI_CD.md). `scripts/ci.sh` is deleted: it duplicated the workflow
 
 ### 10.4 BCR Publishing
-- [x] `.bcr/metadata.json` names one real maintainer (Mikael Knutsson,
-  mikael@lovable.dev, @mikn). It is the single source of truth: the release
+- [x] `.bcr/metadata.json` owns the maintainer identity. It is the single source of truth: the release
   workflow's notes step reads it (`jq -r '.maintainers[0]…'` in
   `.github/workflows/publish-to-bcr.yml`) rather than carrying its own copy.
 - [x] Automate `source.json` integrity hash on release
