@@ -81,5 +81,5 @@ build:determinism --experimental_convenience_symlinks=ignore
 # in tests/integration/<name>/ with a real BUILD.bazel. Prefer the newer
 # tests/integration/npm_registries layout -- child workspace under workspace/
 # with a BUILD.bazel.tpl -- which needs no entry at all.
-build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/oxc_declarations
-query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/oxc_declarations
+build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/proto_generated,tests/integration/proto_generated/consumer,tests/integration/lsp,tests/integration/oxc_declarations
+query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/proto_generated,tests/integration/proto_generated/consumer,tests/integration/lsp,tests/integration/oxc_declarations

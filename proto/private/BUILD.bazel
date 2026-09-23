@@ -1,6 +1,7 @@
 load("@npm_ts_proto//:defs.bzl", "npm_virtual_store")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_binary")
+load(":runtime_imports.bzl", "runtime_imports")
 
 package(default_visibility = ["//proto:__subpackages__"])
 
@@ -15,6 +16,7 @@ node_modules(
     name = "node_modules",
     hoist = ":node_modules/.pnpm/node_modules",
     deps = [
+        "@npm_ts_proto//:bufbuild_protobuf",
         "@npm_ts_proto//:bufbuild_protoc-gen-es",
     ],
 )
@@ -23,4 +25,15 @@ ts_binary(
     name = "protoc_gen_es",
     entry_point = "protoc-gen-es.cjs",
     node_modules = ":node_modules",
+)
+
+ts_binary(
+    name = "runtime_imports_generator",
+    entry_point = "runtime-imports.cjs",
+    node_modules = ":node_modules",
+)
+
+runtime_imports(
+    name = "runtime_imports",
+    visibility = ["//gazelle:__pkg__"],
 )

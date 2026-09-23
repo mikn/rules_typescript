@@ -35,6 +35,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 		res = withImporterRules(args, tc, res)
 	}
+	res = withProtoRules(args, tc, res)
 	res = relocateSourceExports(args, tc, res)
 	// Resolve runs before Gazelle writes newly generated BUILD files.
 	if len(res.Gen) > 0 || len(args.OtherGen) > 0 {
@@ -404,6 +405,12 @@ func testTargetName(libName string) string {
 
 // codegenOutDirOwning returns the out_dir root rel is at or below, if any.
 func codegenOutDirOwning(rel string, tc *tsConfig) (string, bool) {
+	for _, id := range tc.protos.identities {
+		root := path.Join(id.owner, id.OutDir)
+		if within(rel, root) {
+			return root, true
+		}
+	}
 	for _, root := range tc.codegenOutDirs {
 		if rel == root || strings.HasPrefix(rel, root+"/") {
 			return root, true
@@ -428,7 +435,7 @@ func codegenOutDirResult(args language.GenerateArgs, root string) language.Gener
 	if args.File == nil {
 		return res
 	}
-	log.Printf("typescript: %s is inside %s, the out_dir of a ts_codegen, so everything in it is "+
+	log.Printf("typescript: %s is inside %s, a generated output root, so everything in it is "+
 		"that target's output and nothing here is a source. Gazelle withdraws the targets it "+
 		"generated here and cannot delete the BUILD file, which keeps the directory a package "+
 		"of its own; delete it by hand.", args.Rel, root)

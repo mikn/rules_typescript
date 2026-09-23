@@ -1,12 +1,32 @@
 # Gazelle Directives Reference
 
-The TypeScript extension declares no directive: `KnownDirectives()` is empty. A
-package is a directory whose `tsconfig.json` lists a first-party file, its
-program is that listing, and its deps come from the listing's edges, the
-lockfile and the nearest `package.json` ([Overview](overview.md)). What a BUILD
-file says to Gazelle is core Gazelle's own three comments, `# keep`,
-`# gazelle:exclude` and `# gazelle:resolve`; everything else is the tsconfig's,
-the lockfile's or the manifest's to say.
+Ordinary TypeScript program membership and dependencies come from the compiler listing, lockfile and manifest ([Overview](overview.md)). Protobuf generation additionally needs explicit product identities: a schema can produce different plugin options and output roots for different consumers.
+
+## Protobuf generation identities
+
+At a common schema ancestor, declare a `ts_proto_config` target. Its name identifies the product; `out_dir` is relative to that BUILD package. `tsconfig`, optional `node_modules` and `deps` are Bazel labels. Options default to `target=ts`. Gazelle reads literal strings and string lists from the existing rule; expressions such as `select()` are rejected. Overlapping output roots are rejected.
+
+```python
+load("@rules_typescript//proto:defs.bzl", "ts_proto_config")
+
+# gazelle:ts_proto json
+
+ts_proto_config(
+    name = "json",
+    out_dir = "generated/json",
+    tsconfig = "//settings:tsconfig",
+    deps = ["@npm//:bufbuild_protobuf"],
+    options = ["target=ts", "json_types=true"],
+)
+```
+
+`ts_proto_config` defines an identity without selecting it; generation defaults off. `# gazelle:ts_proto` selects space-separated identity names for the current directory and descendants; `none` disables generation there. Native proto rules still own schema membership and canonical import names. This configuration adds no schema globs or protobuf namespace filters. Declare multiple identities when one schema needs different outputs.
+
+Wrappers are generated in the identity's ancestor package, with target names `<identity>/<native-package-relative-path>/<native-target>`. All wrappers for one identity share its output root, preserving relative generated imports across native packages. The compiler configuration and runtime labels are relative to the ancestor package. Generated sibling dependencies resolve only within the same identity. Runtime-provided well-known imports come from the pinned protobuf runtime's metadata. Every other imported schema needs a generated wrapper in the same owner and output identity. Adding an external proto target to `deps` does not adopt its schemas; external targets are outside the local native-rule census.
+
+Run ordinary Gazelle recursively on the configured ancestor or the repository root. A child-only or nonrecursive update affecting that owner fails before BUILD writes and gives the complete rerun command. Excluded or disabled directories do not contribute wrappers. Compose a Gazelle binary with the native proto language before TypeScript. The default standalone TypeScript binary retains its TypeScript-only scope.
+
+Generated protobuf target names use the reserved `<identity>/<relative proto package>/<native target>` shape. Removing an identity removes its targets on the next complete owner update; ordinary target names and `# keep` remain outside that transition.
 
 ## `# keep`
 
@@ -35,6 +55,7 @@ is replaced unless a `# keep` holds it:
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
+| `ts_proto_library` | `proto`, `out_dir`, `tsconfig`, `node_modules`, `options`, `deps`, `visibility` |
 | `ts_compile` | `emit`, `srcs`, `deps`, `tsconfig`, `visibility` |
 | `ts_test` | `emit`, `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `src`, `deps`, `visibility` |
@@ -168,9 +189,8 @@ the BUILD file that carries it, as every core directive is.
 ## Removed Directives
 
 !!! note "Upgrading"
-    Every `ts_*` directive line in a BUILD file goes: the extension declares
-    none, and core Gazelle reports an unknown directive and continues. The
-    table names what does each one's job.
+    Remove the directives listed below. Core Gazelle reports unknown directives
+    and continues; the table identifies each replacement.
 
 | Directive | What does its job |
 |-----------|-------------------|

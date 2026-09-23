@@ -36,7 +36,7 @@ PATH_CLASHING=(
 )
 
 PATTERNS=(
-  'gazelle:ts_[a-z_]+'
+  'gazelle:ts_(package_boundary|exclude|exclude_dir|ignore|target_name|js_srcs|ambient_types|runtime_dep|warn_unresolved|declarations|path_alias|codegen|npm_hub|npm_mapping|asset_declaration_type)([^[:alnum:]_]|$)'
   'ts/private/ts_(compile|test|lint)\.bzl'
   'strict_deps\.bzl'
   '\.strictdeps'

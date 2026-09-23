@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -44,7 +45,30 @@ func (l *tsLang) RegisterFlags(fs *flag.FlagSet, _ string, c *config.Config) {
 	c.Exts[languageName] = tc
 }
 
-func (l *tsLang) CheckFlags(_ *flag.FlagSet, c *config.Config) error {
+func (l *tsLang) CheckFlags(fs *flag.FlagSet, c *config.Config) error {
+	store := getConfig(c).protos
+	dirs := fs.Args()
+	if len(dirs) == 0 {
+		dirs = []string{"."}
+	}
+	store.roots = nil
+	for _, dir := range dirs {
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(c.WorkDir, dir)
+		}
+		rel, err := filepath.Rel(c.RepoRoot, filepath.Clean(dir))
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			rel = ""
+		}
+		store.roots = append(store.roots, filepath.ToSlash(rel))
+	}
+	if recursive := fs.Lookup("r"); recursive != nil {
+		store.recursive = recursive.Value.String() == "true"
+	}
+
 	if tsgo := getConfig(c).programs.tsgoFlag; tsgo != "" {
 		if _, err := os.Stat(tsgo); err != nil {
 			return fmt.Errorf("-ts_tsgo: %w", err)
@@ -53,10 +77,8 @@ func (l *tsLang) CheckFlags(_ *flag.FlagSet, c *config.Config) error {
 	return nil
 }
 
-// KnownDirectives is empty: the tsconfig.json, the lockfile and the manifest
-// say everything; # gazelle:exclude, # gazelle:resolve and # keep are core's.
 func (l *tsLang) KnownDirectives() []string {
-	return nil
+	return []string{"ts_proto"}
 }
 
 func (l *tsLang) Configure(c *config.Config, rel string, f *rule.File) {
@@ -121,8 +143,13 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 		},
 		// ts_codegen is hand-written and never generated; a Kind so that its
 		// out_dir is indexed (codegenTreeSpecs) and its outs are deps (D9).
-		"ts_codegen":       {},
-		"ts_proto_library": {},
+		"ts_codegen":      {},
+		"ts_proto_config": {},
+		"ts_proto_library": {
+			NonEmptyAttrs:  map[string]bool{"proto": true},
+			MergeableAttrs: map[string]bool{"proto": true, "out_dir": true, "tsconfig": true, "node_modules": true, "options": true, "deps": true, "visibility": true},
+			ResolveAttrs:   map[string]bool{"deps": true},
+		},
 		"ts_dev_server": {
 			NonEmptyAttrs: map[string]bool{"entry_point": true},
 			MergeableAttrs: map[string]bool{
@@ -177,6 +204,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 var kindLoads = map[string]string{
 	"ts_codegen":          "//ts:defs.bzl",
 	"ts_proto_library":    "//proto:defs.bzl",
+	"ts_proto_config":     "//proto:defs.bzl",
 	"ts_compile":          "//ts:defs.bzl",
 	"ts_config":           "//ts:defs.bzl",
 	"ts_dev_server":       "//ts:defs.bzl",
@@ -245,6 +273,10 @@ func (l *tsLang) Resolve(
 	imports any,
 	from label.Label,
 ) {
+	if imps, ok := imports.(*protoRuleImports); ok && imps != nil {
+		resolveProtoLibrary(c, ix, r, imps, from)
+		return
+	}
 	if imps, ok := imports.(*ruleImports); ok && imps != nil {
 		resolveEdges(c, ix, r, imps, from)
 	}

@@ -46,7 +46,7 @@ bazel run //:gazelle
 
 ## What a Run Reads
 
-Five things, and no directive of its own.
+Five things, without program-membership directives.
 
 1. **Every `tsconfig.json`**, listed through tsgo from the repository root:
    `tsgo -p <dir>/tsconfig.json --noEmit --listFilesOnly --explainFiles

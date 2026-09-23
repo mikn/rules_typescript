@@ -22,6 +22,9 @@ import (
 // tsConfig is one directory's configuration, cloned down the tree; programs
 // and lock are the run's, shared by every directory.
 type tsConfig struct {
+	protos          *protoStore
+	protoIdentities map[string]*protoIdentity
+	protoEnabled    []string
 	// codegenOuts is the ts_codegen declaring each out, by repo-relative path;
 	// codegenOutDirs every out_dir root a ts_codegen at or above declares.
 	codegenOuts    map[string]label.Label
@@ -55,13 +58,15 @@ func getConfig(c *config.Config) *tsConfig {
 }
 
 func defaultTsConfig() *tsConfig {
-	return &tsConfig{programs: newProgramStore()}
+	return &tsConfig{programs: newProgramStore(), protos: newProtoStore(), protoIdentities: map[string]*protoIdentity{}}
 }
 
 // clone returns a copy of the config, suitable for child directories that
 // inherit from their parent.
 func (tc *tsConfig) clone() *tsConfig {
 	cp := *tc
+	cp.protoIdentities = maps.Clone(tc.protoIdentities)
+	cp.protoEnabled = slices.Clone(tc.protoEnabled)
 	// Copied: what a child writes into, so the parent keeps its own.
 	if len(tc.codegenOuts) > 0 {
 		cp.codegenOuts = maps.Clone(tc.codegenOuts)
@@ -125,6 +130,10 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		tc = parent.(*tsConfig).clone()
 	} else {
 		tc = defaultTsConfig()
+	}
+
+	if err := configureProto(c, rel, f, tc); err != nil {
+		log.Fatalf("typescript: %v", err)
 	}
 
 	// c.RepoRoot is the workspace root whichever directory Gazelle was pointed
