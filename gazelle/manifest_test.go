@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"github.com/bazelbuild/bazel-gazelle/rule"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -115,5 +116,73 @@ func TestManifestLabels_RootManifestFromBelow(t *testing.T) {
 	if got := l.manifestLabels(m, ""); !slices.Equal(got,
 		[]string{":node_modules/@acme/lib"}) {
 		t.Errorf("from the root: %v, want the link target in the package", got)
+	}
+}
+
+func TestManifestProgramDoesNotDropExportedJavaScriptAndSeparateTypes(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"lib/package.json":         `{"name":"@test/lib","types":"./types/index.d.ts","exports":{".":{"types":"./types/index.d.ts","import":"./src/index.mjs"},"./styles.css":"./generated/styles.css"}}`,
+		"lib/types/index.d.ts":     `export declare const value: number;`,
+		"lib/src/index.mjs":        `export { value } from "./value.mjs";`,
+		"lib/src/value.mjs":        `export const value = 42;`,
+		"lib/generated/styles.css": `body { color: red; }`,
+	})
+	tree := generateAll(t, root)
+	got := generatedRule(tree.results["lib"], "lib")
+	if got == nil {
+		t.Fatal("manifest source package has no generated compile")
+	}
+	for _, src := range []string{"package.json", "types/index.d.ts", "src/index.mjs", "src/value.mjs", "generated/styles.css"} {
+		if !slices.Contains(got.AttrStrings("srcs"), src) {
+			t.Errorf("missing exported source or resource %s: %v", src, got.AttrStrings("srcs"))
+		}
+	}
+	if got.AttrString("tsconfig") != "" || generatedRule(tree.results["lib"], "tsconfig") != nil {
+		t.Fatal("manifest source package invented a tsconfig")
+	}
+}
+
+func TestGeneratedPackageMovesExportToCanonicalChildWithoutAlias(t *testing.T) {
+	requireTsgo(t)
+	root := writeTree(t, map[string]string{
+		"package.json":         convergePlainPkg,
+		"parent/tsconfig.json": `{"include":["*.ts"]}`,
+		"parent/index.ts":      `export const value=1;`,
+		"parent/BUILD.bazel": `exports_files(["kept.json", "test/fixtures/value.json"], visibility=["//consumer:__pkg__"])
+exports_files(["test/fixtures/public.json"], licenses=["notice"])`,
+		"parent/kept.json":                 `{}`,
+		"parent/test/tsconfig.json":        `{"include":["*.ts"]}`,
+		"parent/test/value.ts":             `export const value=2;`,
+		"parent/test/fixtures/value.json":  `{}`,
+		"parent/test/fixtures/public.json": `{}`,
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+	parent := buildFileText(t, root, "parent")
+	child := buildFileText(t, root, "parent/test")
+	if strings.Contains(parent, "test/fixtures/value.json") || !strings.Contains(parent, "kept.json") {
+		t.Fatalf("parent export ownership stale:\n%s", parent)
+	}
+	if !strings.Contains(child, `"fixtures/value.json"`) || !strings.Contains(child, `visibility = ["//consumer:__pkg__"]`) {
+		t.Fatalf("missing canonical child export/visibility:\n%s", child)
+	}
+	file, err := rule.LoadFile(filepath.Join(root, "parent/test/BUILD.bazel"), "parent/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := false
+	for _, r := range file.Rules {
+		if r.Kind() == "exports_files" && slices.Contains(r.AttrStrings("licenses"), "notice") {
+			public = true
+			if r.Attr("visibility") != nil {
+				t.Fatal("default-public export visibility narrowed")
+			}
+		}
+	}
+	if !public {
+		t.Fatal("export licenses lost")
+	}
+	captureLog(t, func() { convergeGazelle(t, root) })
+	if next := buildFileText(t, root, "parent/test"); next != child {
+		t.Fatalf("export relocation unstable:\n%s", lineDiff(child, next))
 	}
 }

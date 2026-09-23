@@ -26,8 +26,9 @@ var tsgoRlocationpath string
 // paths relative to it and the compiler's libs under ../ or bundled:///.
 type program struct {
 	explainfiles.Listing
-	dir     string
-	refused string
+	dir      string
+	refused  string
+	manifest bool
 }
 
 // One run's listings, one store every directory's config shares: the packages
@@ -432,4 +433,34 @@ func noInputs(p *program) bool {
 		}
 	}
 	return len(p.Diagnostics) > 0
+}
+
+func listManifestProgram(repoRoot, rel string, tc *tsConfig) {
+	if tc.foreignManifest != "" {
+		return
+	}
+	roots, err := manifestProgramRoots(repoRoot, rel)
+	if err != nil {
+		log.Printf("typescript: %v; no manifest-owned program generated", err)
+		return
+	}
+	if len(roots) == 0 {
+		return
+	}
+	tsgo, err := tc.programs.binary()
+	if errors.Is(err, errNoTsgo) {
+		tc.programs.skipped = true
+		return
+	}
+	if err != nil {
+		log.Fatalf("typescript: %v", err)
+	}
+	args := []string{"--noEmit", "--listFilesOnly", "--explainFiles", "--ignoreConfig", "--allowJs", "--module", "preserve", "--skipLibCheck", "--pretty", "false"}
+	p, err := runListing(repoRoot, tsgo, path.Join(rel, "package.json"), append(args, roots...))
+	if err != nil {
+		log.Fatalf("typescript: %v", err)
+	}
+	p.dir = rel
+	p.manifest = true
+	tc.programs.record(p)
 }

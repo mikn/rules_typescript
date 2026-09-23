@@ -156,6 +156,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	tc.recordCodegens(c.RepoName, rel, f)
 	if handWrittenTsConfigIn(currentDir, c.RepoRoot) != "" {
 		listTsConfigProgram(c.RepoRoot, rel, tc)
+	} else if hasPackageJSON(currentDir) {
+		listManifestProgram(c.RepoRoot, rel, tc)
 	}
 
 	c.Exts[languageName] = tc
