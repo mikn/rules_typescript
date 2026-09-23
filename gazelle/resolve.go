@@ -19,8 +19,10 @@ import (
 
 // importsForRule indexes a ts_compile or ts_test by the repository path of
 // each src, what an edge target is looked up by, and a ts_codegen by its tree.
-func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.ImportSpec {
+func importsForRule(c *config.Config, r *rule.Rule, f *rule.File) []resolve.ImportSpec {
 	switch r.Kind() {
+	case "ts_proto_library":
+		return protoImportsForRule(c, r, f)
 	case "ts_codegen":
 		return codegenTreeSpecs(r, f.Pkg)
 	case "ts_compile", "ts_test":
@@ -198,6 +200,9 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 	}
 	if codegen, ok := tc.codegenOuts[e.To]; ok {
 		return codegen.Rel(from.Repo, from.Pkg).String()
+	}
+	if lbl := resolveProtoOutput(c, ix, e.To, from); lbl != "" {
+		return lbl
 	}
 	if lbl := resolveCodegenTree(ix, e.To, from); lbl != "" {
 		return lbl

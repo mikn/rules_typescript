@@ -21,14 +21,21 @@ go_library(
         "owner.go",
         "pnpm_lock.go",
         "program.go",
+        "proto.go",
         "resolve.go",
         "tsconfig.go",
         "workers_pool.go",
     ],
-    data = ["//ts/toolchain:tsgo_resolved"],
+    data = [
+        "//proto/private:runtime_imports",
+        "//ts/toolchain:tsgo_resolved",
+    ],
     importpath = "github.com/mikn/rules_typescript/gazelle",
     visibility = ["//visibility:public"],
-    x_defs = {"tsgoRlocationpath": "$(rlocationpath //ts/toolchain:tsgo_resolved)"},
+    x_defs = {
+        "tsgoRlocationpath": "$(rlocationpath //ts/toolchain:tsgo_resolved)",
+        "protoRuntimeImportsRlocationpath": "$(rlocationpath //proto/private:runtime_imports)",
+    },
     deps = [
         "//ts/tools/explainfiles",
         "//ts/tools/jsonc",
@@ -37,6 +44,7 @@ go_library(
         "@gazelle//config",
         "@gazelle//label",
         "@gazelle//language",
+        "@gazelle//language/proto",
         "@gazelle//repo",
         "@gazelle//resolve",
         "@gazelle//rule",
@@ -60,11 +68,13 @@ go_test(
         "npm_test.go",
         "owner_test.go",
         "program_test.go",
+        "proto_test.go",
         "resolve_test.go",
         "tsconfig_extends_test.go",
         "workers_pool_test.go",
     ],
     data = [
+        ":gazelle_proto_test",
         "//:docs_pages",
         "//tests/integration:gazelle_roundtrip/configured/vitest.config.mts",
         "//tests/npm:pnpm-lock.yaml",
@@ -72,6 +82,7 @@ go_test(
         "//ts/tools/explainfiles:testdata/workers_download_test.listing.txt",
     ],
     embed = [":typescript"],
+    env = {"PROTO_GAZELLE": "$(rlocationpath :gazelle_proto_test)"},
     deps = [
         "@com_github_bazelbuild_buildtools//build",
         "@gazelle//config",
@@ -79,6 +90,7 @@ go_test(
         "@gazelle//merger",
         "@gazelle//resolve",
         "@gazelle//rule",
+        "@io_bazel_rules_go//go/runfiles",
     ],
 )
 
@@ -103,4 +115,13 @@ gazelle_binary(
 gazelle(
     name = "gazelle",
     gazelle = ":gazelle_ts",
+)
+
+gazelle_binary(
+    name = "gazelle_proto_test",
+    testonly = True,
+    languages = [
+        "@gazelle//language/proto",
+        ":typescript",
+    ],
 )

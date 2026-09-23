@@ -180,7 +180,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - Consumer toolchain registration is explicit: `register_toolchains("@rules_typescript//ts/toolchain:all")`
 
 **Gazelle (Go):**
-- No directive of its own and no config file: a package is a directory
+- Ordinary TypeScript membership needs no directives: a package is a directory
   whose `tsconfig.json` lists a first-party file, its program is that listing,
   and its deps come from the listing's edges, the lockfile and the nearest
   `package.json`

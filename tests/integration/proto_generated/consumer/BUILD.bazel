@@ -1,0 +1,26 @@
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_test")
+
+# gazelle:ignore
+node_modules(
+    name = "node_modules",
+    parent = "//:node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:bufbuild_protobuf",
+        "@npm_test//:vitest",
+    ],
+)
+
+ts_test(
+    name = "generated_identity_test",
+    srcs = ["generated.test.ts"],
+    node_modules = ":node_modules",
+    tsconfig = "//:compiler.json",
+    deps = [
+        "//schema:json/messages/example_messages_proto",
+        "//schema:plain/messages/example_messages_proto",
+        "@npm//:bufbuild_protobuf",
+        "@npm_test//:vitest",
+    ],
+)

@@ -1,0 +1,31 @@
+load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
+load("@npm//:defs.bzl", "npm_virtual_store")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+
+# gazelle:ignore
+
+gazelle(
+    name = "gazelle",
+    gazelle = ":proto_gazelle",
+)
+
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:bufbuild_protobuf",
+    ],
+)
+
+exports_files(["compiler.json"])
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+gazelle_binary(
+    name = "proto_gazelle",
+    languages = [
+        "@gazelle//language/proto",
+        "@rules_typescript//gazelle:typescript",
+    ],
+)

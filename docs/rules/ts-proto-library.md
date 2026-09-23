@@ -17,6 +17,10 @@ The rule calls protobuf's `proto_common.compile` with its protoc executable and 
 
 The Bazel target graph selects schemas. The rule does not interpret Buf configuration or apply managed schema options. Schema options affecting generated descriptors belong in the proto sources. Migration from managed generation requires comparing committed outputs against the declared schema graph.
 
+## Generated BUILD targets
+
+[Gazelle protobuf identities](../gazelle/directives.md#protobuf-generation-identities) generate wrappers from native proto rules. A common ancestor package owns each product output root; native schema packages retain their own targets. Different plugin options use different identities, while sibling dependencies remain inside each identity.
+
 ## Invariants
 
 1. Canonical proto import paths determine generated paths. The import-prefix fixture fails if generated sibling imports no longer resolve.

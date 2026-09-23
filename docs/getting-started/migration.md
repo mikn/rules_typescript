@@ -122,7 +122,7 @@ is fetched for those alone. `rules_ts` needs neither toolchain.
 ### Gazelle
 
 One package per `tsconfig.json`, its deps from tsgo's own listing of the
-program, and no directive of its own. `rules_ts` can use the `js` language of
+program, without program-membership directives. `rules_ts` can use the `js` language of
 [aspect-gazelle][aspect-gazelle], [Apache-2.0][aspect-gazelle-license], in a
 Gazelle binary built from source or the `aspect_gazelle_prebuilt` binary.
 

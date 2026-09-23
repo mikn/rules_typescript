@@ -20,6 +20,7 @@ var wantKinds = []string{
 	"ts_compile",
 	"ts_config",
 	"ts_dev_server",
+	"ts_proto_config",
 	"ts_proto_library",
 	"ts_test",
 }
@@ -29,7 +30,7 @@ var wantKinds = []string{
 var wantLoads = map[string][]string{
 	"@npm//:defs.bzl":                   {"npm_virtual_store"},
 	"@rules_typescript//npm:defs.bzl":   {"node_modules", "node_modules_member"},
-	"@rules_typescript//proto:defs.bzl": {"ts_proto_library"},
+	"@rules_typescript//proto:defs.bzl": {"ts_proto_config", "ts_proto_library"},
 	"@rules_typescript//ts:defs.bzl": {
 		"ts_codegen", "ts_compile", "ts_config", "ts_dev_server", "ts_test",
 	},

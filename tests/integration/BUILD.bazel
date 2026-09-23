@@ -53,6 +53,7 @@ these tests and //tests/integration/harness:harness_test, the harness's own go_t
 # gazelle:exclude consumer_crates
 # gazelle:exclude dev_server
 # gazelle:exclude existing_project
+# gazelle:exclude proto_generated
 # gazelle:exclude gazelle_roundtrip
 # gazelle:exclude lsp
 # gazelle:exclude new_project
@@ -217,5 +218,18 @@ test_suite(
         ":new_project_test",
         ":npm_deps_test",
         ":oxc_declarations_test",
+        ":proto_generated_test",
     ],
+)
+
+bazel_integration_test(
+    name = "proto_generated_test",
+    timeout = "eternal",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:proto_generated_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("proto_generated"),
+    workspace_path = "proto_generated",
 )

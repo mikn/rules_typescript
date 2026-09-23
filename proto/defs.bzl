@@ -52,10 +52,28 @@ _generate = rule(
     },
 )
 
+def _check_options(options):
+    if "target=ts" not in options or any([option.startswith("target=") and option != "target=ts" for option in options]):
+        fail("TypeScript protobuf options must select target=ts")
+
+def _ts_proto_config_impl(ctx):
+    _check_options(ctx.attr.options)
+    return []
+
+ts_proto_config = rule(
+    implementation = _ts_proto_config_impl,
+    attrs = {
+        "out_dir": attr.string(mandatory = True),
+        "tsconfig": attr.label(mandatory = True, allow_files = True),
+        "node_modules": attr.label(),
+        "deps": attr.label_list(),
+        "options": attr.string_list(default = ["target=ts"]),
+    },
+)
+
 def ts_proto_library(name, proto, out_dir, tsconfig, deps = [], node_modules = None, options = ["target=ts"], **kwargs):
     """Generates direct proto files through the existing source-mode compiler owner."""
-    if "target=ts" not in options or any([option.startswith("target=") and option != "target=ts" for option in options]):
-        fail("ts_proto_library: options must select target=ts for declared TypeScript outputs")
+    _check_options(options)
     generated = name + "_generate"
     _generate(
         name = generated,

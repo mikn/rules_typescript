@@ -118,23 +118,29 @@ func TestDocs_RemovalTableNamesEachRetiredDirectiveOnce(t *testing.T) {
 	}
 }
 
-func TestDocs_NoPageNamesATsDirectiveOutsideTheRemovalTable(t *testing.T) {
-	want := len((&tsLang{}).KnownDirectives())
-	got := 0
+func TestDocs_OnlyRegisteredTsDirectivesAreDocumented(t *testing.T) {
+	known := map[string]bool{}
+	for _, name := range (&tsLang{}).KnownDirectives() {
+		known[name] = true
+	}
+	seen := map[string]bool{}
 	for _, page := range docPages(t) {
 		lines := readLines(t, page)
 		if page == directivesPage {
 			lines = removalTable(lines, true)
 		}
 		for i, line := range lines {
-			for _, m := range tsDirective.FindAllString(line, -1) {
-				got++
-				t.Errorf("%s:%d names %s", page, i+1, m)
+			for _, m := range tsDirective.FindAllStringSubmatch(line, -1) {
+				if !known[m[1]] {
+					t.Errorf("%s:%d names unregistered %s", page, i+1, m[1])
+				}
+				seen[m[1]] = true
 			}
 		}
 	}
-	if got != want {
-		t.Errorf("the docs name %d ts_ directives outside the removal table; "+
-			"KnownDirectives() has %d", got, want)
+	for name := range known {
+		if !seen[name] {
+			t.Errorf("registered directive %s has no documentation", name)
+		}
 	}
 }

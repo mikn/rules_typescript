@@ -17,6 +17,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude consumer_crates
 # gazelle:exclude dev_server
 # gazelle:exclude existing_project
+# gazelle:exclude proto_generated
 # gazelle:exclude gazelle_roundtrip
 # gazelle:exclude lsp
 # gazelle:exclude new_project
@@ -37,6 +38,7 @@ _RUNNERS = [
     "dev_server",
     "existing_project",
     "gazelle_roundtrip",
+    "proto_generated",
     "lsp",
     "new_project",
     "node_version",
