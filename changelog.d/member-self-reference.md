@@ -4,7 +4,7 @@
   as built beside the `package.json` src, and a test inside the member depends
   on the compile alone.** Under the virtual store no importer links a member to
   itself, so a test importing its own package by name
-  (`@lovable/canvas-sdk/wire` from `packages/canvas-sdk/src/exports.test.ts`)
+  (`@example/drawing-sdk/wire` from `packages/drawing-sdk/src/exports.test.ts`)
   had no link to resolve through: Gazelle wrote no dep and one line per edge,
   and `TsgoDeclare` failed with `TS2307`. tsc, node and Vite resolve such a
   name through the nearest `package.json`'s `name` and `exports`, so

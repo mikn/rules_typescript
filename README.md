@@ -182,7 +182,7 @@ ts_refresh_tsconfig(
     test = True,
     deps = [
         "//apps/web",
-        "//packages/ui",
+        "//packages/design-system",
     ],
 )
 ```
@@ -224,7 +224,7 @@ such package fails the snippet above until the list is filled in. That attribute
 - **[Rules Reference](https://mikn.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
 - **[Migration from rules_ts](https://mikn.github.io/rules_typescript/getting-started/migration/)** — differences from aspect-build/rules_ts
 - **[Troubleshooting](https://mikn.github.io/rules_typescript/guides/troubleshooting/)** — the error messages, by message text
-- **[Benchmark](https://mikn.github.io/rules_typescript/guides/benchmark/)** — Bazel against a consumer checkout's own tools, four cache states, three runs each
+- **[Benchmark](https://mikn.github.io/rules_typescript/guides/benchmark/)** — Matching work, cache states and invocation evidence
 - **[Compatibility](https://mikn.github.io/rules_typescript/compatibility/)** — Bazel and platform support, the Vite/vitest versions the tests exercise, and what "pre-1.0" means here
 
 ## License

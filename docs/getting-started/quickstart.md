@@ -295,7 +295,7 @@ checkout runs `pnpm install` once; a root lockfile with no install is refused
 before the first listing.
 
 Bazel walks that `node_modules/`. pnpm links a `workspace:` dependency into it
-(`workers/file-viewer/node_modules/@lovable.dev/pulse -> ../../../../packages/ui`),
+(`workers/asset-viewer/node_modules/@example/design-system -> ../../../../packages/design-system`),
 and `bazel build //...` can discover linked packages under `node_modules/`. Keep installed dependency trees out of recursive package discovery. `.bazelignore` takes no
 globs; `REPO.bazel` does:
 

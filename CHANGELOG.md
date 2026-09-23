@@ -800,8 +800,8 @@ Changes made since the newest section below are not here yet: they sit in
 - **A `module_name` dep in a package below its consumer builds again.** The
   generated tsconfig names each module root relative to its own directory, and a
   producer nested under the consumer is the one shape whose relative path has no
-  leading `..` to give it away: `//web:web` depending on `//web/shared/i18n:x`
-  wrote `shared/i18n/compiled`. TypeScript reads a `paths` value with no visible
+  leading `..` to give it away: `//apps/frontend:frontend` depending on `//apps/frontend/i18n:x`
+  wrote `i18n/compiled`. TypeScript reads a `paths` value with no visible
   `.` as a module specifier rather than a path and rejects the config outright --
   `error TS5090: Non-relative paths are not allowed` -- so the target failed
   before tsgo read one import, and no `module_name` dep nested under its consumer
@@ -825,8 +825,8 @@ Changes made since the newest section below are not here yet: they sit in
   disk. A directory that exists but is not a Bazel package is unchanged.
 - **A dep is no longer fabricated for a directory the generator refuses to
   walk.** When no indexed rule provides a specifier, Gazelle names the package
-  that would have to: `//web/shared/public/.well-known` for
-  `../../shared/public/.well-known/assetlinks.json?raw`. `rolledUpIn` skips a
+  that would have to: `//apps/frontend/public/.well-known` for
+  `../../public/.well-known/assetlinks.json?raw`. `rolledUpIn` skips a
   dot-directory, `node_modules`, `dist` and `bazel-out`, so under any package
   boundary but `every-dir` nothing claims those files and no BUILD file is ever
   written in them -- the resolver was naming a package the generator had already

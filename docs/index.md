@@ -124,7 +124,7 @@ runs there today: [Compatibility](compatibility.md#windows).
 - [Tailwind v4](guides/tailwind.md) — through `vite_config`, under the dev server
 - [Monorepo Layout](guides/monorepo.md) — one package per tsconfig.json, cross-package deps
 - [Troubleshooting](guides/troubleshooting.md) — the error messages, by message text
-- [Benchmark](guides/benchmark.md) — Bazel against a consumer checkout's own tools, four cache states, three runs each
+- [Benchmark](guides/benchmark.md) — Matching work, cache states and invocation evidence
 - [Gazelle Reference](gazelle/overview.md) — what a run reads and writes, `# keep`
 - [Rules Reference](rules/ts-compile.md) — all rule attributes and providers
 - [Migrating from rules_ts](getting-started/migration.md) — where the other ruleset is the better choice

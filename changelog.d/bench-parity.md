@@ -16,6 +16,6 @@
   moves to `contended/` and its segment is redone, `REDO` (3) attempts
   before the runner stops. Kernel threads are not other processes, nor the
   `SYSTEM_PROCS` (a security sensor whose CPU follows the benchmark's own
-  activity); the footer states each share. The result page is
+  activity); the footer states each share. The measurement guide is
   [Benchmark](https://mikn.github.io/rules_typescript/guides/benchmark/):
-  the Lovable monorepo at parity, the mechanism behind each difference.
+  how to compare equivalent work and explain differences from action evidence.

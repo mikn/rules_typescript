@@ -257,7 +257,7 @@ its own, `//<importer>:node_modules/<name>`
 resolves the member names it in `deps`. The link and the member's store tree
 join the action's inputs, and the link sits in the directory `node_modules`
 names, so the member resolves as it does from a file under the importer. A Vite
-build whose entry imports `@lovable.dev/pulse/fonts.css`, a member's exported
+build whose entry imports `@example/design-system/fonts.css`, a member's exported
 stylesheet:
 
 ```python
@@ -265,7 +265,7 @@ ts_codegen(
     name = "frame_build",
     srcs = [
         "vite.config.mts",
-        "//workers/file-viewer/frame:srcs",
+        "//workers/asset-viewer/frame:srcs",
     ],
     out_dir = "public/v1",
     args = [
@@ -278,15 +278,15 @@ ts_codegen(
     ],
     generator = ":vite_build",
     node_modules = ":node_modules",
-    deps = [":node_modules/@lovable.dev/pulse"],
+    deps = [":node_modules/@example/design-system"],
 )
 ```
 
 Without the entry the link is not staged and Rollup stops at the import:
 
 ```
-[vite]: Rollup failed to resolve import "@lovable.dev/pulse/fonts.css" from
-".../workers/file-viewer/frame/src/main.tsx".
+[vite]: Rollup failed to resolve import "@example/design-system/fonts.css" from
+".../workers/asset-viewer/frame/src/main.tsx".
 ```
 
 A Node generator is a [`ts_binary`](ts-binary.md) whose `entry_point` is the

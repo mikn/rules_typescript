@@ -410,9 +410,9 @@ label:
   importer -- is the name as the nearest importer at or above the package
   that has it resolves it: the importer's link target where it links the
   member, `//web:node_modules/@acme/ui`; the importer-scoped label where it
-  declares the name with a version, `@npm//npm-packages/lovite:lovable-tagger`
-  for lovite's `"lovable-tagger": "1.1.13"` beside the member
-  `npm-packages/tagger`, since pnpm installs the published package there;
+  declares the name with a version, `@npm//packages/bundler-plugin:example-transform`
+  for the bundler plugin's `"example-transform": "1.1.13"` beside the member
+  `packages/transform`, since pnpm installs the published package there;
   where no importer above links or declares it there is no label and one
   line names the member, since a target resolves through its importers
   alone. The name of the nearest

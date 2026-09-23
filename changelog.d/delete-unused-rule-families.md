@@ -7,7 +7,7 @@
   Workers rules `ts_worker_deploy`, `ts_worker_dry_run`, `ts_worker_dry_run_test`
   and `ts_worker_types` with the launcher's `wrangler` mode, and in Gazelle the
   framework detection with its bundle, entry, Next.js and SvelteKit writers and
-  the `remix` and `tanstack` packages.** A census of the Lovable monorepo's
+  the `remix` and `tanstack` packages.** A consumer census of
   1,523 BUILD files found no instance of any of them, against 4,461
   `asset_library`, 1,355 `json_library`, 255 `ts_compile` and 78 `ts_test`
   calls; a rule nothing instantiates has no consumer whose breakage would fire
