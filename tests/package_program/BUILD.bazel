@@ -37,12 +37,14 @@ ts_compile(
         "greet.mjs",
         "lib.ts",
     ],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
 )
 
 ts_compile(
     name = "mid",
     srcs = ["mid.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig_other",
     deps = [":lib"],
 )
@@ -50,6 +52,7 @@ ts_compile(
 ts_compile(
     name = "both",
     srcs = ["both.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
     deps = [
         ":lib",
@@ -60,6 +63,7 @@ ts_compile(
 ts_test(
     name = "lib_test",
     srcs = ["lib.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = ":tsconfig",
     deps = [
@@ -71,6 +75,7 @@ ts_test(
 ts_test(
     name = "other_test",
     srcs = ["other.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = ":tsconfig_other",
     deps = [
@@ -82,6 +87,7 @@ ts_test(
 ts_test(
     name = "both_test",
     srcs = ["both.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = ":tsconfig",
     deps = [

@@ -12,6 +12,7 @@ ts_test(
         "//tests/vitest/cross_package/lib:engine.ts",  # keep
         "//tests/vitest/cross_package/lib:state.ts",  # keep
     ],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

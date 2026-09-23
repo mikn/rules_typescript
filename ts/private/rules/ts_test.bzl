@@ -17,7 +17,7 @@ load(
     "rlocation_path",
 )
 load("//ts/private:node_modules.bzl", "runfiles_dir")
-load("//ts/private:providers.bzl", "TsInfo", "TsTestRunnerInfo")
+load("//ts/private:providers.bzl", "TsInfo", "TsTestRunnerInfo", "require_emitted")
 load(
     "//ts/private:runtime.bzl",
     "JS_RUNTIME_TOOLCHAIN_TYPE",
@@ -78,8 +78,10 @@ def _ts_test_impl(ctx):
         declarations = False,
     )
 
-    if program.transitive_runtime_sources and not supports_sources:
-        fail("{}: runner {} cannot transform TypeScript source dependencies; use an emitting program or a source-capable runner.".format(ctx.label, ctx.attr.runner.label))
+    if not supports_sources:
+        require_emitted(ctx.label, program.info, "runner {}".format(ctx.attr.runner.label))
+    if ctx.file.wrangler_config:
+        require_emitted(ctx.label, program.info, "Workers pool wrangler_config {}".format(ctx.attr.wrangler_config.label))
 
     linked = {info.package_name: True for info in program.packages}
     missing = [name for name in runner.packages if name not in linked]

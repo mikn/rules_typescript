@@ -13,12 +13,14 @@ ts_compile(
         "package.json",
         "src/index.ts",
     ],
+    emit = True,  # keep
 )
 
 # keep
 ts_test(
     name = "self_reference_test",
     srcs = ["self_reference.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     deps = [

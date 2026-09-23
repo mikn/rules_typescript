@@ -14,11 +14,13 @@ ts_compile(
         "compile.d.mts",
         "compile.mjs",
     ],
+    emit = True,  # keep
 )
 
 ts_test(
     name = "compile_test",
     srcs = ["compile.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         ":compile",
@@ -33,6 +35,7 @@ ts_test(
         "inline.test.ts",
     ],
     data = ["compile.mjs"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

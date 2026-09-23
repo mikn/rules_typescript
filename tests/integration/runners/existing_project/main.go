@@ -12,6 +12,8 @@ func main() {
 		Name:         "existing_project",
 		WorkspaceRel: "tests/integration/existing_project",
 	}, func(it *harness.IT) {
+		it.Write(it.Path("src/lib/package.json"), `{"main":"./math.js"}`+"\n")
+		it.Write(it.Path("src/broken/package.json"), `{"main":"./type_error.js"}`+"\n")
 		it.MustBazel("run", "//:gazelle")
 		it.Pass("bazel run //:gazelle")
 
@@ -79,6 +81,7 @@ func sharedSrc(it *harness.IT) {
 
 ts_compile(
     name = "consumer",
+    emit = True,
     srcs = [
         "main.ts",
         "//shared:util.ts",
@@ -118,6 +121,7 @@ func srcsShapesStillBuild(it *harness.IT) {
 
 ts_compile(
     name = "holder",
+    emit = True,
     srcs = [
         "a.ts",
         "//holder/sub:x.ts",
@@ -130,6 +134,7 @@ ts_compile(
 
 ts_compile(
     name = "chooses",
+    emit = True,
     srcs = select({"//conditions:default": ["a.ts"]}),
 )
 `)
@@ -140,6 +145,7 @@ ts_compile(
 
 ts_compile(
     name = "canonical",
+    emit = True,
     srcs = [
         "a.ts",
         "@@//canonical:b.ts",
@@ -153,6 +159,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
 ts_compile(
     name = "toplevel",
+    emit = True,
     srcs = [
         "toplevel.ts",
         "//shared:util.ts",

@@ -13,6 +13,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "correct",
     srcs = ["correct.ts"],
+    emit = True,  # keep
 )
 
 # Un-annotated exports, declarable because tsgo has the full program; under
@@ -20,6 +21,7 @@ ts_compile(
 ts_compile(
     name = "inferred",
     srcs = ["inferred.ts"],
+    emit = True,  # keep
 )
 
 # The declarations are emitted on request, never with the default outputs.
@@ -47,6 +49,7 @@ go_test(
 ts_compile(
     name = "annotated",
     srcs = ["annotated.ts"],
+    emit = True,  # keep
 )
 
 ts_under_flags(

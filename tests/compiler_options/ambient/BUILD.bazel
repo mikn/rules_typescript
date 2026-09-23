@@ -17,11 +17,13 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "globals_package",
     srcs = ["typings/my-globals/index.d.ts"],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.ambient.json",
     deps = [":globals_package"],
 )

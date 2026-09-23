@@ -6,6 +6,7 @@ ts_compile(
         "index.ts",
         "useCounter.ts",
     ],
+    emit = True,
     node_modules = "//:node_modules",
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],

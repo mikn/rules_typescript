@@ -13,6 +13,7 @@ ts_test(
     name = "project_test",
     srcs = ["project.test.ts"],
     config = "vitest.workspace.mts",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

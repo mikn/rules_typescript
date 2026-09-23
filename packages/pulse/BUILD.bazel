@@ -31,5 +31,6 @@ ts_compile(
         "package.json",
         "styles/tokens/color.ts",
     ],
+    emit = True,  # keep
     visibility = ["//visibility:public"],
 )

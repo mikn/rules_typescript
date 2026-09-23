@@ -19,6 +19,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "webworker_lib",
     srcs = ["webworker.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.options.json",
 )
 
@@ -29,6 +30,7 @@ ts_compile(
         "ext_helper.ts",
         "ext_main.ts",
     ],
+    emit = True,  # keep
     tsconfig = "tsconfig.options.json",
 )
 

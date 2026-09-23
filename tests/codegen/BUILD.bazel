@@ -63,11 +63,13 @@ go_test(
 ts_compile(
     name = "generated_compile",
     srcs = [":generated_ts"],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "consumer_compile",
     srcs = ["consumer.ts"],
+    emit = True,  # keep
     deps = [":generated_compile"],
 )
 
@@ -97,6 +99,7 @@ outs_codegen_providers_test(
 ts_compile(
     name = "uses_globals",
     srcs = ["uses_globals.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.globals.json",
     deps = [":generated_globals"],
 )

@@ -12,6 +12,7 @@ ts_compile(
         "worker.ts",
         "worker-configuration.d.ts",
     ],
+    emit = True,  # keep
     visibility = ["//visibility:public"],
 )
 
@@ -22,6 +23,7 @@ ts_test(
         "worker.test.ts",
         "worker-configuration.d.ts",
     ],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         ":zz_ambient_e2e",

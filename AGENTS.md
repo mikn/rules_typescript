@@ -83,7 +83,7 @@ ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
            → TsLint validation action (.tslint stamp in _validation) when the
              root module's ts.lint() names a linter
 
-.d.ts = the default compilation boundary. With `emit = False`, a program
+.ts = the default runtime boundary. With `emit = False`, a program
 retains TypeScript sources and validation without JavaScript or declaration
 emission; source-capable runners transform those inputs. Downstream emitted
 programs otherwise see .d.ts, not .ts source;

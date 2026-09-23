@@ -12,6 +12,7 @@ exports_files(["oxlint.json"])
 ts_compile(
     name = "clean",
     srcs = ["clean.ts"],
+    emit = True,  # keep
 )
 
 filegroup(
@@ -25,6 +26,7 @@ filegroup(
 ts_compile(
     name = "violations",
     srcs = ["violations.ts"],
+    emit = True,  # keep
     tags = ["manual"],
 )
 

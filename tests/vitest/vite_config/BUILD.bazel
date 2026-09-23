@@ -8,6 +8,7 @@ ts_test(
     name = "vite_config_test",
     srcs = ["define.test.ts"],
     config = "vite.config.ts",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

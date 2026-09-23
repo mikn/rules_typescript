@@ -14,6 +14,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "lib",
     srcs = ["lib.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:zod"],
 )
@@ -21,6 +22,7 @@ ts_compile(
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [":lib"],
 )

@@ -19,7 +19,18 @@ source_actions_test = analysistest.make(_source_actions_impl)
 
 def _node_rejects_source_impl(ctx):
     env = analysistest.begin(ctx)
-    asserts.expect_failure(env, "requires emitted JavaScript for its complete dependency closure")
+    asserts.expect_failure(env, "requires emitted JavaScript or declarations from")
+    asserts.expect_failure(env, "//tests/source_mode/lib:library")
+    asserts.expect_failure(env, "Set emit = True")
     return analysistest.end(env)
 
 node_rejects_source_test = analysistest.make(_node_rejects_source_impl, expect_failure = True)
+
+def _workers_rejects_source_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "Workers pool wrangler_config")
+    asserts.expect_failure(env, "//tests/source_mode/lib:library")
+    asserts.expect_failure(env, "Set emit = True")
+    return analysistest.end(env)
+
+workers_rejects_source_test = analysistest.make(_workers_rejects_source_impl, expect_failure = True)

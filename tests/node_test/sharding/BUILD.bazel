@@ -3,6 +3,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_test")
 ts_compile(
     name = "shard",
     srcs = ["shard.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:types_node"],
 )
@@ -19,6 +20,7 @@ ts_test(
         "echo.test.ts",
         "foxtrot.test.ts",
     ],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     shard_count = 3,

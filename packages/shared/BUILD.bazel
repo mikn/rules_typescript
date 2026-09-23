@@ -25,6 +25,7 @@ ts_compile(
         "src/wire/index.ts",
         "src/wire/package.json",
     ],
+    emit = True,  # keep
     node_modules = ":node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//packages/shared:zod"],
@@ -37,6 +38,7 @@ ts_test(
     name = "shared_test",
     size = "small",
     srcs = ["src/shared.test.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     visibility = ["//tests/npm:__pkg__"],
     deps = [

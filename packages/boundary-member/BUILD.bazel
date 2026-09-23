@@ -9,6 +9,7 @@ ts_compile(
         "package.json",
         "src/index.ts",
     ],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
 )

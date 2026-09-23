@@ -8,6 +8,7 @@ package(default_visibility = ["//tests/dev_server:__pkg__"])
 ts_compile(
     name = "lib",
     srcs = ["index.ts"],
+    emit = True,  # keep
     visibility = ["//visibility:public"],
 )
 

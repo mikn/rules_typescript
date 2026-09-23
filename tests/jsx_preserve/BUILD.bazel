@@ -29,12 +29,14 @@ ts_config(
 ts_compile(
     name = "jsx_runtime",
     srcs = ["jsx-runtime.ts"],
+    emit = True,  # keep
 )
 
 # keep
 ts_compile(
     name = "view",
     srcs = ["view.tsx"],
+    emit = True,  # keep
     tsconfig = ":preserve_tsconfig",
     deps = [":jsx_runtime"],
 )
@@ -43,6 +45,7 @@ ts_compile(
 ts_compile(
     name = "uses_view",
     srcs = ["uses_view.ts"],
+    emit = True,  # keep
     tsconfig = ":preserve_tsconfig",
     deps = [":view"],
 )
@@ -52,6 +55,7 @@ ts_test(
     name = "jsx_preserve_test",
     srcs = ["view.test.tsx"],
     config = "vitest.config.mjs",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = ":preserve_tsconfig",
     deps = [

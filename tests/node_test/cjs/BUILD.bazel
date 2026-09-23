@@ -27,6 +27,7 @@ ts_test(
         "package.json",
     ],
     data = ["fixtures/note.txt"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     tsconfig = ":cjs_tsconfig",

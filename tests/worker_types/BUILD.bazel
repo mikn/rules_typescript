@@ -70,6 +70,7 @@ ts_compile(
         "wrangler.build.jsonc",
         "wrangler.jsonc",
     ],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     deps = [

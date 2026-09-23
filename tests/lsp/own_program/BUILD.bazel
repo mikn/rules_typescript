@@ -9,6 +9,7 @@ load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 ts_compile(
     name = "own_program",
     srcs = ["a.ts"],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
 )

@@ -23,6 +23,7 @@ load(
     "BundlerInfo",
     "NodeModulesInfo",
     "TsInfo",
+    "require_emitted",
     "ts_info",
 )
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
@@ -115,8 +116,7 @@ def _ts_binary_impl(ctx):
     else:
         entry = _js_file_entry(ctx, data_files)
 
-    if entry.transitive_runtime_sources:
-        fail("{}: ts_binary requires emitted JavaScript for its complete dependency closure; enable emit on source-only dependencies before running this target.".format(ctx.label))
+    require_emitted(ctx.label, entry, "ts_binary")
 
     runtime_binary = None
     runtime_args = []

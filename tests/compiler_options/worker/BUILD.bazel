@@ -13,12 +13,14 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "worker_configuration",
     srcs = ["worker-configuration.d.ts"],
+    emit = True,  # keep
 )
 
 # keep
 ts_compile(
     name = "worker",
     srcs = ["index.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.worker.json",
     visibility = ["//visibility:public"],
     deps = [":worker_configuration"],

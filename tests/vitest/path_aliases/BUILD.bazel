@@ -17,6 +17,7 @@ ts_test(
         "alias.test.ts",
         "shared/value.ts",
     ],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.aliases.json",
     deps = [

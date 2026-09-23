@@ -82,7 +82,7 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		// Core's resolve config carries # gazelle:resolve, which the edge
 		// resolver reads first, as cmd/gazelle registers it.
 		(&resolve.Configurer{}).Configure(c, rel, f)
-		configureTsConfig(c, rel, f)
+		lang.Configure(c, rel, f)
 
 		for _, sub := range subdirs {
 			walk(c, path.Join(rel, sub))

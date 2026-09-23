@@ -20,6 +20,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.badge.json",
     deps = ["//tests/compiler_options/nested_module/lib:badge"],
 )

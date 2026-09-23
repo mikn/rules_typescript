@@ -50,6 +50,7 @@ exports_files(
 ts_compile(
     name = "worker",
     srcs = ["src/index.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.worker.json",
 )
 
@@ -64,6 +65,7 @@ ts_test(
     # has none of; istanbul instruments before the code crosses into it.
     coverage_provider = "istanbul",
     data = ["wrangler.jsonc"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     tsconfig = "tsconfig.worker.json",
     deps = [
@@ -98,6 +100,7 @@ ts_config(
 ts_compile(
     name = "experimental_types",
     srcs = ["src/experimental_types.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     tsconfig = ":experimental_tsconfig",
     deps = ["@npm_workers//:cloudflare_workers-types"],
@@ -113,6 +116,7 @@ build_test(
 ts_compile(
     name = "module_import",
     srcs = ["src/module_import.ts"],
+    emit = True,  # keep
     node_modules = ":node_modules",
     tsconfig = "tsconfig.worker.json",
     deps = ["@npm_workers//:cloudflare_workers-types"],

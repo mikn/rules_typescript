@@ -1,6 +1,6 @@
 """Core TypeScript compilation rule: oxc and tsgo over the tsconfig's options.
 
-ts_compile transforms .ts/.tsx source files into .js + .js.map + .d.ts outputs
+With emit=True, ts_compile transforms .ts/.tsx into .js + .js.map + .d.ts outputs
 in one TsEmit action: oxc's transform for an ES-module program, tsgo's emit
 for a CommonJS-shaped one (docs/rules/ts-compile.md § The Module Format). A
 program tsgo emits, declared by its ts_config's `module`, gets a second TsEmit:
@@ -53,7 +53,7 @@ The linter the root module's ts.lint() names runs over the same sources as a
 second validation action, TsLint. The emit reads the same program root when
 tsgo emits the JavaScript.
 
-emit=False retains source files for transforming runtimes and validation,
+The default emit=False retains source files for transforming runtimes and validation,
 without JavaScript or declaration emission. Every compiler option is the
 tsconfig's; the emit knobs are the build flags
 //ts:declarations (tsgo|oxc),
@@ -789,6 +789,10 @@ def compile_program(
     info = TsInfo(
         js = direct_js,
         runtime_sources = direct_runtime_sources,
+        runtime_source_owners = depset(
+            [label_text(ctx.label)] if runtime_sources else [],
+            transitive = [dep[TsInfo].runtime_source_owners for dep in ctx.attr.deps],
+        ),
         transitive_runtime_sources = transitive_runtime_sources,
         js_maps = direct_js_map,
         declarations = direct_dts,
@@ -861,8 +865,8 @@ def _ts_compile_impl(ctx):
 
 TS_COMPILE_ATTRS = {
     "emit": attr.bool(
-        default = True,
-        doc = "Emit JavaScript and declarations. False publishes TypeScript sources while retaining validation; consumers must transform those sources.",
+        default = False,
+        doc = "Opt in to JavaScript and declaration emission for consumers that require built files. By default, publish TypeScript sources and retain validation.",
     ),
     "srcs": attr.label_list(
         doc = """The package's files.
@@ -990,10 +994,10 @@ ts_compile = rule(
     implementation = _ts_compile_impl,
     attrs = TS_COMPILE_ATTRS,
     toolchains = TS_COMPILE_TOOLCHAINS,
-    doc = """Compiles TypeScript with oxc, or tsgo for CommonJS, and checks it
-with tsgo.
+    doc = """Publishes TypeScript sources with tsgo validation by default.
+Set emit=True to produce JavaScript and declarations.
 
-Produces one .js (+ .js.map under --//ts:source_map, the default) and one .d.ts
+With emit=True, produces one .js (+ .js.map under --//ts:source_map) and one .d.ts
 per .ts/.tsx input -- .jsx and .jsx.map for a .tsx under jsx: preserve, as tsc
 names them -- and stages every other src -- JavaScript, JSON, anything -- into
 the output tree as-is. Output paths stay relative to the target's package, so

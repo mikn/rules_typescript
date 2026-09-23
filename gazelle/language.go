@@ -61,6 +61,7 @@ func (l *tsLang) KnownDirectives() []string {
 
 func (l *tsLang) Configure(c *config.Config, rel string, f *rule.File) {
 	configureTsConfig(c, rel, f)
+	l.programs = getConfig(c).programs
 }
 
 // Kinds is every rule Gazelle writes or withdraws, with the attributes it
@@ -77,6 +78,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"visibility":   true,
 				"tsconfig":     true,
 				"node_modules": true,
+				"emit":         true,
 			},
 			ResolveAttrs: map[string]bool{
 				"deps": true,
@@ -92,6 +94,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"tsconfig":     true,
 				"config":       true,
 				"node_modules": true,
+				"emit":         true,
 			},
 			// Written at Resolve, from the config's listing: its modules and
 			// the pool's attributes.
@@ -242,5 +245,8 @@ func (l *tsLang) Resolve(
 ) {
 	if imps, ok := imports.(*ruleImports); ok && imps != nil {
 		resolveEdges(c, ix, r, imps, from)
+	}
+	if g := getConfig(c).programs.emission; g != nil {
+		g.rules[emissionLabel(from.Pkg, ":"+from.Name)] = r
 	}
 }

@@ -13,11 +13,13 @@ load("//ts:defs.bzl", "ts_compile", "ts_test")
 ts_compile(
     name = "staged_ambient",
     srcs = ["staged/ambient.d.ts"],
+    emit = True,  # keep
 )
 
 ts_test(
     name = "staged_types_test",
     srcs = ["ambient.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.ambient.json",
     deps = [

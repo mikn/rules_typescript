@@ -8,5 +8,6 @@ ts_compile(
         "types.ts",
         "utils.ts",
     ],
+    emit = True,  # keep
     visibility = ["//tests/synthetic:__subpackages__"],
 )

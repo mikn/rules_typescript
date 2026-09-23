@@ -9,12 +9,14 @@ load(":runfiles_tests.bzl", "package_sources_runfiles_test")
 ts_compile(
     name = "reads_own_source",
     srcs = ["src/index.ts"],
+    emit = True,  # keep
 )
 
 # keep
 ts_test(
     name = "reads_own_source_test",
     srcs = ["test/reads.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         ":reads_own_source",

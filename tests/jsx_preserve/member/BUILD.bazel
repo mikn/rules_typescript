@@ -17,6 +17,7 @@ ts_compile(
         "package.json",
         "view.tsx",
     ],
+    emit = True,  # keep
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
 )
@@ -26,6 +27,7 @@ ts_test(
     name = "member_test",
     srcs = ["view.test.ts"],
     config = "vitest.config.mjs",
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = ":tsconfig",
     deps = [

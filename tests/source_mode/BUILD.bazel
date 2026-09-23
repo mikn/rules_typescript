@@ -2,14 +2,13 @@ load("//npm:defs.bzl", "node_modules", "node_modules_member")
 load("//npm/private:store.bzl", "npm_store_member")
 load("//npm/private:workspace_package.bzl", "npm_workspace_package")
 load("//ts:defs.bzl", "ts_binary", "ts_compile", "ts_test")
-load(":source_tests.bzl", "node_rejects_source_test", "source_actions_test")
+load(":source_tests.bzl", "node_rejects_source_test", "source_actions_test", "workers_rejects_source_test")
 
 # gazelle:ignore
 
 ts_test(
     name = "vitest_transforms_source_dependency_test",
     srcs = ["library.test.ts"],
-    emit = False,
     node_modules = "//tests/npm:node_modules",
     deps = [
         "//tests/source_mode/lib:library",
@@ -25,6 +24,7 @@ source_actions_test(
 ts_compile(
     name = "entry",
     srcs = ["entry.ts"],
+    emit = True,  # keep
     deps = ["//tests/source_mode/lib:library"],
 )
 
@@ -134,4 +134,39 @@ ts_test(
         "@npm//:types_node",
         "@npm//:vitest",
     ],
+)
+
+ts_test(
+    name = "unsupported_source_workers",
+    srcs = ["library.test.ts"],
+    node_modules = "//tests/npm:node_modules",
+    tags = ["manual"],  # The analysis test requires this target to fail.
+    wrangler_config = "wrangler.json",
+    deps = [
+        "//tests/source_mode/lib:library",
+        "@npm//:vitest",
+    ],
+)
+
+workers_rejects_source_test(
+    name = "workers_rejects_default_source_test",
+    target_under_test = ":unsupported_source_workers",
+)
+
+ts_test(
+    name = "unsupported_transitive_source_workers",
+    srcs = ["library.test.ts"],
+    emit = True,
+    node_modules = "//tests/npm:node_modules",
+    tags = ["manual"],  # The analysis test requires this target to fail.
+    wrangler_config = "wrangler.json",
+    deps = [
+        "//tests/source_mode/lib:library",
+        "@npm//:vitest",
+    ],
+)
+
+workers_rejects_source_test(
+    name = "workers_rejects_transitive_source_test",
+    target_under_test = ":unsupported_transitive_source_workers",
 )

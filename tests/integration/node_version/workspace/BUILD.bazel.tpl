@@ -19,9 +19,10 @@ node_modules(
 # .nvmrc is staged beside the test, which compares it to process.version.
 ts_test(
     name = "node_version_test",
-    node_modules = ":node_modules",
     srcs = ["node_version.test.ts"],
     data = [".nvmrc"],
+    emit = True,
+    node_modules = ":node_modules",
     runner = "@rules_typescript//ts/runners:node_test",
     deps = ["@npm//:types_node"],
 )

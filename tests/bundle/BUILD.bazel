@@ -11,12 +11,14 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "lib",
     srcs = ["lib.ts"],
+    emit = True,  # keep
 )
 
 # Compile app.ts, depending on :lib for type info.
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
+    emit = True,  # keep
     deps = [":lib"],
 )
 

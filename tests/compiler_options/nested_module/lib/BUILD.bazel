@@ -3,5 +3,6 @@ load("//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "badge",
     srcs = ["index.ts"],
+    emit = True,  # keep
     visibility = ["//tests/compiler_options:__subpackages__"],
 )

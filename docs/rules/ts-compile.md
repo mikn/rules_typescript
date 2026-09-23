@@ -1,7 +1,6 @@
 # ts_compile
 
-Compiles TypeScript with Oxc and checks it with tsgo, which emits the `.d.ts`
-a dependent reads.
+Publishes TypeScript sources and checks them with tsgo. With `emit = True`, Oxc emits JavaScript and tsgo emits the declarations a built-output consumer reads.
 
 ## Usage
 
@@ -24,8 +23,8 @@ flags in `.bazelrc`. Every compiler option is the tsconfig's.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | The package's files: TypeScript is compiled, JavaScript and declarations join the program, every other file is staged as data. See [Sources](#sources) |
-| `emit` | `bool` | `True` | Set `False` to publish TypeScript sources for transforming consumers, with validation retained and no JS or declaration emission. |
+| `srcs` | `label_list` | required | The package's files: TypeScript is checked (and compiled with `emit = True`), JavaScript and declarations join the program, every other file is staged as data. See [Sources](#sources) |
+| `emit` | `bool` | `False` | Publish TypeScript sources with validation. Set `True` only when a consumer needs emitted JavaScript or declarations. |
 | `deps` | `label_list` | `[]` | `ts_compile`, `ts_codegen` or `ts_npm_package` targets, and a workspace member's link target `//<importer>:node_modules/<name>` |
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
 | `node_modules` | `label` | `None` | The `node_modules` target of the nearest lockfile importer at or above the package: the chain a direct npm dep resolves along. Required when the closure holds an npm package; Gazelle writes it. See [The node_modules Chain](#the-node_modules-chain) |
@@ -46,26 +45,15 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 ### Source-only programs
 
-`emit = False` keeps tsgo checking in `_validation` but publishes the program's
-TypeScript files instead of emitting JavaScript or declarations. Use it on
-both the library and its Vitest `ts_test` to keep declaration emission out of
-the test path. The original package manifest is retained; its exports must
-name files present in the source package. Workspace members keep their own
-npm dependency resolutions.
+Source mode is the default for `ts_compile` and `ts_test`: TypeScript files and the original package manifest reach source-native consumers, while tsgo checks remain in `_validation`. Vitest and OJ transform sources themselves, so their dependency graph needs no application JavaScript or declaration emit.
 
-Vitest and the OJ backend of `ts_dev_server` can transform these inputs. Set
-`emit = False` on the application and its source-native library dependencies;
-the server consumes their source closure while tsgo validation runs separately.
-OJ transforms on demand and needs no pre-emitted application JavaScript or
-declarations. Installed npm packages and optional server plugins keep their
-own runtime formats. `ts_binary` and the Node test runner reject
-source-only dependency closures, including sources behind an emitted workspace
-member. Bundled binary support is not enabled by this option. Existing programs
-default to `emit = True`.
+Set `emit = True` on programs consumed as built JavaScript or declarations. JavaScript-only `ts_binary` and Node-test and Workers-pool consumers reject a source-only closure at analysis, naming the consumer, source-owning targets and the attribute to set, including workspace members. Gazelle derives opt-ins from Node binaries/tests and Workers-pool tests and JavaScript/declaration package entries, following the resolved dependency graph. It does not infer requirements from whether build outputs happen to exist in the checkout. For a custom output consumer Gazelle cannot inspect, preserve an explicit `emit = True` with `# keep`.
+
+Installed npm packages and optional server plugins retain their own formats. Source-mode package exports must name files present in the source package.
 
 ### Sources
 
-`srcs` accepts every file. Four classes of src, by extension:
+`srcs` accepts every file. Source mode retains TypeScript as runtime inputs. The emission behavior below applies when `emit = True`; validation remains enabled in both modes. Four classes of src, by extension:
 
 - **TypeScript**, `.ts` and `.tsx`: compiled to `.js` and `.js.map` -- by oxc,
   or by tsgo when the program's `module` is CommonJS-shaped ([The Module
@@ -149,7 +137,7 @@ move into place resolves each `sources` entry to the exec-root path
 
 ## Outputs
 
-For each source file `foo.ts`:
+With `emit = True`, for each source file `foo.ts`:
 
 | Output | Description |
 |--------|-------------|

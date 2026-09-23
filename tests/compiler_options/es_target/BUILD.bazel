@@ -11,6 +11,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "legacy",
     srcs = ["legacy.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.legacy.json",
 )
 

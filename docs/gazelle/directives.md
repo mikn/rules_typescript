@@ -35,11 +35,13 @@ is replaced unless a `# keep` holds it:
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
-| `ts_compile` | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
+| `ts_compile` | `emit`, `srcs`, `deps`, `tsconfig`, `visibility` |
+| `ts_test` | `emit`, `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
 | `filegroup(name = "wrangler_config")` | `srcs`, `visibility` |
+
+`emit` defaults to `False`. Gazelle writes `True` when a Node binary/test, Workers-pool test or package manifest requires built outputs, and propagates that requirement through resolved dependencies. A custom output consumer needs an explicit `emit = True` with `# keep`. Removing the built-output consumer removes its generated opt-in on the next run.
 
 `ts_config.deps` is the `extends` chain, a dep on the `ts_config` of every
 `tsconfig.json` the file extends by a relative path. A base of another name

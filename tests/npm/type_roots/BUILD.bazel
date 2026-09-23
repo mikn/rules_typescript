@@ -17,6 +17,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "probe",
     srcs = ["probe.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.probe.json",
     deps = [

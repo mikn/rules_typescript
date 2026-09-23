@@ -8,6 +8,7 @@ ts_compile(
         "index.ts",
         "package.json",
     ],
+    emit = True,  # keep
     node_modules = "//tests/source_mode:node_modules",
     visibility = ["//tests/source_mode:__pkg__"],
     deps = ["//tests/source_mode:node_modules/native-source-fixture"],

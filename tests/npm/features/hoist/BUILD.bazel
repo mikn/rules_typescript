@@ -11,6 +11,7 @@ ts_test(
     name = "hoist_test",
     size = "small",
     srcs = ["hoist.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm/features:node_modules",
     runner = "//ts/runners:node_test",
     deps = [

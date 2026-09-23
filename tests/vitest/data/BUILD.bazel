@@ -7,6 +7,7 @@ ts_test(
     name = "fixture_test",
     srcs = ["fixture.test.ts"],
     data = ["fixture.txt"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     visibility = ["//:__pkg__"],
     deps = [
@@ -24,6 +25,7 @@ ts_compile(
         "lib_data.json",
         "lib_note.txt",
     ],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:types_node"],
 )
@@ -31,6 +33,7 @@ ts_compile(
 ts_test(
     name = "dep_data_srcs_test",
     srcs = ["dep_data_srcs.test.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         ":lib",

@@ -36,6 +36,7 @@ ts_compile(
         "alpha/three.ts",
         "beta/deep/two.ts",
     ],
+    emit = True,  # keep
 )
 
 # Under --//ts:declaration_map, so the maps land at the same depths.
@@ -57,11 +58,13 @@ ts_compile(
         "gamma/package.json",
         "gamma/styles.css",
     ],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "uses_gamma",
     srcs = ["delta/uses_gamma.ts"],
+    emit = True,  # keep
     deps = [":with_data"],
 )
 

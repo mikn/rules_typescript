@@ -46,6 +46,7 @@ ts_codegen(
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.tree.json",
     deps = [":tree"],
 )
@@ -56,6 +57,7 @@ ts_compile(
 ts_compile(
     name = "relative_consumer",
     srcs = ["relative_consumer.ts"],
+    emit = True,  # keep
     deps = [":tree"],
 )
 
@@ -90,6 +92,7 @@ tree_reaches_compile_test(
 ts_compile(
     name = "downstream",
     srcs = ["downstream.ts"],
+    emit = True,  # keep
     tsconfig = "tsconfig.tree.json",
     deps = [
         ":consumer",
@@ -105,6 +108,7 @@ ts_compile(
         "helper.js",
         "js_consumer.ts",
     ],
+    emit = True,  # keep
     tsconfig = "tsconfig.tree.json",
     deps = [":tree"],
 )
@@ -113,6 +117,7 @@ ts_compile(
 ts_compile(
     name = "js_downstream",
     srcs = ["js_downstream.ts"],
+    emit = True,  # keep
     deps = [":js_consumer"],
 )
 

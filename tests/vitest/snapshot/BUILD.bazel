@@ -3,6 +3,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_test")
 ts_compile(
     name = "widget",
     srcs = ["widget.ts"],
+    emit = True,  # keep
 )
 
 # The .snap is a src, as every file under the package is: that is what puts it
@@ -13,6 +14,7 @@ ts_test(
         "__snapshots__/widget.test.ts.snap",
         "widget.test.ts",
     ],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = [
         ":widget",

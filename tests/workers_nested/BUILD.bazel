@@ -40,6 +40,7 @@ ts_compile(
         "src/text.d.ts",
         "wrangler.jsonc",
     ],
+    emit = True,  # keep
     node_modules = "//tests/workers:node_modules",
     tsconfig = ":worker_tsconfig",
     deps = ["@npm_workers//:zod"],

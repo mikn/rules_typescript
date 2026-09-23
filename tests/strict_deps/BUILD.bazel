@@ -17,17 +17,20 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "hidden",
     srcs = ["hidden.ts"],
+    emit = True,  # keep
 )
 
 ts_compile(
     name = "leaf",
     srcs = ["leaf.ts"],
+    emit = True,  # keep
     deps = [":hidden"],
 )
 
 ts_compile(
     name = "middle",
     srcs = ["middle.ts"],
+    emit = True,  # keep
     deps = [":leaf"],
 )
 
@@ -37,6 +40,7 @@ ts_compile(
 ts_compile(
     name = "declared",
     srcs = ["declared.ts"],
+    emit = True,  # keep
     deps = [
         ":hidden",
         ":leaf",
@@ -48,6 +52,7 @@ ts_compile(
 ts_compile(
     name = "relative",
     srcs = ["relative.ts"],
+    emit = True,  # keep
     deps = [":leaf"],
 )
 
@@ -56,6 +61,7 @@ ts_compile(
 ts_compile(
     name = "builtins",
     srcs = ["builtins.ts"],
+    emit = True,  # keep
     node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:types_node"],
 )
@@ -67,6 +73,7 @@ ts_compile(
         "inside.ts",
         "inside_part.ts",
     ],
+    emit = True,  # keep
 )
 
 # `acme-bridge` is installed nowhere: the .d.ts beside the source IS the module, so
@@ -77,6 +84,7 @@ ts_compile(
         "ambient_module.d.ts",
         "ambient_module_user.ts",
     ],
+    emit = True,  # keep
 )
 
 build_test(

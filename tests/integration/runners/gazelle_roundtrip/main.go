@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
 
@@ -144,6 +146,9 @@ func main() {
 			it.Fail("Gazelle output is not idempotent — see the dumps above")
 		}
 
+		// Compare untouched generation first; the output assertions below require emission.
+		emitFixturePrograms(it)
+
 		it.MustBazel("build", "//...")
 		it.Pass("bazel build //...")
 
@@ -156,7 +161,7 @@ func main() {
 		it.Pass("test target set unchanged across a delete-and-regenerate: %d", len(after))
 
 		it.MustBazel("test", "//...", "--output_groups=+declarations")
-		it.Pass("bazel test //... with declarations on Gazelle's own output")
+		it.Pass("bazel test //... with declarations after explicit fixture emission opt-ins")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -492,6 +497,7 @@ const sharedProgramPackage = loadTsCompile + `
 # keep
 ts_compile(
     name = "tooling",
+    emit = True,
     srcs = glob(
         ["tools/**/*.ts"],
         exclude = ["tools/helper.ts"],
@@ -1038,12 +1044,14 @@ func theDeclarationStopsAtTheSubtree(it *harness.IT) {
 
 ts_compile(
     name = "ok",
+    emit = True,  # keep
     srcs = ["ok.ts"],
     deps = ["//worker"],
 )
 
 ts_compile(
     name = "leaked",
+    emit = True,  # keep
     srcs = ["leaked.ts"],
     deps = ["//worker"],
 )
@@ -1130,4 +1138,22 @@ func packageEntryIsADep(it *harness.IT) {
 	}
 	it.Pass("without the dep vite/client resolves to nothing on the chain: " +
 		"the dep is what puts it in the program")
+}
+
+func emitFixturePrograms(it *harness.IT) {
+	for _, dir := range slices.Concat(generated, handWritten) {
+		path := it.Path(dir, "BUILD.bazel")
+		file, err := rule.LoadFile(path, dir)
+		if err != nil {
+			it.Fail("cannot load %s: %v", path, err)
+		}
+		for _, target := range file.Rules {
+			if target.Kind() != "ts_compile" && target.Kind() != "ts_test" {
+				continue
+			}
+			target.SetAttr("emit", true)
+			target.AttrComments("emit").Suffix = []bzl.Comment{{Token: "# keep"}}
+		}
+		it.Write(path, string(file.Format()))
+	}
 }
