@@ -209,6 +209,49 @@ _SETTINGS_CASES = [
     ),
 ]
 
+_WORKSPACE_SETTINGS_CASES = [
+    struct(
+        failure = "workspace public hoist is lost among unrelated settings",
+        npmrc = None,
+        workspace = "packages:\n  - web\npublicHoistPattern:\n  - '@bufbuild/protobuf' # generated source runtime\ncatalog:\n  hoist: false\n",
+        private = ["*"],
+        public = ["@bufbuild/protobuf"],
+        workspace_packages = True,
+    ),
+    struct(
+        failure = "npmrc patterns survive an overriding YAML list",
+        npmrc = "public-hoist-pattern[]=old\npublic-hoist-pattern[]=other\nhoist-pattern[]=old\nhoist-workspace-packages=false\n",
+        workspace = 'publicHoistPattern: ["@bufbuild/protobuf", "!excluded"]\nhoistPattern:\n- "*types*"\nhoistWorkspacePackages: true\n',
+        private = ["*types*"],
+        public = ["@bufbuild/protobuf", "!excluded"],
+        workspace_packages = True,
+    ),
+    struct(
+        failure = "explicit empty YAML patterns fall back to npmrc",
+        npmrc = "public-hoist-pattern[]=old\nhoist-pattern[]=old\n",
+        workspace = "publicHoistPattern: []\nhoistPattern: []\n",
+        private = [],
+        public = [],
+        workspace_packages = True,
+    ),
+    struct(
+        failure = "disabled private hoisting removes requested public links",
+        npmrc = "hoist=true\n",
+        workspace = 'hoist: false\nhoistPattern: ["*"]\npublicHoistPattern: ["public"]\nhoistWorkspacePackages: false\n',
+        private = [],
+        public = ["public"],
+        workspace_packages = False,
+    ),
+    struct(
+        failure = "absent YAML setting erases npmrc patterns",
+        npmrc = "public-hoist-pattern[]=retained\nhoist=false\n",
+        workspace = "packages:\n  - web\nhoist: true\n",
+        private = ["*"],
+        public = ["retained"],
+        workspace_packages = True,
+    ),
+]
+
 _MATCH_CASES = [
     (["*"], "@scope/name", True),
     (["*eslint*"], "@eslint/js", True),
@@ -232,6 +275,11 @@ def _settings_impl(ctx):
             got.workspace_packages,
             str(case.npmrc),
         )
+    for case in _WORKSPACE_SETTINGS_CASES:
+        got = hoist_settings(case.npmrc, case.workspace)
+        asserts.equals(env, case.private, got.private, case.failure)
+        asserts.equals(env, case.public, got.public, case.failure)
+        asserts.equals(env, case.workspace_packages, got.workspace_packages, case.failure)
     for patterns, name, want in _MATCH_CASES:
         asserts.equals(
             env,

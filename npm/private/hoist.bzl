@@ -4,17 +4,17 @@ The rule is pnpm's own hoist step (installing/linking/hoist in pnpm 11.5.3,
 identical in 10.32.1): docs/rules/node-modules.md § The Store states it.
 """
 
-load("//npm/private:npm_translate_lock.bzl", "npmrc_assignments")
+load("//npm/private:npm_translate_lock.bzl", "npmrc_assignments", "pnpm_workspace_hoist_settings")
 
 _PATTERN_KEYS = ("hoist-pattern", "public-hoist-pattern")
 _FLAG_KEYS = ("hoist", "hoist-workspace-packages")
 
-def hoist_settings(npmrc):
-    """The hoist settings of an .npmrc's text, pnpm's defaults where it is
-    silent.
+def hoist_settings(npmrc, pnpm_workspace = None):
+    """Effective workspace hoist settings, using pnpm defaults where absent.
 
     Args:
         npmrc: The lockfile package's .npmrc as text, or None without one.
+        pnpm_workspace: Its pnpm-workspace.yaml text, or None without one.
 
     Returns:
         struct(private, public, workspace_packages): the two pattern lists and
@@ -29,6 +29,11 @@ def hoist_settings(npmrc):
             patterns[key] = [value] if value else []
         elif key in flags:
             flags[key] = value != "false"
+    for key, value in pnpm_workspace_hoist_settings(pnpm_workspace).items():
+        if key in patterns:
+            patterns[key] = value
+        else:
+            flags[key] = value
     private = patterns["hoist-pattern"]
     if private == None:
         private = ["*"]

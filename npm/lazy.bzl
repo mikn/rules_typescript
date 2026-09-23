@@ -488,7 +488,7 @@ def _store_graph(pnpm_lock, graph, importers, settings):
             members): the extension's view of the lockfile, `members` as
             {member path: npm name} for the members with a manifest.
         importers: parse_importers() of the lockfile.
-        settings: hoist_settings() of the lockfile package's .npmrc.
+        settings: Effective hoist settings of the lockfile package.
     """
     live = graph.live
     sids = sorted(live)
@@ -603,7 +603,10 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     _check_integrity(packages, pnpm_lock)
     importers = parse_importers(lock_content)
     patches = _patch_by_package(module_ctx, lock_content, patch_labels)
-    settings = hoist_settings(_beside(module_ctx, pnpm_lock, ".npmrc"))
+    settings = hoist_settings(
+        _beside(module_ctx, pnpm_lock, ".npmrc"),
+        _beside(module_ctx, pnpm_lock, "pnpm-workspace.yaml"),
+    )
 
     # A snapshot needs its `packages:` entry for the bytes to download, and needs
     # to be buildable on some platform we can name. Platform filtering is a
