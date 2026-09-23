@@ -38,7 +38,7 @@ doc="$(sed -n '/^TsTestRunnerInfo = provider($/,/^)$/p' "${PROVIDERS}" \
 [[ -n "${doc}" ]] || fail "no \"launch\" field in TsTestRunnerInfo"
 
 printf '%s\n' chain entry_extensions entry_points es_twins inline_members \
-  package_sources placed runner runtime_data_sets test_files_list \
+  package_sources placed runner runtime_data_sets runtime_sources test_files_list \
   transitive_js \
   > "${want}"
 printf '%s\n' "${doc}" \
@@ -72,5 +72,5 @@ for launch in ${launches}; do
     | LC_ALL=C sort > "${got}"
   check "the result members ${launch} returns"
 done
-echo "TsTestRunnerInfo.launch: 11 test members and 7 result members," \
+echo "TsTestRunnerInfo.launch: 12 test members and 7 result members," \
   "named by the doc, returned by both runners, read by the core"

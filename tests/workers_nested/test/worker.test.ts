@@ -12,7 +12,12 @@ describe("nested worker", () => {
     expect(navigator.userAgent).toBe("Cloudflare-Workers");
     const res = await SELF.fetch("https://example.com/health");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: string; greeting: string | null; text: string; module: string };
+    const body = (await res.json()) as {
+      ok: string;
+      greeting: string | null;
+      text: string;
+      module: string;
+    };
     expect(body.ok).toBe("ok");
     expect(body.greeting).toBe("from-env-test");
     expect(body.text).toBe("hello from txt");
@@ -22,12 +27,19 @@ describe("nested worker", () => {
     const res = await SELF.fetch("https://example.com/health");
     const body = (await res.json()) as { module: string };
     expect(body.module).toBe(moduleUrl);
-    expect(body.module.endsWith("/src/index.js")).toBe(true);
+    expect(body.module).toMatch(/\/src\/index\.(ts|js)$/);
   });
 
   it("reads the staged copy through a ?raw import of the wrangler config", () => {
-    expect(wranglerRaw.match(/"main"\s*:\s*"[^"]*"/g)).toEqual(['"main": "src/index.js"', '"main": "src/index.js"']);
-    const parsed = JSON.parse(wranglerRaw.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")) as {
+    const extension = moduleUrl.endsWith(".ts") ? "ts" : "js";
+    expect(wranglerRaw.match(/"main"\s*:\s*"[^"]*"/g)).toEqual([
+      `"main": "src/index.${extension}"`,
+      `"main": "src/environment.${extension}"`,
+      '"main": "src/not-declared.ts"',
+    ]);
+    const parsed = JSON.parse(
+      wranglerRaw.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"),
+    ) as {
       env: { test: { vars: { GREETING: string } } };
     };
     expect(parsed.env.test.vars.GREETING).toBe("from-env-test");

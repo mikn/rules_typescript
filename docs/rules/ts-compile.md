@@ -47,7 +47,7 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 Source mode is the default for `ts_compile` and `ts_test`: TypeScript files and the original package manifest reach source-native consumers, while tsgo checks remain in `_validation`. Vitest and OJ transform sources themselves, so their dependency graph needs no application JavaScript or declaration emit.
 
-Set `emit = True` on programs consumed as built JavaScript or declarations. JavaScript-only `ts_binary` and Node-test and Workers-pool consumers reject a source-only closure at analysis, naming the consumer, source-owning targets and the attribute to set, including workspace members. Gazelle derives opt-ins from Node binaries/tests and Workers-pool tests and JavaScript/declaration package entries, following the resolved dependency graph. It does not infer requirements from whether build outputs happen to exist in the checkout. For a custom output consumer Gazelle cannot inspect, preserve an explicit `emit = True` with `# keep`.
+Set `emit = True` on programs consumed as built JavaScript or declarations. JavaScript-only `ts_binary` and Node-test consumers reject a source-only closure at analysis, naming the consumer, source-owning targets and the attribute to set, including workspace members. Gazelle derives opt-ins from Node binaries/tests and JavaScript/declaration package entries, following the resolved dependency graph. It does not infer requirements from whether build outputs happen to exist in the checkout. For a custom output consumer Gazelle cannot inspect, preserve an explicit `emit = True` with `# keep`.
 
 Installed npm packages and optional server plugins retain their own formats. Source-mode package exports must name files present in the source package.
 

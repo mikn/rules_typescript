@@ -146,6 +146,9 @@ func main() {
 			it.Fail("Gazelle output is not idempotent — see the dumps above")
 		}
 
+		it.MustBazel("test", "//pooled/test:test_test")
+		it.Pass("ordinary generated Workers source closure runs in workerd")
+
 		// Compare untouched generation first; the output assertions below require emission.
 		emitFixturePrograms(it)
 

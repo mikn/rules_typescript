@@ -35,12 +35,28 @@ filegroup(
 ts_compile(
     name = "worker",
     srcs = [
+        "src/environment.ts",
         "src/greeting.txt",
         "src/index.ts",
         "src/text.d.ts",
         "wrangler.jsonc",
     ],
     emit = True,  # keep
+    node_modules = "//tests/workers:node_modules",
+    tsconfig = ":worker_tsconfig",
+    deps = ["@npm_workers//:zod"],
+)
+
+ts_compile(
+    name = "source_worker",
+    srcs = [
+        "src/environment.ts",
+        "src/greeting.txt",
+        "src/index.ts",
+        "src/text.d.ts",
+        "wrangler.jsonc",
+    ],
+    emit = False,  # keep
     node_modules = "//tests/workers:node_modules",
     tsconfig = ":worker_tsconfig",
     deps = ["@npm_workers//:zod"],

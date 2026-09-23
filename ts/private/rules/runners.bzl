@@ -30,7 +30,7 @@ def _es_twins_in_place(test):
 
 def _vitest_launch(ctx, test):
     program_js, twins = _es_twins_in_place(test)
-    pool = workers_pool_environment(ctx, test.chain, test.runtime_data_sets)
+    pool = workers_pool_environment(ctx, test.chain, test.runtime_data_sets, test.runtime_sources, test.transitive_js)
     tsconfig_paths = tsconfig_paths_action(ctx)
     written = vitest_config_action(
         ctx,

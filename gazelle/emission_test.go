@@ -153,7 +153,7 @@ func TestEmission_ExportPatternsPreserveNestedAndRepeatedSubpaths(t *testing.T) 
 	}
 }
 
-func TestEmission_WorkersPoolRequiresEmittedDependencyClosure(t *testing.T) {
+func TestEmission_WorkersPoolDoesNotForceSourceDependenciesToEmit(t *testing.T) {
 	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
@@ -174,8 +174,8 @@ ts_test(
 	captureLog(t, func() { convergeGazelle(t, root) })
 	for _, pkg := range []string{"worker", "lib"} {
 		body := buildFileText(t, root, pkg)
-		if !strings.Contains(body, "emit = True") {
-			t.Fatalf("%s Workers pool boundary left sources untransformed:\n%s", pkg, body)
+		if strings.Contains(body, "emit = True") {
+			t.Fatalf("%s Workers pool forced source emission:\n%s", pkg, body)
 		}
 	}
 }

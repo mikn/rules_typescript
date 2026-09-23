@@ -159,7 +159,7 @@ func (l *tsLang) AfterResolvingDeps(_ context.Context) {
 		if r.Kind() == "ts_binary" {
 			g.roots[emissionLabel(own.Pkg, r.AttrString("entry_point"))] = true
 		}
-		if r.Kind() == "ts_test" && (r.AttrString("wrangler_config") != "" || nodeRunner(emissionLabel(own.Pkg, r.AttrString("runner")))) {
+		if r.Kind() == "ts_test" && nodeRunner(emissionLabel(own.Pkg, r.AttrString("runner"))) {
 			g.roots[key] = true
 		}
 	}

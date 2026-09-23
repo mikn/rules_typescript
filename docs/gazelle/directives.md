@@ -74,7 +74,7 @@ is replaced unless a `# keep` holds it:
 | `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
 | `filegroup(name = "wrangler_config")` | `srcs`, `visibility` |
 
-`emit` defaults to `False`. Gazelle writes `True` when a Node binary/test, Workers-pool test or package manifest requires built outputs, and propagates that requirement through resolved dependencies. A custom output consumer needs an explicit `emit = True` with `# keep`. Removing the built-output consumer removes its generated opt-in on the next run.
+`emit` defaults to `False`. Gazelle writes `True` when a Node binary/test or package manifest requires built outputs, and propagates that requirement through resolved dependencies. A custom output consumer needs an explicit `emit = True` with `# keep`. Removing the built-output consumer removes its generated opt-in on the next run.
 
 `ts_config.deps` is the `extends` chain, a dep on the `ts_config` of every
 `tsconfig.json` the file extends by a relative path. A base of another name
