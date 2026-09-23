@@ -111,8 +111,6 @@ func importsWorkersPool(edges []explainfiles.Edge) bool {
 	return false
 }
 
-// workersPoolAttrs writes what a ts_test whose config imports the pool needs;
-// the istanbul label it returns is a dep, "" when the lockfile lacks it.
 func workersPoolAttrs(c *config.Config, tc *tsConfig, r *rule.Rule, cfg string,
 	edges []explainfiles.Edge, from label.Label) string {
 	if !importsWorkersPool(edges) {
@@ -121,10 +119,14 @@ func workersPoolAttrs(c *config.Config, tc *tsConfig, r *rule.Rule, cfg string,
 	if file := tc.programs.wranglerConfigOf(c.RepoRoot, cfg); file != "" {
 		r.SetAttr("wrangler_config", wranglerConfigLabel(file, cfg, from.Pkg))
 	}
-	if tc.lock == nil || !tc.lock.names[istanbulPackage] {
+	available := false
+	if tc.lock != nil {
+		_, available = tc.lock.declaring(istanbulPackage, from.Pkg)
+	}
+	if !available {
 		log.Printf("typescript: %s: %s runs the Workers pool, which refuses v8 "+
-			"coverage, and %s is not in %s; no coverage_provider, so bazel "+
-			"coverage fails on it", from, cfg, istanbulPackage, pnpmLockfileName)
+			"coverage, and no importer above %s declares %s; no coverage_provider, so bazel "+
+			"coverage fails on it", from, cfg, orRepoRoot(from.Pkg), istanbulPackage)
 		return ""
 	}
 	r.SetAttr("coverage_provider", "istanbul")

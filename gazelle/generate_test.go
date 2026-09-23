@@ -977,7 +977,7 @@ func TestGenerate_WithdrawsTheWranglerConfigFilegroupWithTheFile(t *testing.T) {
 // names the filegroup, runs istanbul coverage and carries its package.
 func TestGenerate_APooledTestNamesTheWranglerConfigAndIstanbul(t *testing.T) {
 	root, _ := converge(t, map[string]string{
-		"package.json":               rootManifest,
+		"package.json":               `{"name":"w","devDependencies":{"@vitest/coverage-istanbul":"4.1.11"}}` + "\n",
 		pnpmLockfileName:             poolLock,
 		"node_modules/.modules.yaml": "layoutVersion: 5\n",
 		"node_modules/@cloudflare/vitest-pool-workers/package.json": `{"name":` +
@@ -1018,7 +1018,11 @@ const poolLock = `lockfileVersion: '9.0'
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@vitest/coverage-istanbul':
+        specifier: 4.1.11
+        version: 4.1.11
 
   worker:
     devDependencies:
