@@ -1,0 +1,6 @@
+syntax = "proto3";
+package proof.v1;
+
+message Detail {
+  string value = 1;
+}

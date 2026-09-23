@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "dependencies": {
+    "@bufbuild/protobuf": "2.12.0",
+    "@bufbuild/protoc-gen-es": "2.12.0"
+  }
+}

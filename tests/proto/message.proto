@@ -1,0 +1,11 @@
+syntax = "proto3";
+package proof.v1;
+
+import "proof/v1/common.proto";
+
+// A message consumed as TypeScript source and JSON.
+message Greeting {
+  string text = 1;
+  optional int64 count = 2;
+  Detail detail = 3;
+}
