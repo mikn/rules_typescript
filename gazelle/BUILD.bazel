@@ -22,6 +22,7 @@ go_library(
         "pnpm_lock.go",
         "program.go",
         "proto.go",
+        "proto_graph.go",
         "resolve.go",
         "tsconfig.go",
         "workers_pool.go",
@@ -125,3 +126,5 @@ gazelle_binary(
         ":typescript",
     ],
 )
+
+exports_files(["proto_graph.bzl"])

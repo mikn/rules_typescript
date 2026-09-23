@@ -1,11 +1,14 @@
 load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
 load("@npm//:defs.bzl", "npm_virtual_store")
+load("@rules_typescript//gazelle:proto_graph.bzl", "proto_graph")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
 
 # gazelle:ignore
 
 gazelle(
     name = "gazelle",
+    args = ["-ts_proto_graph=$(rlocationpath :external_graph)"],
+    data = [":external_graph"],
     gazelle = ":proto_gazelle",
 )
 
@@ -27,5 +30,13 @@ gazelle_binary(
     languages = [
         "@gazelle//language/proto",
         "@rules_typescript//gazelle:typescript",
+    ],
+)
+
+proto_graph(
+    name = "external_graph",
+    deps = [
+        "@renamed//api:a_alias",
+        "@renamed//api:unused_proto",
     ],
 )

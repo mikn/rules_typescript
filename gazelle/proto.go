@@ -50,6 +50,8 @@ type protoIdentity struct {
 }
 
 type protoStore struct {
+	graphPath      string
+	graph          *protoGraph
 	roots          []string
 	recursive      bool
 	identities     map[string]*protoIdentity
@@ -58,17 +60,19 @@ type protoStore struct {
 }
 
 type protoObservation struct {
-	config   *config.Config
-	native   label.Label
-	identity *protoIdentity
-	paths    []string
-	imports  []string
+	nativeDeps []label.Label
+	config     *config.Config
+	native     label.Label
+	identity   *protoIdentity
+	paths      []string
+	imports    []string
 }
 
 type protoRuleImports struct {
-	config   *config.Config
-	identity *protoIdentity
-	imports  []string
+	nativeDeps []label.Label
+	config     *config.Config
+	identity   *protoIdentity
+	imports    []string
 }
 
 func newProtoStore() *protoStore {
@@ -226,10 +230,14 @@ func configureProto(c *config.Config, rel string, f *rule.File, tc *tsConfig) er
 
 func protoWrapperName(native label.Label, id *protoIdentity) string {
 	rel := strings.TrimPrefix(strings.TrimPrefix(native.Pkg, id.owner), "/")
+	if native.Canonical {
+		rel = path.Join("_external", native.Repo, native.Pkg)
+	}
 	return path.Join(id.Name, rel, native.Name)
 }
 
 func absoluteProtoLabel(c *config.Config, native label.Label, pkg string) label.Label {
+	native = getConfig(c).protos.graph.normalize(native)
 	native = native.Abs(c.RepoName, pkg)
 	if native.Repo == "" {
 		native.Repo = c.RepoName
@@ -250,7 +258,7 @@ func managedProtoWrapper(c *config.Config, owner string, r *rule.Rule) bool {
 		return false
 	}
 	native = absoluteProtoLabel(c, native, owner)
-	return native.Repo == c.RepoName && within(native.Pkg, owner) && r.Name() == protoWrapperName(native, &protoIdentity{Name: family, owner: owner})
+	return ((native.Repo == c.RepoName && within(native.Pkg, owner)) || native.Canonical) && r.Name() == protoWrapperName(native, &protoIdentity{Name: family, owner: owner})
 }
 
 func withProtoRules(args language.GenerateArgs, tc *tsConfig, res language.GenerateResult) language.GenerateResult {
@@ -279,7 +287,11 @@ func withProtoRules(args language.GenerateArgs, tc *tsConfig, res language.Gener
 	}
 	generated := map[string]bool{}
 	outputs := map[string]string{}
-	for _, obs := range tc.protos.observations[args.Rel] {
+	observations, err := tc.protos.externalObservations(tc.protos.observations[args.Rel])
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, obs := range observations {
 		id := obs.identity
 		name := protoWrapperName(obs.native, id)
 		if generated[name] {
@@ -305,7 +317,7 @@ func withProtoRules(args language.GenerateArgs, tc *tsConfig, res language.Gener
 		if len(id.Deps) > 0 {
 			r.SetAttr("deps", id.Deps)
 		}
-		r.SetPrivateAttr("_ts_proto_imports", &protoRuleImports{config: obs.config, identity: id, imports: obs.imports})
+		r.SetPrivateAttr("_ts_proto_imports", &protoRuleImports{config: obs.config, identity: id, imports: obs.imports, nativeDeps: obs.nativeDeps})
 		res.Gen = append(res.Gen, r)
 		res.Imports = append(res.Imports, r.PrivateAttr("_ts_proto_imports"))
 	}
@@ -339,9 +351,19 @@ func protoProvider(c *config.Config, ix *resolve.RuleIndex, root, imp string) []
 	spec := resolve.ImportSpec{Lang: "proto", Imp: imp}
 	var native []resolve.FindResult
 	if overridden, ok := resolve.FindRuleWithOverride(c, spec, "proto"); ok {
-		native = []resolve.FindResult{{Label: absoluteProtoLabel(c, overridden, "")}}
+		for _, node := range getConfig(c).protos.graph.providers(c, imp) {
+			native = append(native, resolve.FindResult{Label: getConfig(c).protos.graph.labels[node.Label]})
+		}
+		if len(native) == 0 {
+			native = []resolve.FindResult{{Label: absoluteProtoLabel(c, overridden, "")}}
+		}
 	} else {
 		native = ix.FindRulesByImportWithConfig(c, spec, "proto")
+		if len(native) == 0 {
+			for _, node := range getConfig(c).protos.graph.providers(c, imp) {
+				native = append(native, resolve.FindResult{Label: getConfig(c).protos.graph.labels[node.Label]})
+			}
+		}
 	}
 	var providers []resolve.FindResult
 	for _, n := range native {
@@ -372,6 +394,15 @@ func resolveProtoLibrary(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule, 
 	deps := map[string]bool{}
 	for _, dep := range imps.identity.Deps {
 		deps[dep] = true
+	}
+	for _, native := range imps.nativeDeps {
+		found := ix.FindRulesByImport(resolve.ImportSpec{Lang: languageName, Imp: protoWrapperKey(path.Join(imps.identity.owner, imps.identity.OutDir), native)}, languageName)
+		if len(found) != 1 {
+			log.Fatalf("typescript: %s: native dependency %s has %d generated providers in identity %s", from.String(), native.String(), len(found), imps.identity.Name)
+		}
+		if found[0].Label != from {
+			deps[found[0].Label.Rel(from.Repo, from.Pkg).String()] = true
+		}
 	}
 	for _, imp := range imps.imports {
 		if getConfig(c).protos.runtimeImports[imp] != "" && !slices.Contains(imps.identity.Options, "bootstrap_wkt=true") {
