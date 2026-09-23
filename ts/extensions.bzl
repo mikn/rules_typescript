@@ -21,6 +21,7 @@ load(
     "tools_asset_url",
 )
 load("//ts/private:tsgo_lock.bzl", "tsgo_from_pnpm_lock", "tsgo_from_version")
+load("//ts/private/actions:format.bzl", "format_config_repo")
 load("//ts/private/actions:lint.bzl", "lint_config_repo")
 
 # Label(), not a string, so it resolves in this repository from any consumer.
@@ -170,6 +171,19 @@ def _ts_impl(module_ctx):
                 strip_prefix = tools_asset_prefix(TOOLS_VERSION, platform),
             )
         _prebuilt_toolchains_repo(name = "tools_prebuilt")
+    formatter = None
+    for mod in module_ctx.modules:
+        if mod.is_root:
+            if len(mod.tags.format) > 1:
+                fail("ts.format(): call once in the root MODULE.bazel")
+            formatter = mod.tags.format[0] if mod.tags.format else None
+    format_config_repo(
+        name = "format_config",
+        binary = str(formatter.binary) if formatter else "",
+        config = str(formatter.config) if formatter and formatter.config else "",
+        data = [str(label) for label in formatter.data] if formatter else [],
+        args = formatter.args if formatter else [],
+    )
     _tsgo_source(module_ctx)
 
 _tsgo_tag = tag_class(
@@ -221,6 +235,16 @@ The unverified alternative, for a version no lockfile states:
     ts.tsgo(version = "7.0.2")
     ts.tsgo(package = "@typescript/native-preview", version = "7.0.0-dev.20260311.1")
 """,
+)
+
+_format_tag = tag_class(
+    attrs = {
+        "binary": attr.label(mandatory = True),
+        "config": attr.label(allow_single_file = True),
+        "data": attr.label_list(allow_files = True),
+        "args": attr.string_list(default = ["--check"]),
+    },
+    doc = "Read-only formatting validation on checked-in program sources and ts_format file sets; only the root module configures it.",
 )
 
 _lint_tag = tag_class(
@@ -275,6 +299,7 @@ ts = module_extension(
     tag_classes = {
         "tsgo": _tsgo_tag,
         "lint": _lint_tag,
+        "format": _format_tag,
         "prebuilt_tools": tag_class(attrs = {}, doc = "Opt into the pinned Go tools release from the root module."),
     },
 )

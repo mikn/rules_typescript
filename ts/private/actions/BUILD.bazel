@@ -65,3 +65,12 @@ bzl_library(
     srcs = ["workers_pool.bzl"],
     deps = ["//ts/private:runtime"],
 )
+
+bzl_library(
+    name = "format",
+    srcs = ["format.bzl"],
+    deps = [
+        ":tsgo",
+        "//ts/private:toolchain",
+    ],
+)

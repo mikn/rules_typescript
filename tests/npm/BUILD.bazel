@@ -441,7 +441,10 @@ go_test(
     name = "npm_bin_test",
     size = "small",
     srcs = ["npm_bin_test.go"],
-    data = ["@npm//:nanoid_bin"],
+    data = [
+        "@npm//:nanoid_bin",
+        "@npm//:vite_bin",
+    ],
     deps = ["//tests/verify"],
 )
 

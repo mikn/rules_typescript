@@ -347,6 +347,7 @@ def _npm_import_impl(rctx):
             '    name = "{}",'.format(bin_name),
             '    entry_script = "{}",'.format(bin_path.removeprefix("./")),
             "    package_files = {},".format(_files_glob(package_root)),
+            "    store = {},".format(repr(rctx.attr.store)),
         ]
         if optional_expr:
             bin_stanza.append("    optional_dep_packages = {},".format(optional_expr))

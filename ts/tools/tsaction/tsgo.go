@@ -22,6 +22,8 @@ import (
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
+	absoluteCopyArgs := flags.Bool("absolute-copy-args", false, "pass copied file arguments as absolute paths")
+	verifyCopies := flags.Bool("verify-copies", false, "fail if the tool changes a copied input")
 	var sources, copies, importers, overlays, manifests, toolEnv stringList
 	flags.Var(&sources, "source",
 		"an input of the action in the source tree, linked at its path under "+
@@ -93,6 +95,22 @@ func runTsgo(args []string) error {
 		return err
 	}
 	cmdline = append([]string{tool}, cmdline[1:]...)
+	if *absoluteCopyArgs {
+		paths := make(map[string]string, len(copies))
+		for _, file := range copies {
+			absolute, err := filepath.Abs(filepath.Join(*root, filepath.FromSlash(file)))
+			if err != nil {
+				return err
+			}
+			paths[file] = absolute
+		}
+		for i := 1; i < len(cmdline); i++ {
+			if absolute, ok := paths[cmdline[i]]; ok {
+				cmdline[i] = absolute
+			}
+		}
+	}
+
 	env := make([]string, 0, len(toolEnv))
 	for _, binding := range toolEnv {
 		name, path, ok := strings.Cut(binding, "=")
@@ -112,6 +130,21 @@ func runTsgo(args []string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if *verifyCopies {
+		for _, file := range copies {
+			original, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			staged, err := os.ReadFile(filepath.Join(*root, filepath.FromSlash(file)))
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(original, staged) {
+				return fmt.Errorf("validation changed input %s; configure the tool in check-only mode", file)
+			}
+		}
 	}
 	if *stamp == "" {
 		return nil

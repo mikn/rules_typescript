@@ -30,3 +30,15 @@ func TestBinRunnerRuns(t *testing.T) {
 		t.Errorf("%s printed %q (%d chars), want a nanoid of at least 10", runner.Name(), id, len(id))
 	}
 }
+
+func TestESMBinFindsItsLockfileDependencies(t *testing.T) {
+	tree := verify.New(t)
+	runner := tree.FoundFile("*/vite_bin_launcher", "*.json")
+	if !runner.Exists() {
+		t.FailNow()
+	}
+	out, err := exec.Command(runner.Abs(), "--version").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "vite/") {
+		t.Fatalf("ESM npm binary cannot load its store dependencies: %v\n%s", err, out)
+	}
+}

@@ -5,6 +5,7 @@ load(
     "int_flag",
     "string_flag",
 )
+load("//ts/private/actions:format.bzl", "format_config")
 load("//ts/private/actions:lint.bzl", "lint_config")
 
 package(default_visibility = ["//visibility:public"])
@@ -58,6 +59,13 @@ label_flag(
 # which --norun_validations would drop too.
 lint_config(name = "no_lint")
 
+label_flag(
+    name = "format",
+    build_setting_default = "@format_config//:format",
+)
+
+format_config(name = "no_format")
+
 # //tests/api_surface:defs_surface_test reads the exported names out of it.
 exports_files(["defs.bzl"])
 
@@ -71,6 +79,7 @@ bzl_library(
         "//ts/private:ts_codegen",
         "//ts/private:ts_config",
         "//ts/private:ts_dev_server",
+        "//ts/private/actions:format",
         "//ts/private/rules:ts_compile",
         "//ts/private/rules:ts_test",
     ],
@@ -85,6 +94,7 @@ bzl_library(
         "//ts/private:toolchain",
         "//ts/private:tools_lock",
         "//ts/private:tsgo_lock",
+        "//ts/private/actions:format",
         "//ts/private/actions:lint",
         "@gazelle//:deps",
     ],

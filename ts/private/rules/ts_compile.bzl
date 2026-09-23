@@ -83,6 +83,7 @@ load(
     "get_oxc_toolchain",
 )
 load("//ts/private/actions:emit.bzl", "emit_action")
+load("//ts/private/actions:format.bzl", "FORMAT_ATTR", "FormatConfigInfo", "format_action")
 load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load("//ts/private/actions:manifest.bzl", "manifest_action")
 load(
@@ -654,6 +655,9 @@ def compile_program(
         options_file = written.options
 
     validation_outputs = []
+    format_stamp = format_action(ctx, ctx.attr._format[FormatConfigInfo], ctx.files.srcs)
+    if format_stamp:
+        validation_outputs.append(format_stamp)
     program_inputs = check_srcs + joined + json_srcs + dep_json + dep_manifests
     if program_srcs:
         if emit and compile_srcs:
@@ -976,6 +980,7 @@ and tsgo derives the resolver from whichever `module` wins, which is Bundler
 for all of them but Node16/NodeNext.""",
         allow_single_file = [".json"],
     ),
+    "_format": FORMAT_ATTR,
     "_lint": attr.label(
         default = Label("//ts:lint"),
         providers = [LintConfigInfo],

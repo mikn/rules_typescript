@@ -25,6 +25,7 @@ load(
 )
 load("//ts/private:providers.bzl", "NpmPackageInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load(":store.bzl", "NpmStoreInfo")
 
 def _npm_bin_impl(ctx):
     # Resolve the JS runtime from the toolchain or fall back to system node.
@@ -82,13 +83,15 @@ def _npm_bin_impl(ctx):
         })
         optional_dep_pkg_files.append(info.all_files)
 
+    store = ctx.attr.store[NpmStoreInfo] if ctx.attr.store else None
+    entry = rlocation_path(ctx, store.tree) + "/" + entry_script if store else rlocation_path(ctx, entry_script_file)
     config = {
         "label": str(ctx.label),
         "mode": "node",
         "workspace": ctx.workspace_name,
         "runtime_args": runtime_args,
         "node": {
-            "entry": rlocation_path(ctx, entry_script_file),
+            "entry": entry,
             "optional_deps": optional_deps,
         },
     }
@@ -105,7 +108,7 @@ def _npm_bin_impl(ctx):
     # Also include the full package files so Node can resolve modules inside the package.
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        transitive_files = depset(ctx.files.package_files, transitive = optional_dep_pkg_files),
+        transitive_files = depset(ctx.files.package_files, transitive = optional_dep_pkg_files + ([store.transitive] if store else [])),
         root_symlinks = launcher.root_symlinks,
     )
 
@@ -125,6 +128,7 @@ npm_bin = rule(
             doc = "All files in the npm package directory (from the ts_npm_package target).",
             allow_files = True,
         ),
+        "store": attr.label(providers = [NpmStoreInfo]),
         "entry_script": attr.string(
             doc = "The relative path within the package to the bin entry script (e.g. 'vitest.mjs').",
             mandatory = True,

@@ -26,6 +26,7 @@ bzl_library(
         "//ts/private:runtime",
         "//ts/private:toolchain",
         "//ts/private/actions:emit",
+        "//ts/private/actions:format",
         "//ts/private/actions:lint",
         "//ts/private/actions:tsconfig",
         "//ts/private/actions:tsgo",

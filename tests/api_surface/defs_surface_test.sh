@@ -29,6 +29,7 @@ ts_codegen
 ts_compile
 ts_config
 ts_dev_server
+ts_format
 ts_pnpm
 ts_refresh_tsconfig
 ts_test
