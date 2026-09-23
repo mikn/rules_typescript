@@ -49,17 +49,17 @@ package that is no importer is hand-written under `# keep`.
 
 `node_modules`:
 
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `deps` | `label_list` | `[]` | The npm packages the importer declares, as hub labels: the importer's own package (`@npm//web:react`) where it declares the name, the root's otherwise. Empty for an importer that declares nothing |
-| `parent` | `label` | `None` | The `node_modules` target of the importer above; the lockfile's root importer names `hoist` instead |
-| `hoist` | `label` | `None` | The lockfile's `npm_store_hoist` target, `:node_modules/.pnpm/node_modules` in the lockfile's package; the root importer names it where every other importer names `parent`, and its `deps` come from that lockfile |
+| Attribute | Type         | Default | Description                                                                                                                                                                                                         |
+| --------- | ------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deps`    | `label_list` | `[]`    | The npm packages the importer declares, as hub labels: the importer's own package (`@npm//web:react`) where it declares the name, the root's otherwise. Empty for an importer that declares nothing                 |
+| `parent`  | `label`      | `None`  | The `node_modules` target of the importer above; the lockfile's root importer names `hoist` instead                                                                                                                 |
+| `hoist`   | `label`      | `None`  | The lockfile's `npm_store_hoist` target, `:node_modules/.pnpm/node_modules` in the lockfile's package; the root importer names it where every other importer names `parent`, and its `deps` come from that lockfile |
 
 `node_modules_member`:
 
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `member` | `label` | required | The hub's view of the workspace member, `@npm//:<name>`; the target is named `node_modules/<name>` |
+| Attribute | Type    | Default  | Description                                                                                        |
+| --------- | ------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `member`  | `label` | required | The hub's view of the workspace member, `@npm//:<name>`; the target is named `node_modules/<name>` |
 
 ## The Layout
 
@@ -166,7 +166,10 @@ The call declares, `manual` and public:
   `node_modules/<name>`, so a package importing a dependency it does not
   declare resolves as it does in the checkout. The settings are the lockfile
   package's `.npmrc` -- `hoist`, `hoist-pattern`, `public-hoist-pattern`,
-  `hoist-workspace-packages` -- and pnpm's defaults where it is silent: hoist
+  `hoist-workspace-packages` -- overridden by the corresponding camelCase
+  settings in its `pnpm-workspace.yaml`, as in pnpm 11. Workspace patterns use
+  block lists or JSON string arrays; boolean settings use `true` or `false`.
+  Both files are watched inputs. pnpm's defaults apply where neither sets a value: hoist
   on, `hoist-pattern` `*`, `public-hoist-pattern` empty, members hoisted. The
   resolution hoisted for a name follows pnpm's hoist step: the walk starts at
   every importer's direct dependencies, marks each level's children in order
@@ -260,12 +263,12 @@ runs it. Nothing in this repository writes one by hand; the labels are the
 interface, documented under
 [Bin scripts](../guides/npm.md#bin-scripts).
 
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `entry_script` | `string` | required | The bin entry's path inside the package, e.g. `vitest.mjs` |
-| `package_files` | `label_list` | `[]` | Every file of the package, from its `ts_npm_package` target |
-| `optional_dep_packages` | `label_list` | `[]` | Sibling package targets holding the platform-specific native binaries the script resolves at run time. The launcher links them under a `node_modules/` so `require.resolve()` finds them inside a sandbox or a runfiles tree |
-| `runtime` | `label` | `None` | A JS runtime binary for this target, taking priority over the `js_runtime` toolchain |
+| Attribute               | Type         | Default  | Description                                                                                                                                                                                                                  |
+| ----------------------- | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `entry_script`          | `string`     | required | The bin entry's path inside the package, e.g. `vitest.mjs`                                                                                                                                                                   |
+| `package_files`         | `label_list` | `[]`     | Every file of the package, from its `ts_npm_package` target                                                                                                                                                                  |
+| `optional_dep_packages` | `label_list` | `[]`     | Sibling package targets holding the platform-specific native binaries the script resolves at run time. The launcher links them under a `node_modules/` so `require.resolve()` finds them inside a sandbox or a runfiles tree |
+| `runtime`               | `label`      | `None`   | A JS runtime binary for this target, taking priority over the `js_runtime` toolchain                                                                                                                                         |
 
 The runtime comes from the `js_runtime` toolchain when `runtime` is unset. The
 launcher `cd`s to `RUNFILES_DIR` before running the script, which is why a

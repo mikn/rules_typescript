@@ -831,6 +831,42 @@ def _pnpm_workspace_registries(content):
         registries[""] = _normalise_registry(default)
     return registries
 
+def pnpm_workspace_hoist_settings(content):
+    patterns = {"hoistPattern": "hoist-pattern", "publicHoistPattern": "public-hoist-pattern"}
+    flags = {"hoist": "hoist", "hoistWorkspacePackages": "hoist-workspace-packages"}
+    settings = {}
+    block = None
+    for raw in (content or "").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if block != None and line.startswith("- "):
+            settings[block].append(_yaml_scalar(line[2:]))
+            continue
+        if raw[0].isspace():
+            if block != None:
+                fail("pnpm-workspace.yaml: {} needs a list of patterns. Did you mean an indented '- pattern' entry?".format(block))
+            continue
+        block = None
+        key, value = _yaml_pair(raw)
+        if key in patterns:
+            name = patterns[key]
+            if not value or value.startswith("#"):
+                settings[name] = []
+                block = name
+            elif value.startswith("["):
+                entries = json.decode(value)
+                if type(entries) != "list" or any([type(entry) != "string" for entry in entries]):
+                    fail("pnpm-workspace.yaml: {} needs string patterns. Did you mean a block list of quoted patterns?".format(key))
+                settings[name] = entries
+            else:
+                fail("pnpm-workspace.yaml: {} needs a block list or JSON string array. Did you mean an indented '- pattern' entry?".format(key))
+        elif key in flags:
+            if value not in ("true", "false"):
+                fail("pnpm-workspace.yaml: {} needs a boolean. Did you mean true or false?".format(key))
+            settings[flags[key]] = value == "true"
+    return settings
+
 def _workspace_registries(npmrc, pnpm_workspace):
     """The registry map a workspace's two files settle on, {"": default,
     "@scope": url}: the .npmrc's lines, then pnpm-workspace.yaml's, the later
