@@ -70,6 +70,7 @@ nav:
     - ts_binary: rules/ts-binary.md
     - ts_dev_server: rules/ts-dev-server.md
     - ts_codegen: rules/ts-codegen.md
+    - ts_proto_library: rules/ts-proto-library.md
     - node_modules: rules/node-modules.md
     - Providers and toolchains: rules/providers.md
   - Compatibility: compatibility.md

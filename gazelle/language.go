@@ -121,7 +121,8 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 		},
 		// ts_codegen is hand-written and never generated; a Kind so that its
 		// out_dir is indexed (codegenTreeSpecs) and its outs are deps (D9).
-		"ts_codegen": {},
+		"ts_codegen":       {},
+		"ts_proto_library": {},
 		"ts_dev_server": {
 			NonEmptyAttrs: map[string]bool{"entry_point": true},
 			MergeableAttrs: map[string]bool{
@@ -175,6 +176,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 // @npm, as every npm label Gazelle writes is.
 var kindLoads = map[string]string{
 	"ts_codegen":          "//ts:defs.bzl",
+	"ts_proto_library":    "//proto:defs.bzl",
 	"ts_compile":          "//ts:defs.bzl",
 	"ts_config":           "//ts:defs.bzl",
 	"ts_dev_server":       "//ts:defs.bzl",

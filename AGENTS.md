@@ -101,7 +101,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 ```
 
 **Key files:**
-- `ts/defs.bzl` — public API (all rules, providers, macros)
+- `ts/defs.bzl` — TypeScript compile/runtime API (rules, providers, macros)
+- `proto/defs.bzl` — `ts_proto_library`: ProtoInfo sources through protobuf protoc and pinned protobuf-es, then the existing source-mode compiler; `docs/rules/ts-proto-library.md` names graph and option ownership
 - `ts/private/rules/ts_compile.bzl` — the `ts_compile` rule and
   `TS_COMPILE_ATTRS`; `ts/private/actions/` — one action per file (`tsconfig`,
   `emit`, `tsgo`, `lint`, `vitest`, `workers_pool`), the functions the rules

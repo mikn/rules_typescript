@@ -20,14 +20,16 @@ var wantKinds = []string{
 	"ts_compile",
 	"ts_config",
 	"ts_dev_server",
+	"ts_proto_library",
 	"ts_test",
 }
 
 // wantLoads is the load lines by file: every kind but filegroup, which is
 // native; the store call comes from the hub.
 var wantLoads = map[string][]string{
-	"@npm//:defs.bzl":                 {"npm_virtual_store"},
-	"@rules_typescript//npm:defs.bzl": {"node_modules", "node_modules_member"},
+	"@npm//:defs.bzl":                   {"npm_virtual_store"},
+	"@rules_typescript//npm:defs.bzl":   {"node_modules", "node_modules_member"},
+	"@rules_typescript//proto:defs.bzl": {"ts_proto_library"},
 	"@rules_typescript//ts:defs.bzl": {
 		"ts_codegen", "ts_compile", "ts_config", "ts_dev_server", "ts_test",
 	},
@@ -60,7 +62,7 @@ func TestKinds_ExactSurface(t *testing.T) {
 
 // The loads, each file's symbols exactly wantLoads' in that order: a symbol
 // Kinds() lacks or a gone kind fails here, and so does a map-ordered list.
-func TestLoads_ThreeLoadsNamingEveryKind(t *testing.T) {
+func TestLoads_NamingEveryKind(t *testing.T) {
 	lang := &tsLang{}
 	for name, loads := range map[string][]rule.LoadInfo{
 		"Loads":         lang.Loads(),
@@ -82,7 +84,7 @@ func TestLoads_ThreeLoadsNamingEveryKind(t *testing.T) {
 		names = append(names, li.Name)
 	}
 	want := []string{"@npm//:defs.bzl", "@rules_ts~//npm:defs.bzl",
-		"@rules_ts~//ts:defs.bzl"}
+		"@rules_ts~//proto:defs.bzl", "@rules_ts~//ts:defs.bzl"}
 	if !slices.Equal(names, want) {
 		t.Errorf("ApparentLoads under an apparent name loads %v, want %v",
 			names, want)

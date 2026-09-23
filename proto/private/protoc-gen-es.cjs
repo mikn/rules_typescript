@@ -1,0 +1,1 @@
+require("@bufbuild/protoc-gen-es/bin/protoc-gen-es");

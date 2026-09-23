@@ -1,0 +1,26 @@
+load("@npm_ts_proto//:defs.bzl", "npm_virtual_store")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_binary")
+
+package(default_visibility = ["//proto:__subpackages__"])
+
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    deps = [
+        "@npm_ts_proto//:bufbuild_protoc-gen-es",
+    ],
+)
+
+ts_binary(
+    name = "protoc_gen_es",
+    entry_point = "protoc-gen-es.cjs",
+    node_modules = ":node_modules",
+)

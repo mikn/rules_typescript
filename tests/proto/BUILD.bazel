@@ -1,0 +1,73 @@
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("//npm:defs.bzl", "node_modules")
+load("//proto:defs.bzl", "ts_proto_library")
+load("//ts:defs.bzl", "ts_test")
+
+# gazelle:ignore
+
+proto_library(
+    name = "common_proto",
+    srcs = ["common.proto"],
+    import_prefix = "proof/v1",
+    strip_import_prefix = "/tests/proto",
+)
+
+proto_library(
+    name = "message_proto",
+    srcs = ["message.proto"],
+    import_prefix = "proof/v1",
+    strip_import_prefix = "/tests/proto",
+    deps = [":common_proto"],
+)
+
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    deps = [
+        "@npm//:vitest",
+        "@npm_ts_proto//:bufbuild_protobuf",
+    ],
+)
+
+ts_proto_library(
+    name = "common",
+    node_modules = ":node_modules",
+    options = [
+        "target=ts",
+        "json_types=true",
+        "import_extension=none",
+    ],
+    out_dir = "generated",
+    proto = ":common_proto",
+    tsconfig = "tsconfig.json",
+    deps = ["@npm_ts_proto//:bufbuild_protobuf"],
+)
+
+ts_proto_library(
+    name = "message",
+    node_modules = ":node_modules",
+    options = [
+        "target=ts",
+        "json_types=true",
+        "import_extension=none",
+    ],
+    out_dir = "generated",
+    proto = ":message_proto",
+    tsconfig = "tsconfig.json",
+    deps = [
+        ":common",
+        "@npm_ts_proto//:bufbuild_protobuf",
+    ],
+)
+
+ts_test(
+    name = "generated_source_json_test",
+    srcs = ["generated.test.ts"],
+    node_modules = ":node_modules",
+    tsconfig = "tsconfig.json",
+    deps = [
+        ":message",
+        "@npm//:vitest",
+        "@npm_ts_proto//:bufbuild_protobuf",
+    ],
+)
