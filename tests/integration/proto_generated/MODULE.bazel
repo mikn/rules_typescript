@@ -38,4 +38,4 @@ npm.translate_lock(
     name = "npm_test",
     pnpm_lock = "//testdeps:pnpm-lock.yaml",
 )
-use_repo(npm, "npm", "npm_test")
+use_repo(npm, "npm", "npm_test", "pnpm")
