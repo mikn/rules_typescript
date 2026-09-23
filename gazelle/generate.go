@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
@@ -33,6 +35,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 		res = withImporterRules(args, tc, res)
 	}
+	res = relocateSourceExports(args, tc, res)
 	// Resolve runs before Gazelle writes newly generated BUILD files.
 	if len(res.Gen) > 0 || len(args.OtherGen) > 0 {
 		s.generatedPackages[args.Rel] = true
@@ -133,7 +136,7 @@ func whyNotPackage(tc *tsConfig) string {
 	if m := tc.foreignManifest; m != "" {
 		return foreignReason(m)
 	}
-	return "no tsconfig.json here lists a first-party file"
+	return "neither tsconfig.json nor package.json source exports here list a first-party file"
 }
 
 // packageRules writes a package: ts_compile, ts_test, the declarations in
@@ -145,7 +148,10 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 	set := s.srcs(pkg, tc)
 	data := s.dataFiles(pkg, tc)
 	codegens := codegenLabels(args.File)
-	tsConfigAttr := ":" + tsConfigTargetName
+	tsConfigAttr := ""
+	if !s.programs[pkg].manifest {
+		tsConfigAttr = ":" + tsConfigTargetName
+	}
 	var res language.GenerateResult
 	add := func(r *rule.Rule, imports any) {
 		res.Gen = append(res.Gen, r)
@@ -163,7 +169,9 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 	if compile {
 		r := rule.NewRule("ts_compile", name)
 		r.SetAttr("srcs", packageSrcs(args, set.library, set.declaration, data))
-		r.SetAttr("tsconfig", tsConfigAttr)
+		if tsConfigAttr != "" {
+			r.SetAttr("tsconfig", tsConfigAttr)
+		}
 		if nodeModules != "" {
 			r.SetAttr("node_modules", nodeModules)
 		}
@@ -199,7 +207,9 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 		if attr != "" {
 			r.SetAttr("config", attr)
 		}
-		r.SetAttr("tsconfig", tsConfigAttr)
+		if tsConfigAttr != "" {
+			r.SetAttr("tsconfig", tsConfigAttr)
+		}
 		if nodeModules != "" {
 			r.SetAttr("node_modules", nodeModules)
 		}
@@ -220,7 +230,11 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 			tsconfigIn(pkg), orRepoRoot(pkg))
 	}
 
-	add(tsConfigRule(args, tc), nil)
+	if tsConfigAttr != "" {
+		add(tsConfigRule(args, tc), nil)
+	} else {
+		withdraw("ts_config", tsConfigTargetName)
+	}
 	cfgName := exportedVitestConfig(args.Dir, pkg)
 	for _, fg := range []string{vitestConfigTargetName, wranglerConfigTargetName} {
 		var r *rule.Rule
@@ -610,4 +624,97 @@ func appPackage(dir string, sources []string) bool {
 		}
 	}
 	return false
+}
+
+func relocateSourceExports(args language.GenerateArgs, tc *tsConfig, res language.GenerateResult) language.GenerateResult {
+	s := tc.programs
+	if s.emission == nil || s.packages[args.Rel] == nil {
+		return res
+	}
+	for _, ancestor := range slices.Sorted(maps.Keys(s.emission.files)) {
+		if ancestor == args.Rel || !dirIsAncestorOf(ancestor, args.Rel) {
+			continue
+		}
+		for _, old := range s.emission.files[ancestor].Rules {
+			if old.Kind() != "exports_files" || len(old.Args()) != 1 {
+				continue
+			}
+			list, ok := old.Args()[0].(*bzl.ListExpr)
+			if !ok {
+				continue
+			}
+			var kept []bzl.Expr
+			var moved []string
+			for _, item := range list.List {
+				text, ok := item.(*bzl.StringExpr)
+				if !ok {
+					kept = append(kept, item)
+					continue
+				}
+				source := path.Join(ancestor, text.Value)
+				if sourceExportOwner(s, source) != args.Rel {
+					kept = append(kept, item)
+					continue
+				}
+				moved = append(moved, strings.TrimPrefix(source, args.Rel+"/"))
+			}
+			if len(moved) == 0 {
+				continue
+			}
+			if old.ShouldKeep() {
+				log.Printf("typescript: %s: kept exports_files contains sources now owned by %s; remove # keep to relocate the exports to their canonical package", s.emission.files[ancestor].Path, args.Rel)
+				continue
+			}
+			visibility := old.AttrStrings("visibility")
+			visibilityList, visibilityLiteral := old.Attr("visibility").(*bzl.ListExpr)
+			if old.Attr("visibility") != nil && (!visibilityLiteral || len(visibilityList.List) != len(visibility)) {
+				log.Printf("typescript: %s: exports_files visibility is an expression; use explicit visibility labels so sources can move to %s", s.emission.files[ancestor].Path, args.Rel)
+				continue
+			}
+			{
+				for i, v := range visibility {
+					l, err := label.Parse(v)
+					if err != nil {
+						log.Fatalf("typescript: exported source visibility %q: %v", v, err)
+					}
+					visibility[i] = l.Abs(args.Config.RepoName, ancestor).String()
+				}
+			}
+			licenses := old.AttrStrings("licenses")
+			licensesList, licensesLiteral := old.Attr("licenses").(*bzl.ListExpr)
+			if old.Attr("licenses") != nil && (!licensesLiteral || len(licensesList.List) != len(licenses)) {
+				log.Printf("typescript: %s: exports_files licenses is an expression; use explicit licenses so sources can move to %s", s.emission.files[ancestor].Path, args.Rel)
+				continue
+			}
+			list.List = kept
+			if len(kept) == 0 {
+				old.Delete()
+			} else if err := old.UpdateArg(0, list); err != nil {
+				log.Fatal(err)
+			}
+			target := rule.NewRule("exports_files", "")
+			values := make([]bzl.Expr, 0, len(moved))
+			for _, file := range moved {
+				values = append(values, &bzl.StringExpr{Value: file})
+			}
+			target.AddArg(&bzl.ListExpr{List: values})
+			if old.Attr("visibility") != nil {
+				target.SetAttr("visibility", visibility)
+			}
+			if old.Attr("licenses") != nil {
+				target.SetAttr("licenses", licenses)
+			}
+			res.Gen = append(res.Gen, target)
+			res.Imports = append(res.Imports, nil)
+		}
+	}
+	return res
+}
+
+func sourceExportOwner(s *programStore, source string) string {
+	for dir := parentDir(source); ; dir = parentDir(dir) {
+		if s.packages[dir] != nil || s.emission.files[dir] != nil || s.generatedPackages[dir] || dir == "" {
+			return dir
+		}
+	}
 }

@@ -1,6 +1,6 @@
 # Gazelle Overview
 
-Gazelle writes the BUILD files: one package per `tsconfig.json` program, its
+Gazelle writes the BUILD files: one package per compiler program, its
 targets' sources and deps read off tsgo's own listing of that program.
 
 ## Setup
@@ -63,7 +63,10 @@ Five things, and no directive of its own.
    declares, the importers and what each declares, and the `link:` entries
    that make a directory a workspace member.
 3. **The nearest `package.json`** above a package: its `name`, and for a
-   `ts_test` its `dependencies` and `devDependencies`.
+   `ts_test` its `dependencies` and `devDependencies`. Without a local
+   tsconfig, existing JavaScript and TypeScript entry points from `exports`,
+   `types`, `typings`, `main`, `module` and `browser` seed the same native
+   compiler listing with JavaScript enabled.
 4. **The vitest configs** the generated tests name, listed together in one
    tsgo run when the first `deps` is written: the runner imports the config,
    so its imports, and those of the first-party modules they reach, are the
@@ -91,9 +94,12 @@ it listed or why it was not, its diagnostics, how many are packages, and the
 A directory is a package when its `tsconfig.json` lists a first-party file: a
 path inside the repository and not under `node_modules`. `include`, `files` and
 `exclude` are the program's, so they decide what the package compiles. A
-directory with no `tsconfig.json`, or one whose listing names no first-party
-file (a `TS18003` config with no inputs, the refused root), is not a package and
-gets no target.
+directory without a local `tsconfig.json` can instead list existing manifest
+entry points through the compiler. This includes separate declaration and
+JavaScript exports and their imports; it does not synthesize a tsconfig.
+Wildcard or nonlocal code entry points need an explicit tsconfig and produce
+a diagnostic. Missing emitted entry points do not become source inputs. A
+listing with no first-party file gets no target.
 
 A `package.json` the lockfile has no importer for marks a foreign project:
 pnpm installs nothing for it, so a bare import under it resolves through
@@ -534,3 +540,12 @@ and none is drift:
   `# keep` is Gazelle's own directive. Above an attribute it means "never
   touch this value"; above a whole rule, "never touch this rule". See the
   [Directives Reference](directives.md).
+
+## Exported Files at New Package Boundaries
+
+When ordinary generation creates a child package, existing literal
+`exports_files` entries beneath that boundary move to the canonical child
+owner. Visibility and licenses remain unchanged. Consumers must use the new
+child label; Gazelle does not add compatibility aliases. Kept exports or
+computed visibility and licenses produce a diagnostic instead of a partial
+move.
