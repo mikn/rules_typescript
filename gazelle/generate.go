@@ -36,12 +36,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		res = withImporterRules(args, tc, res)
 	}
 	res = withProtoRules(args, tc, res)
-	res = relocateSourceExports(args, tc, res)
 	// Resolve runs before Gazelle writes newly generated BUILD files.
 	if len(res.Gen) > 0 || len(args.OtherGen) > 0 {
 		s.generatedPackages[args.Rel] = true
 	}
-	return res
+	return relocateSourceExports(args, tc, res)
 }
 
 // withImporterRules adds the lockfile importer's rules for the directory, or
@@ -635,7 +634,7 @@ func appPackage(dir string, sources []string) bool {
 
 func relocateSourceExports(args language.GenerateArgs, tc *tsConfig, res language.GenerateResult) language.GenerateResult {
 	s := tc.programs
-	if s.emission == nil || s.packages[args.Rel] == nil {
+	if s.emission == nil || !sourceExportPackage(s, args.Rel) {
 		return res
 	}
 	for _, ancestor := range slices.Sorted(maps.Keys(s.emission.files)) {
@@ -720,8 +719,12 @@ func relocateSourceExports(args language.GenerateArgs, tc *tsConfig, res languag
 
 func sourceExportOwner(s *programStore, source string) string {
 	for dir := parentDir(source); ; dir = parentDir(dir) {
-		if s.packages[dir] != nil || s.emission.files[dir] != nil || s.generatedPackages[dir] || dir == "" {
+		if sourceExportPackage(s, dir) {
 			return dir
 		}
 	}
+}
+
+func sourceExportPackage(s *programStore, dir string) bool {
+	return s.packages[dir] != nil || s.emission.files[dir] != nil || s.generatedPackages[dir] || dir == ""
 }

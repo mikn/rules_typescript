@@ -12,6 +12,7 @@ import (
 	gazelleproto "github.com/bazelbuild/bazel-gazelle/language/proto"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
@@ -398,4 +399,61 @@ func TestProtoExplicitExternalOverrideCannotBeHiddenByLocalMembership(t *testing
 		}
 	}
 	t.Fatal("local membership hid the explicit external native owner")
+}
+
+func TestProtoNativePackageMovesAncestorSourceExportWithoutCompilerProgram(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"MODULE.bazel":                `module(name = "native_exports")`,
+		"BUILD.bazel":                 "",
+		"schema/BUILD.bazel":          `exports_files(["kept.txt", "messages/value.proto"], visibility=["//consumer:__pkg__"], licenses=["notice"])`,
+		"schema/kept.txt":             "retained",
+		"schema/messages/value.proto": `syntax = "proto3"; package example.messages; message Value { string name = 1; }`,
+	})
+	output, err := protoGazelle(t, root, "schema")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+	parent := buildFileText(t, root, "schema")
+	child := buildFileText(t, root, "schema/messages")
+	if strings.Contains(parent, "messages/value.proto") || !strings.Contains(parent, "kept.txt") {
+		t.Fatalf("ancestor retains child-owned source:\n%s", parent)
+	}
+	file, err := rule.LoadFile(filepath.Join(root, "schema/messages/BUILD.bazel"), "schema/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range file.Rules {
+		if r.Kind() == "ts_compile" || r.Kind() == "ts_proto_library" {
+			t.Fatal("native package invented TypeScript program")
+		}
+		if r.Kind() != "exports_files" {
+			continue
+		}
+		found = true
+		if len(r.Args()) != 1 {
+			t.Fatalf("export source argument lost:\n%s", child)
+		}
+		values, ok := r.Args()[0].(*bzl.ListExpr)
+		if !ok || len(values.List) != 1 {
+			t.Fatalf("export source list lost:\n%s", child)
+		}
+		value, ok := values.List[0].(*bzl.StringExpr)
+		if !ok || value.Value != "value.proto" || strings.Join(r.AttrStrings("visibility"), ",") != "//consumer:__pkg__" || strings.Join(r.AttrStrings("licenses"), ",") != "notice" {
+			t.Fatalf("export contract lost:\n%s", child)
+		}
+	}
+	if !found {
+		t.Fatalf("native package lacks source export:\n%s", child)
+	}
+	output, err = protoGazelle(t, root, "schema")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+	if next := buildFileText(t, root, "schema/messages"); next != child {
+		t.Fatalf("native export relocation unstable:\n%s", lineDiff(child, next))
+	}
+	if next := buildFileText(t, root, "schema"); next != parent {
+		t.Fatalf("ancestor relocation unstable:\n%s", lineDiff(parent, next))
+	}
 }
