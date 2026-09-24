@@ -39,6 +39,10 @@ ts_codegen(
     ],
     generator = ":tree_generator",
     out_dir = "compiled",
+    visibility = [
+        "//:__pkg__",
+        "//tests/workers_nested/test:__pkg__",
+    ],
 )
 
 # The tsconfig's `paths` sends `#codegen/tree` to ./compiled; the value's bin-dir

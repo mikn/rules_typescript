@@ -22,6 +22,7 @@ ts_test(
     tsconfig = "//tests/workers_nested:worker_tsconfig",
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = [
+        "//tests/codegen_tree:tree",  # keep
         "//tests/workers_nested:worker",
         "@npm_workers//:cloudflare_vitest-pool-workers",
         "@npm_workers//:vitest",
@@ -43,6 +44,7 @@ ts_test(
     tsconfig = "//tests/workers_nested:worker_tsconfig",
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = [
+        "//tests/codegen_tree:tree",  # keep
         "//tests/workers_nested:source_worker",
         "@npm_workers//:cloudflare_vitest-pool-workers",
         "@npm_workers//:vitest",

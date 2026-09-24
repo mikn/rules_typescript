@@ -69,8 +69,8 @@ def workers_pool_environment(ctx, chain, runtime_data_sets, runtime_sources, run
         args.add("--config", src)
         args.add("--out", patched)
         args.add("--config-path", src.short_path)
-        args.add_all(runtime_sources, before_each = "--runtime-source", map_each = _runtime_path)
-        args.add_all(runtime_js, before_each = "--runtime-js", map_each = _runtime_path)
+        args.add_all(runtime_sources, before_each = "--runtime-source", map_each = _runtime_path, expand_directories = False)
+        args.add_all(runtime_js, before_each = "--runtime-js", map_each = _runtime_path, expand_directories = False)
         args.add_all(chain.dirs, before_each = "--node-modules")
         ctx.actions.run(
             inputs = depset(
