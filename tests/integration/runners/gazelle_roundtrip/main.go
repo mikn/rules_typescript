@@ -53,7 +53,7 @@ func withRootManifest(own ...string) []string {
 
 // The packages Gazelle writes whole: deleted between the two passes.
 var generated = []string{
-	"src/lib", "src/app", "src/icons", "src/typed", "src/env",
+	"src/lib", "src/app", "src/icons", "src/typed", "src/env", "foreign_json",
 	"worker", "worker/test", "worker/test/deep",
 	"aliased", "aliased/src", "jsx", "jsx/runtime",
 	"configured", "configured/test", "packages/shared",
@@ -82,6 +82,10 @@ func main() {
 		// wrangler, for generated_worker's ts_codegen, is in tests/workers' lockfile.
 		it.Write(it.Path("wrangler_lock/pnpm-lock.yaml"),
 			it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
+
+		const foreignExports = `exports_files(["value.json"], visibility = ["//foreign_json:__pkg__"])
+`
+		it.Write(it.Path("foreign_fixtures/BUILD.bazel"), foreignExports)
 
 		it.Install()
 		it.Pass("pnpm install: the listing runs over the tree the build will check")
@@ -145,6 +149,23 @@ func main() {
 		if differs {
 			it.Fail("Gazelle output is not idempotent — see the dumps above")
 		}
+
+		requireLabels(it, "srcs", "//foreign_json:foreign_json_test", []string{
+			"//foreign_fixtures:value.json", "//foreign_json:foreign.test.ts",
+		})
+		if it.Read(it.Path("foreign_fixtures/BUILD.bazel")) != foreignExports {
+			it.Fail("Gazelle changed the excluded JSON owner's exports")
+		}
+		it.MustBazel("test", "//foreign_json:foreign_json_test")
+		func() {
+			defer it.Write(it.Path("foreign_fixtures/BUILD.bazel"), foreignExports)
+			it.Write(it.Path("foreign_fixtures/BUILD.bazel"), "exports_files([\"value.json\"], visibility = [\"//visibility:private\"])\n")
+			log, err := it.BazelLog("foreign_json_visibility", "build", "//foreign_json:foreign_json_test")
+			if err == nil || !log.Contains("not visible") {
+				log.Dump()
+				it.Fail("foreign JSON import bypassed its owner's visibility")
+			}
+		}()
 
 		it.MustBazel("test", "//pooled/test:test_test")
 		it.Pass("ordinary generated Workers source closure runs in workerd")

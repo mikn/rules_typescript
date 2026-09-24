@@ -1,0 +1,4 @@
+exports_files(
+    ["value.json"],
+    visibility = ["//tests/vitest/data:__pkg__"],
+)

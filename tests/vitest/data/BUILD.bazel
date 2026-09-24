@@ -40,3 +40,25 @@ ts_test(
         "@npm//:vitest",
     ],
 )
+
+ts_test(
+    name = "foreign_json_source_test",
+    srcs = [
+        "foreign_json.test.ts",
+        "//tests/vitest/foreign_json_fixture:value.json",
+    ],
+    emit = False,  # keep
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
+)
+
+ts_test(
+    name = "foreign_json_emitted_test",
+    srcs = [
+        "foreign_json.test.ts",
+        "//tests/vitest/foreign_json_fixture:value.json",
+    ],
+    emit = True,  # keep
+    node_modules = "//tests/npm:node_modules",
+    deps = ["@npm//:vitest"],
+)

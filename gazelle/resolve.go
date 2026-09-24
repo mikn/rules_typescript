@@ -129,10 +129,21 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 		}
 	}
 	reported := map[string]bool{}
-	for _, e := range edges {
-		if dep := edgeDep(c, ix, tc, e, from, reported); dep != "" {
+	srcs := map[string]bool{}
+	for _, src := range r.AttrStrings("srcs") {
+		srcs[src] = true
+	}
+	for i, e := range edges {
+		inputs := srcs
+		if i >= len(imps.edges) {
+			inputs = nil
+		}
+		if dep := edgeDep(c, ix, tc, e, from, reported, inputs); dep != "" {
 			deps[dep] = true
 		}
+	}
+	if len(srcs) > 0 {
+		r.SetAttr("srcs", slices.Sorted(maps.Keys(srcs)))
 	}
 	// A types entry naming a codegen out that is not in the checkout (D9).
 	own := filepath.Join(c.RepoRoot, filepath.FromSlash(from.Pkg), "tsconfig.json")
@@ -192,7 +203,7 @@ func configSrcPackage(c *config.Config, tc *tsConfig, file, configDir string) st
 }
 
 func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
-	e explainfiles.Edge, from label.Label, reported map[string]bool) string {
+	e explainfiles.Edge, from label.Label, reported, srcs map[string]bool) string {
 	s := tc.programs
 	if !firstParty(e.To) {
 		if npmPackageName(e.To) == "" {
@@ -230,6 +241,21 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 		return lbl
 	}
 	if owner := s.owner(e.To); owner == "" {
+		if srcs != nil && path.Ext(e.To) == ".json" {
+			if st, err := os.Stat(filepath.Join(c.RepoRoot, filepath.FromSlash(e.To))); err == nil && st.Mode().IsRegular() {
+				pkg := configSrcPackage(c, tc, e.To, "")
+				name := e.To
+				if pkg != "" {
+					name = strings.TrimPrefix(name, pkg+"/")
+				}
+				if _, ok := srcLabel(name); !ok {
+					reportEdge(from, e, "file name contains ':'; no Bazel label can name it", reported)
+					return ""
+				}
+				srcs[label.New(from.Repo, pkg, name).Rel(from.Repo, from.Pkg).String()] = true
+				return ""
+			}
+		}
 		reportEdge(from, e, s.whyUnowned(e.To), reported)
 	} else {
 		reportEdge(from, e, tsconfigIn(owner)+" lists it and no rule there has it "+
