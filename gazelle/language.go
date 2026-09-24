@@ -116,6 +116,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"emit":         true,
 			},
 			ResolveAttrs: map[string]bool{
+				"srcs": true,
 				"deps": true,
 			},
 		},
@@ -131,9 +132,8 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"node_modules": true,
 				"emit":         true,
 			},
-			// Written at Resolve, from the config's listing: its modules and
-			// the pool's attributes.
 			ResolveAttrs: map[string]bool{
+				"srcs":              true,
 				"deps":              true,
 				"config_srcs":       true,
 				"wrangler_config":   true,

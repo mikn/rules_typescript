@@ -6,6 +6,8 @@ load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_typescript//ts:defs.bzl", "ts_pnpm")
 
+# gazelle:exclude foreign_fixtures
+
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",

@@ -6,12 +6,14 @@ package typescript
 import (
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
@@ -37,11 +39,11 @@ func managedAttrs(kind string) (mergeable, resolved []string) {
 
 // Before the merge, the one point where the value on disk and the recomputed
 // one are both in hand.
-func reportManagedAttrDrops(args language.GenerateArgs, gen []*rule.Rule) {
+func reportManagedAttrDrops(args language.GenerateArgs, gen []*rule.Rule, imports ...any) {
 	if args.File == nil {
 		return
 	}
-	for _, want := range gen {
+	for i, want := range gen {
 		mergeable, resolved := managedAttrs(want.Kind())
 		for _, have := range args.File.Rules {
 			if have.Kind() != want.Kind() || have.Name() != want.Name() || have.ShouldKeep() {
@@ -59,13 +61,16 @@ func reportManagedAttrDrops(args language.GenerateArgs, gen []*rule.Rule) {
 					reportUnmergeableExpr(args.File.Path, have, attr, expr)
 					continue
 				}
-				// A resolved attribute is filled after generation, so the
-				// candidate carries nothing to compare against yet. Its shape
-				// is all that can be checked here.
-				if slices.Contains(resolved, attr) {
+				if slices.Contains(resolved, attr) && attr != "srcs" {
 					continue
 				}
-				reportDroppedValues(args, have, attr, droppedAttrValues(args, have, want, attr))
+				dropped := droppedAttrValues(args, have, want, attr)
+				if attr == "srcs" && i < len(imports) {
+					dropped = slices.DeleteFunc(dropped, func(value string) bool {
+						return importedJSONSource(args, value, imports[i])
+					})
+				}
+				reportDroppedValues(args, have, attr, dropped)
 			}
 		}
 	}
@@ -191,6 +196,30 @@ func attrKept(r *rule.Rule, key string) bool {
 	for _, comment := range append(comments.Before, comments.Suffix...) {
 		text := strings.TrimSpace(strings.TrimPrefix(comment.Token, "#"))
 		if text == "keep" || strings.HasPrefix(text, "keep: ") {
+			return true
+		}
+	}
+	return false
+}
+
+func importedJSONSource(args language.GenerateArgs, value string, imports any) bool {
+	imps, ok := imports.(*ruleImports)
+	if !ok || imps == nil {
+		return false
+	}
+	file, err := label.Parse(value)
+	if err != nil {
+		return false
+	}
+	file = file.Abs(args.Config.RepoName, args.Rel)
+	if file.Repo == "" {
+		file.Repo = args.Config.RepoName
+	}
+	if file.Repo != args.Config.RepoName || path.Ext(file.Name) != ".json" {
+		return false
+	}
+	for _, edge := range imps.edges {
+		if edge.To == path.Join(file.Pkg, file.Name) {
 			return true
 		}
 	}

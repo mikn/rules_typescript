@@ -1024,3 +1024,53 @@ func TestResolveEdges_StoreFileTypeReferenceIsTheChains(t *testing.T) {
 		t.Errorf("tools logged:\n%s", logged)
 	}
 }
+
+func TestResolveEdges_ForeignJSONKeepsItsPackageAndOwner(t *testing.T) {
+	for _, owned := range []bool{false, true} {
+		t.Run(map[bool]string{false: "excluded source", true: "existing TsInfo owner"}[owned], func(t *testing.T) {
+			c, tc := edgeRepo(t, edgeListings)
+			c.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+			const file = "foreign/fixtures/value.json"
+			writeFile(t, filepath.Join(c.RepoRoot, "foreign/BUILD.bazel"), "exports_files([\"fixtures/value.json\"])\n")
+			writeFile(t, filepath.Join(c.RepoRoot, file), `{ "answer": 42 }`)
+			delete(tc.programs.walked, "foreign/fixtures")
+			var rules []indexedRule
+			if owned {
+				rules = append(rules, indexedRule{kind: "ts_compile", name: "fixtures", pkg: "foreign", srcs: []string{"fixtures/value.json"}})
+			}
+			ix := buildIndex(t, c, rules...)
+			r := rule.NewRule("ts_test", "web_test")
+			r.SetAttr("srcs", []string{"test.ts"})
+			edge := importEdge("web/test.ts", "../foreign/fixtures/value.json", file)
+			imps := &ruleImports{edges: []explainfiles.Edge{edge, edge}}
+			logged := captureLog(t, func() { resolveEdges(c, ix, r, imps, label.New("", "web", "web_test")) })
+			wantSrcs := []string{"//foreign:fixtures/value.json", "test.ts"}
+			var wantDeps []string
+			if owned {
+				wantSrcs = []string{"test.ts"}
+				wantDeps = []string{"//foreign:fixtures"}
+			}
+			wantStrings(t, "srcs", r.AttrStrings("srcs"), wantSrcs)
+			wantStrings(t, "deps", r.AttrStrings("deps"), wantDeps)
+			if logged != "" {
+				t.Fatalf("resolved JSON reported missing: %s", logged)
+			}
+		})
+	}
+}
+
+func TestResolveEdges_ForeignJSONColonDoesNotPoisonLabels(t *testing.T) {
+	c, _ := edgeRepo(t, edgeListings)
+	c.ValidBuildFileNames = []string{"BUILD.bazel"}
+	const file = "foreign/value:invalid.json"
+	writeFile(t, filepath.Join(c.RepoRoot, "foreign/BUILD.bazel"), "")
+	writeFile(t, filepath.Join(c.RepoRoot, file), `{ "answer": 42 }`)
+	imps := &ruleImports{edges: []explainfiles.Edge{importEdge("web/test.ts", "../foreign/value:invalid.json", file)}}
+	r, logged := resolveEdgesOf(t, c, buildIndex(t, c), "ts_test", "web", "web_test", imps)
+	if len(r.AttrStrings("srcs")) != 0 || len(r.AttrStrings("deps")) != 0 {
+		t.Fatalf("unlabelable JSON became an input: %s", r.AttrStrings("srcs"))
+	}
+	if !strings.Contains(logged, "no Bazel label can name it") {
+		t.Fatalf("unlabelable input has no diagnostic: %s", logged)
+	}
+}

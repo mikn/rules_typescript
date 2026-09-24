@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -110,9 +111,10 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		visits = append(visits, dirVisit{rel, c, f, res.Gen, res.Empty, res.Imports})
 	}
 	root := &config.Config{
-		RepoRoot: repoRoot,
-		RepoName: "converge_repo_root",
-		Exts:     map[string]any{},
+		RepoRoot:            repoRoot,
+		RepoName:            "converge_repo_root",
+		ValidBuildFileNames: []string{"BUILD.bazel", "BUILD"},
+		Exts:                map[string]any{},
 	}
 	(&resolve.Configurer{}).RegisterFlags(nil, "", root)
 	walk(root, "")
@@ -541,4 +543,66 @@ func ruleNamed(rules []*rule.Rule, kind, name string) *rule.Rule {
 		}
 	}
 	return nil
+}
+
+func TestForeignJSONImportRemovalPreservesOnlyExplicitKeep(t *testing.T) {
+	requireTsgo(t)
+	for _, keep := range []bool{false, true} {
+		t.Run(fmt.Sprintf("keep=%t", keep), func(t *testing.T) {
+			const exports = "exports_files([\"value.json\"], visibility = [\"//app:__pkg__\"])\n"
+			const source = "import value from '../fixtures/value.json'; export const answer: number = value.answer;\n"
+			root := writeTree(t, map[string]string{
+				"app/tsconfig.json":    `{"compilerOptions":{"module":"preserve","moduleResolution":"bundler","resolveJsonModule":true},"files":["index.ts"]}`,
+				"app/index.ts":         source,
+				"fixtures/value.json":  `{ "answer": 42 }`,
+				"fixtures/BUILD.bazel": exports,
+			})
+			convergeGazelle(t, root)
+			buildPath := filepath.Join(root, "app/BUILD.bazel")
+			initial, err := os.ReadFile(buildPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const foreign = "//fixtures:value.json"
+			if !strings.Contains(string(initial), foreign) {
+				t.Fatalf("missing foreign JSON source: %s", initial)
+			}
+			retainedLog := captureLog(t, func() { convergeGazelle(t, root) })
+			if strings.Contains(retainedLog, `"`+foreign+`" is no longer declared`) {
+				t.Fatalf("retained compiler input reported dropped: %s", retainedLog)
+			}
+			if keep {
+				writeFile(t, buildPath, strings.Replace(string(initial), `"`+foreign+`",`, `"`+foreign+`", # keep`, 1))
+			}
+			writeFile(t, filepath.Join(root, "app/index.ts"), "export const answer: number = 42;\n")
+			convergeGazelle(t, root)
+			var found bool
+			for _, r := range loadRules(t, root, "app") {
+				if r.Kind() == "ts_compile" {
+					found = slices.Contains(r.AttrStrings("srcs"), foreign)
+				}
+			}
+			if found != keep {
+				t.Fatalf("foreign JSON retained=%t, keep=%t", found, keep)
+			}
+			writeFile(t, filepath.Join(root, "app/index.ts"), source)
+			convergeGazelle(t, root)
+			var restored bool
+			for _, r := range loadRules(t, root, "app") {
+				if r.Kind() == "ts_compile" {
+					restored = slices.Contains(r.AttrStrings("srcs"), foreign)
+				}
+			}
+			if !restored {
+				t.Fatal("restored import did not restore JSON source")
+			}
+			actual, err := os.ReadFile(filepath.Join(root, "fixtures/BUILD.bazel"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(actual), `visibility = ["//app:__pkg__"]`) {
+				t.Fatalf("fixture visibility changed: %s", actual)
+			}
+		})
+	}
 }

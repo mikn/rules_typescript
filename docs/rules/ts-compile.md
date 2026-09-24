@@ -91,7 +91,10 @@ Installed npm packages and optional server plugins retain their own formats. Sou
   declaration src. A data file is never a tsgo input, with one class of
   exception: a `.json` is, this target's and its deps' alike. An import of it
   resolves to the file and is typed from its contents under
-  `resolveJsonModule`, which bundler resolution implies, and tsc reads the
+  `resolveJsonModule`, which bundler resolution implies. JSON imported from a
+  package without a TypeScript owner is a source-file label in `srcs`; it
+  names the original package, which controls its visibility.
+  Gazelle derives these labels from the compiler listing. The compiler reads the
   nearest `package.json` of every source for the module's format and for the
   package's own name, so a package that imports itself by name
   (`import "@scope/pkg/wire"` from inside `pkg`) resolves through the manifest

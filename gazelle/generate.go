@@ -128,7 +128,7 @@ func nonPackageRules(args language.GenerateArgs, tc *tsConfig,
 			"if nothing else is in it", args.File.Path, orRepoRoot(args.Rel),
 			whyNotPackage(tc), strings.Join(held, ", "))
 	}
-	reportManagedAttrDrops(args, res.Gen)
+	reportManagedAttrDrops(args, res.Gen, res.Imports...)
 	return res
 }
 
@@ -248,7 +248,7 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 		}
 	}
 	reportTakenNames(args, res.Gen)
-	reportManagedAttrDrops(args, res.Gen)
+	reportManagedAttrDrops(args, res.Gen, res.Imports...)
 	return res
 }
 
