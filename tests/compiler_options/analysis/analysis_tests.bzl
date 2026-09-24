@@ -140,3 +140,25 @@ declaration_map_without_tsgo_test = _fails_with(
 )
 mixed_source_roots_test = _fails_with("different roots, and one declaration emit has one rootDir")
 jsx_source_test = _fails_with("every jsx mode but preserve")
+
+def _declaration_content_edges_impl(ctx):
+    env = analysistest.begin(ctx)
+    seen = {}
+    for action in analysistest.target_actions(env):
+        if action.mnemonic not in ["TsConfig", "TsEmit", "TsgoCheck"]:
+            continue
+        seen[action.mnemonic] = True
+        present = any([file.path.endswith(ctx.attr.declaration) for file in action.inputs.to_list()])
+        expected = action.mnemonic == "TsgoCheck" or (ctx.attr.full_emit and action.mnemonic == "TsEmit" and "-es_modules" not in action.argv) or (ctx.attr.tree and action.mnemonic == "TsConfig")
+        asserts.equals(env, expected, present, action.mnemonic + " declaration content dependency")
+    asserts.equals(env, ["TsConfig", "TsEmit", "TsgoCheck"], sorted(seen.keys()))
+    return analysistest.end(env)
+
+declaration_content_edges_test = analysistest.make(
+    _declaration_content_edges_impl,
+    attrs = {
+        "declaration": attr.string(mandatory = True),
+        "full_emit": attr.bool(),
+        "tree": attr.bool(),
+    },
+)

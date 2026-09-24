@@ -375,7 +375,7 @@ func TestTypesEntryFile(t *testing.T) {
 	for in, want := range map[string]string{
 		"a.d.ts": "a.d.ts", "c": "c.ts", "d": "d/index.d.ts", "missing": "",
 	} {
-		if got := typesEntryFile(in); got != want {
+		if got := typesEntryFile(in, isFile); got != want {
 			t.Errorf("typesEntryFile(%q) = %q, want %q", in, got, want)
 		}
 	}
@@ -697,4 +697,39 @@ func TestTsconfigStep_JsxDeclaredPreserveUnderAnotherModeFails(t *testing.T) {
 		!strings.Contains(err.Error(), "drop the attribute") {
 		t.Errorf("writeTsconfig = %v, want the effective jsx and the edit", err)
 	}
+}
+
+func TestGeneratedAmbientIdentityDoesNotRequireDeclarationContents(t *testing.T) {
+	e := newExecroot(t, chainLeaf, `{"compilerOptions":{"types":["./generated"]}}`)
+	generated := binDir + "/pkg/generated.d.ts"
+	if err := os.Remove(generated); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteTsconfig(t, e.tsconfigArgs("-type_input="+generated))
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	includes, _ := json.Marshal(config["include"])
+	if !strings.Contains(string(includes), "generated.d.ts") {
+		t.Fatalf("generated ambient missing: %s", includes)
+	}
+}
+
+func TestUnrelatedIdentityCannotSupplyMissingAmbientInput(t *testing.T) {
+	e := newExecroot(t, chainLeaf, `{"compilerOptions":{"types":["./missing"]}}`)
+	err := writeTsconfig(e.tsconfigArgs("-type_input=" + binDir + "/other/missing.d.ts"))
+	if err == nil || !strings.Contains(err.Error(), "no input") {
+		t.Fatalf("missing input diagnostic: %v", err)
+	}
+}
+
+func TestDeclaredDirectoryDoesNotInventAmbientChild(t *testing.T) {
+	e := newExecroot(t, chainLeaf, `{"compilerOptions":{"types":["./tree"]}}`)
+	tree := binDir + "/pkg/tree"
+	if err := os.MkdirAll(tree, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTsconfig(e.tsconfigArgs()); err == nil {
+		t.Fatal("empty tree supplied ambient declaration")
+	}
+	writeFile(t, tree+"/index.d.ts", "declare const treeValue: string;\n")
+	mustWriteTsconfig(t, e.tsconfigArgs())
 }

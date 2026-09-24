@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "types": [
+      "./generated_in_srcs.d.ts"
+    ]
+  }
+}

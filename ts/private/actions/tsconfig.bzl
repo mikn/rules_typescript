@@ -83,11 +83,19 @@ def tsconfig_action(
         config_args.add("-isolated_declarations")
     if lib_check:
         config_args.add("-lib_check")
+    retained_types = []
+
+    # Directory children are unknown until their generator runs.
+    for file in dep_dts.to_list():
+        if file.is_source or file.is_directory:
+            retained_types.append(file)
+        else:
+            config_args.add(file, format = "-type_input=%s")
     config_args.add_all(check_srcs)
     ctx.actions.run(
         inputs = depset(
-            check_srcs + tsconfig_chain,
-            transitive = [dep_dts, tsgo.files],
+            check_srcs + tsconfig_chain + retained_types,
+            transitive = [tsgo.files],
         ),
         outputs = [tsconfig, options_file],
         executable = get_tools_toolchain(ctx).tsaction,

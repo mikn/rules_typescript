@@ -9,6 +9,7 @@
 # gazelle:exclude type_roots
 
 # Compiler options, not data: each is named by a tsconfig attr.
+# gazelle:exclude tsconfig.commonjs-inputs.json
 # gazelle:exclude silent.tsconfig.json
 # gazelle:exclude tsconfig.checkjs.json
 # gazelle:exclude tsconfig.generated_types.json
@@ -26,6 +27,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_config")
 load(
     ":analysis_tests.bzl",
     "baseline_file_test",
+    "declaration_content_edges_test",
     "declaration_map_without_tsgo_test",
     "declare_command_line_test",
     "emit_command_line_test",
@@ -296,3 +298,35 @@ jsx_source_test(
 
 # The generated editor program for this package; see //:refresh_tsconfig.
 exports_files(["tsconfig.json"])
+
+declaration_content_edges_test(
+    name = "esm_does_not_wait_for_declaration_contents_test",
+    declaration = "/generated_in_srcs.d.ts",
+    target_under_test = ":generated_type_file",
+)
+
+ts_compile(
+    name = "commonjs_inputs",
+    srcs = ["module_only.ts"],
+    emit = True,  # keep
+    tsconfig = ":commonjs_inputs_config",
+    deps = [":generated_ambient"],
+)
+
+declaration_content_edges_test(
+    name = "commonjs_keeps_full_program_test",
+    declaration = "/generated_in_srcs.d.ts",
+    full_emit = True,
+    target_under_test = ":commonjs_inputs",
+)
+
+build_test(
+    name = "commonjs_inputs_build_test",
+    targets = [":commonjs_inputs"],
+)
+
+ts_config(
+    name = "commonjs_inputs_config",
+    src = "tsconfig.commonjs-inputs.json",
+    module = "commonjs",
+)
