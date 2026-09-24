@@ -119,16 +119,17 @@ def _check_reads_the_dep_declarations_impl(ctx):
         "the dep's declarations",
     )
 
-    for mnemonic in ["TsgoCheck", "TsEmit"]:
+    for mnemonic in ["TsgoCheck", "TsgoDeclare", "TsConfig", "TsEmit"]:
         action = _action(env, mnemonic)
         asserts.true(env, action != None, "the dependent runs " + mnemonic)
         if action != None:
             inputs = action.inputs.to_list()
             for f in dep_dts:
-                asserts.true(
+                asserts.equals(
                     env,
+                    mnemonic in ["TsgoCheck", "TsgoDeclare"],
                     f in inputs,
-                    "{} reads the dep's {}".format(mnemonic, _rel(f)),
+                    "{} dependency content edge for {}".format(mnemonic, _rel(f)),
                 )
     return analysistest.end(env)
 

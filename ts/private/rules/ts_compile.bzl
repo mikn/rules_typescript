@@ -681,6 +681,7 @@ def compile_program(
                 scratch = "{}/{}.emit".format(tsconfig.dirname, ctx.label.name),
                 source_map = source_map,
                 emit_dts = oxc_emits_dts,
+                declared_module = declared_module,
                 es_modules = es_modules,
             )
         if twin_pairs:
@@ -704,6 +705,7 @@ def compile_program(
                 scratch = "{}/{}.emit".format(tsconfig.dirname, twins_dir),
                 source_map = False,
                 emit_dts = False,
+                declared_module = declared_module,
                 es_modules = True,
             )
         ownership = ownership_manifest(

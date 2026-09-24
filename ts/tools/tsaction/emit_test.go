@@ -221,3 +221,24 @@ func TestEmitStep_ExitCodeIsTheTools(t *testing.T) {
 		t.Errorf("runEmit = %v, want oxc's exit status 3", err)
 	}
 }
+
+func TestEffectiveESModuleEmitDoesNotRequireTypeProgram(t *testing.T) {
+	e := newEmitRoot(t, "esnext")
+	var args []string
+	for _, arg := range e.args() {
+		if strings.HasPrefix(arg, "-tsconfig=") || strings.HasPrefix(arg, "-scratch=") || strings.HasPrefix(arg, "-tsgo=") || strings.HasPrefix(arg, "-source=") || strings.HasPrefix(arg, "-node_modules=") {
+			continue
+		}
+		args = append(args, arg)
+	}
+	if err := runEmit(append(args, "-root=pkg", "pkg/src/a.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(e.oxcArgv); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, binDir+"/pkg/pkg.options.json", `{"module":"commonjs"}`)
+	if err := runEmit(append(args, "-root=pkg", "pkg/src/a.ts")); err == nil || !strings.Contains(err.Error(), "-tsconfig") {
+		t.Fatalf("CommonJS missing program diagnostic: %v", err)
+	}
+}

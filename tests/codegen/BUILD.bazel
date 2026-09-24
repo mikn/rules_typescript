@@ -12,6 +12,7 @@ Tests:
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tests/compiler_options/analysis:analysis_tests.bzl", "declaration_content_edges_test")
 load("//ts:defs.bzl", "ts_codegen", "ts_compile", "ts_test")
 load(":codegen_tests.bzl", "outs_codegen_providers_test")
 
@@ -23,6 +24,7 @@ package(default_visibility = ["//:__pkg__"])
 
 # A compilerOptions baseline, not data: it is named by the tsconfig attr.
 # gazelle:exclude tsconfig.globals.json
+# gazelle:exclude tsconfig.tree.json
 
 # ── Generator binary ──────────────────────────────────────────────────────────
 # A simple shell script generator that writes a TypeScript file with an
@@ -135,4 +137,35 @@ ts_test(
         ":generated_source",
         "@npm//:vitest",
     ],
+)
+
+ts_codegen(
+    name = "globals_tree",
+    srcs = ["input.ts"],
+    args = [
+        "--out",
+        "{out}/index.d.ts",
+    ],
+    generator = ":globals_generator",
+    out_dir = "ambient_tree",
+)
+
+ts_compile(
+    name = "uses_tree_globals",
+    srcs = ["uses_tree_globals.ts"],
+    emit = True,  # keep
+    tsconfig = "tsconfig.tree.json",
+    deps = [":globals_tree"],
+)
+
+declaration_content_edges_test(
+    name = "ambient_tree_retains_content_edge_test",
+    declaration = "/ambient_tree",
+    target_under_test = ":uses_tree_globals",
+    tree = True,
+)
+
+build_test(
+    name = "tree_globals_build_test",
+    targets = [":uses_tree_globals"],
 )

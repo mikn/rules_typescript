@@ -63,10 +63,18 @@ func runEmit(args []string) error {
 		return err
 	}
 	e.srcs = flags.Args()
-	required := []struct{ name, value string }{
-		{"-options", e.options}, {"-out_dir", e.outDir}, {"-oxc", e.oxc},
+	if e.options == "" {
+		return errors.New("emit needs -options")
 	}
-	if !e.esModules {
+	o, err := readOptions(e.options)
+	if err != nil {
+		return err
+	}
+	oxcEmits := e.esModules || tsconfig.OxcEmits(o.Module)
+	required := []struct{ name, value string }{
+		{"-out_dir", e.outDir}, {"-oxc", e.oxc},
+	}
+	if !oxcEmits {
 		required = append(required, []struct{ name, value string }{
 			{"-tsconfig", e.tsconfig}, {"-scratch", e.scratch},
 			{"-tsgo", e.tsgo},
@@ -81,15 +89,11 @@ func runEmit(args []string) error {
 		return errors.New("emit needs a -root and a src")
 	}
 
-	o, err := readOptions(e.options)
-	if err != nil {
-		return err
-	}
 	groups, err := e.groupByRoot()
 	if err != nil {
 		return err
 	}
-	if e.esModules || tsconfig.OxcEmits(o.Module) {
+	if oxcEmits {
 		return e.oxcEmit(groups, o)
 	}
 	return e.tsgoEmit(groups, o)

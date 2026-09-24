@@ -99,6 +99,7 @@ type actionConfig struct {
 	binDir                                string
 	jsx, module                           string
 	typesDeps                             stringList
+	typeInputs                            stringList
 	srcs                                  []string
 	isolatedDeclarations                  bool
 	libCheck                              bool
@@ -134,6 +135,7 @@ func writeTsconfig(args []string) error {
 	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written "+
 		"to types when the user's chain sets neither types nor typeRoots "+
 		"(repeatable)")
+	flags.Var(&a.typeInputs, "type_input", "a declared generated dependency file (repeatable)")
 	flags.BoolVar(&a.isolatedDeclarations, "isolated_declarations", false, "oxc emits the declarations, so every export must be annotated")
 	flags.BoolVar(&a.sourceOnly, "source_only", false, "the program publishes sources without emitting JavaScript")
 	flags.BoolVar(&a.libCheck, "lib_check", false, "check the program's .d.ts closure too")
@@ -451,15 +453,20 @@ func (a *actionConfig) types(effective *effectiveOptions, dir string,
 		projectDir = path.Dir(a.project)
 	}
 	names = make([]string, 0, len(*effective.Types))
+	declared := make(map[string]bool, len(a.typeInputs))
+	for _, file := range a.typeInputs {
+		declared[path.Clean(file)] = true
+	}
+	exists := func(file string) bool { return declared[path.Clean(file)] || isFile(file) }
 	for _, entry := range *effective.Types {
 		if !isRelative(entry) {
 			names = append(names, entry)
 			continue
 		}
 		target := path.Join(projectDir, entry)
-		file := typesEntryFile(target)
+		file := typesEntryFile(target, exists)
 		if file == "" {
-			file = typesEntryFile(path.Join(a.binDir, target))
+			file = typesEntryFile(path.Join(a.binDir, target), exists)
 		}
 		if file == "" {
 			return nil, nil, fmt.Errorf("compilerOptions.types entry %q in %s "+
@@ -477,16 +484,16 @@ var typesEntryExtensions = []string{".ts", ".tsx", ".d.ts", ".mts", ".d.mts", ".
 
 // typesEntryFile is tsc's lookup for a path-shaped entry: the path as a file,
 // a TypeScript or declaration extension added, or a directory's index.d.ts.
-func typesEntryFile(p string) string {
-	if isFile(p) {
+func typesEntryFile(p string, exists func(string) bool) string {
+	if exists(p) {
 		return p
 	}
 	for _, ext := range typesEntryExtensions {
-		if isFile(p + ext) {
+		if exists(p + ext) {
 			return p + ext
 		}
 	}
-	if index := path.Join(p, "index.d.ts"); isFile(index) {
+	if index := path.Join(p, "index.d.ts"); exists(index) {
 		return index
 	}
 	return ""
