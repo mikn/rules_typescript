@@ -19,6 +19,17 @@ def _wrangler_config_runfiles_impl(ctx):
             "--config" in argv and argv[argv.index("--config") + 1].endswith(_SOURCE),
             "the source is the action's --config: " + str(argv),
         )
+        tree_path = "tests/codegen_tree/compiled"
+        asserts.true(
+            env,
+            tree_path in argv and argv[argv.index(tree_path) - 1] == "--runtime-js",
+            "an unrelated generated tree must remain a runtime artifact identity",
+        )
+        asserts.false(
+            env,
+            tree_path in [f.short_path for f in patches[0].inputs.to_list()],
+            "Wrangler config projection must not read unrelated runtime tree contents",
+        )
 
     # The copy takes the source's runfiles path, and that path alone.
     symlinks = [(s.path, s.target_file.basename) for s in runfiles.symlinks.to_list()]
