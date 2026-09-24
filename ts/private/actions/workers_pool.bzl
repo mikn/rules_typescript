@@ -10,8 +10,8 @@ load("//ts/private:runtime.bzl", "get_js_tool")
 WORKERS_POOL_ATTRS = {
     "wrangler_config": attr.label(
         doc = "The wrangler config a Workers-pool `config` names through " +
-              "`wrangler.configPath`.  A copy whose `main` (and every " +
-              "`env.<name>.main`) names the compiled entry beside it is " +
+              "`wrangler.configPath`. A copy projecting matching `main` and " +
+              "`env.<name>.main` entries to declared runtime artifacts is " +
               "staged at this file's own runfiles path; the file is not " +
               "also listed in `data`.",
         allow_single_file = [".jsonc", ".json", ".toml"],
@@ -22,7 +22,10 @@ WORKERS_POOL_ATTRS = {
     ),
 }
 
-def workers_pool_environment(ctx, chain, runtime_data_sets):
+def _runtime_path(file):
+    return file.short_path
+
+def workers_pool_environment(ctx, chain, runtime_data_sets, runtime_sources, runtime_js):
     """The pool's half of the test environment, or its absence.
 
     `chain` is ts_test's struct(dirs, rlocations, npm_files). Returns
@@ -31,8 +34,6 @@ def workers_pool_environment(ctx, chain, runtime_data_sets):
     """
     symlinks = {}
 
-    # The pool boots the file `main` names, the source; a copy naming the
-    # compiled entry takes the source's runfiles path, so `configPath` reads it.
     if ctx.file.wrangler_config:
         src = ctx.file.wrangler_config
 
@@ -67,6 +68,9 @@ def workers_pool_environment(ctx, chain, runtime_data_sets):
         args.add(ctx.file._wrangler_patch)
         args.add("--config", src)
         args.add("--out", patched)
+        args.add("--config-path", src.short_path)
+        args.add_all(runtime_sources, before_each = "--runtime-source", map_each = _runtime_path)
+        args.add_all(runtime_js, before_each = "--runtime-js", map_each = _runtime_path)
         args.add_all(chain.dirs, before_each = "--node-modules")
         ctx.actions.run(
             inputs = depset(

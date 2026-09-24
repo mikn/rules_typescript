@@ -163,7 +163,7 @@ into the launcher's config and the runfiles of one test.
                   "test's analysis. `test` is the struct ts_test builds from " +
                   "the compile (entry_points, entry_extensions, " +
                   "test_files_list, chain, transitive_js, es_twins, placed, " +
-                  "runtime_data_sets, package_sources, inline_members, " +
+                  "runtime_data_sets, runtime_sources, package_sources, inline_members, " +
                   "runner); `chain` is " +
                   "struct(dirs, rlocations, npm_files): the chain's " +
                   "node_modules directories nearest first, as bin-dir paths " +

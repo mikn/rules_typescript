@@ -1,25 +1,30 @@
-// ts_test's WranglerTestConfig action: a copy of a Workers config whose `main`,
-// and every env.<name>.main, names the compiled entry beside the source it named.
 import { copyFileSync, existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 
 const fail = (message) => {
   process.stderr.write(`wrangler_test_config: ${message}\n`);
   process.exit(1);
 };
 
-const names = { "--config": "config", "--out": "out", "--node-modules": "nodeModules" };
-const flags = { nodeModules: [] };
+const names = {
+  "--config": "config",
+  "--out": "out",
+  "--config-path": "configPath",
+  "--node-modules": "nodeModules",
+  "--runtime-source": "runtimeSources",
+  "--runtime-js": "runtimeJs",
+};
+const flags = { nodeModules: [], runtimeSources: [], runtimeJs: [] };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i += 2) {
   const name = names[argv[i]] ?? argv[i];
-  if (name === "nodeModules") flags.nodeModules.push(argv[i + 1]);
+  if (Array.isArray(flags[name])) flags[name].push(argv[i + 1]);
   else flags[name] = argv[i + 1];
 }
-const { config, out, nodeModules } = flags;
-if (!config || !out || nodeModules.length === 0) {
-  fail("--config, --out and --node-modules are all required");
+const { config, out, configPath, nodeModules } = flags;
+if (!config || !out || !configPath || nodeModules.length === 0) {
+  fail("--config, --out, --config-path and --node-modules are all required");
 }
 
 // Resolved from the pool package's realpath in the store, the walk the pool's
@@ -46,14 +51,31 @@ const compiledEntry = (main) => {
   return m ? main.slice(0, -m[0].length) + COMPILED[m[0]] : main;
 };
 
+const sources = new Set(flags.runtimeSources);
+const javascript = new Set(flags.runtimeJs);
+const runtimeEntry = (main) => {
+  const source = posix.normalize(posix.join(posix.dirname(configPath), main));
+  const emitted = compiledEntry(source);
+  const ownsSource = sources.has(source);
+  const ownsEmitted = javascript.has(emitted);
+  if (ownsSource && ownsEmitted && source !== emitted) {
+    fail(
+      `${configPath}: ${main} has both source and emitted runtime owners; use one runtime identity in the test dependencies`,
+    );
+  }
+  return ownsEmitted && !ownsSource ? compiledEntry(main) : main;
+};
+
 copyFileSync(config, out);
 const { rawConfig } = experimental_readRawConfig({ config: out });
 const patch = {};
-if (typeof rawConfig.main === "string") patch.main = compiledEntry(rawConfig.main);
+if (typeof rawConfig.main === "string") patch.main = runtimeEntry(rawConfig.main);
 for (const [name, env] of Object.entries(rawConfig.env ?? {})) {
-  if (env && typeof env.main === "string") (patch.env ??= {})[name] = { main: compiledEntry(env.main) };
+  if (env && typeof env.main === "string")
+    (patch.env ??= {})[name] = { main: runtimeEntry(env.main) };
 }
-if (Object.keys(patch).length === 0) fail(`${config} names no \`main\`, so the pool has no worker to boot`);
+if (Object.keys(patch).length === 0)
+  fail(`${config} names no \`main\`, so the pool has no worker to boot`);
 try {
   experimental_patchConfig(out, patch);
 } catch (error) {

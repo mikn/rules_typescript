@@ -1,6 +1,4 @@
 {
-  // `main` names the source, as a deploy entry does; the test reads a copy
-  // naming the compiled entry, staged at this file's path.
   "name": "rules-typescript-nested-worker",
   "main": "src/index.ts",
   "compatibility_date": "2026-01-01",
@@ -8,8 +6,9 @@
   "vars": { "GREETING": "top-level" },
   "env": {
     "test": {
-      "main": "src/index.ts",
-      "vars": { "GREETING": "from-env-test" }
-    }
-  }
+      "main": "src/environment.ts",
+      "vars": { "GREETING": "from-env-test" },
+    },
+    "unavailable": { "main": "src/not-declared.ts" },
+  },
 }

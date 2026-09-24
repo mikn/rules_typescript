@@ -626,16 +626,9 @@ ts_test(
 )
 ```
 
-The pool boots the file `main` names, resolved against the config file's
-directory; in a repository that is the source, `src/index.ts`, and the worker
-under test is the compiled one. `WranglerTestConfig` copies the file and
-patches `main` and every `env.<name>.main` to the compiled entry with wrangler's
-`experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts` to `.mjs`, `.cts`
-to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
-`node_modules` tree. The copy is staged at the source's runfiles path, which is
-what `configPath` names and the id a `?raw` import of it gets back.
-Comments and every other key survive; the formatting is wrangler's. A config
-naming no `main`, or a `.toml` holding `#` comments, fails the action.
+The pool boots the file `main` names, relative to the configuration directory. `wrangler_config` keeps a TypeScript entry when its dependency publishes that source as a runtime input. When the dependency publishes emitted JavaScript, the configuration action maps the entry to that declared artifact. Incidental source files do not change the runtime identity. Competing source and emitted owners fail; choose one representation in the test dependencies.
+
+The action uses the pool's Wrangler parser and stages its copy at the original configuration's runfiles path, including for `?raw` imports. Environment entries use the same projection. An entry with no declared runtime match remains unchanged, so unused environments need no extra dependencies; the pool reports a missing entry if that environment is selected. A configuration with no `main`, or a `.toml` file containing `#` comments, still fails the action. Other keys and supported comments survive with Wrangler's formatting.
 
 A runfiles file at the copy's path wins over it silently, with the unpatched
 `main`. The file in `data` as well is an analysis error, `is staged through
@@ -650,7 +643,7 @@ What else a wrangler config names, and where each comes from under `ts_test`:
 
 | Key | Source |
 |---|---|
-| `main`, `env.<name>.main` | the compiled entry, through the patched copy |
+| `main`, `env.<name>.main` | the declared runtime source or emitted entry, through the staged copy |
 | `rules` modules (`**/*.txt`, `**/*.md`, ...) | a src of the worker's `ts_compile` |
 | `assets.directory` | its contents in `data`, at the same path relative to the config |
 | `.dev.vars`, `.dev.vars.<env>` | read beside the config; in `data` when a test needs one |

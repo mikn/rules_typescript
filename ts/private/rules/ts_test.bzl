@@ -80,8 +80,6 @@ def _ts_test_impl(ctx):
 
     if not supports_sources:
         require_emitted(ctx.label, program.info, "runner {}".format(ctx.attr.runner.label))
-    if ctx.file.wrangler_config:
-        require_emitted(ctx.label, program.info, "Workers pool wrangler_config {}".format(ctx.attr.wrangler_config.label))
 
     linked = {info.package_name: True for info in program.packages}
     missing = [name for name in runner.packages if name not in linked]
@@ -127,6 +125,7 @@ def _ts_test_impl(ctx):
         test_files_list = test_files_list,
         chain = chain,
         transitive_js = program.transitive_js,
+        runtime_sources = program.transitive_runtime_sources,
         es_twins = program.es_twins,
         placed = placed,
         runtime_data_sets = [program.transitive_data, program.transitive_runtime_sources],

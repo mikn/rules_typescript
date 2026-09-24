@@ -25,12 +25,3 @@ def _node_rejects_source_impl(ctx):
     return analysistest.end(env)
 
 node_rejects_source_test = analysistest.make(_node_rejects_source_impl, expect_failure = True)
-
-def _workers_rejects_source_impl(ctx):
-    env = analysistest.begin(ctx)
-    asserts.expect_failure(env, "Workers pool wrangler_config")
-    asserts.expect_failure(env, "//tests/source_mode/lib:library")
-    asserts.expect_failure(env, "Set emit = True")
-    return analysistest.end(env)
-
-workers_rejects_source_test = analysistest.make(_workers_rejects_source_impl, expect_failure = True)
