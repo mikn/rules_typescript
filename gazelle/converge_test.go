@@ -606,3 +606,68 @@ func TestForeignJSONImportRemovalPreservesOnlyExplicitKeep(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneratedTreeImportRetainsDirectOwnerWithoutOutputFiles(t *testing.T) {
+	requireTsgo(t)
+	cases := []struct {
+		name, paths, specifier string
+		wantGenerator          bool
+	}{
+		{"inherited alias", `{"#shared/*":["./shared/*"]}`, "#shared/generated/runtime", true},
+		{"generated first fallback", `{"#shared/value":["./shared/value"],"#module":["./shared/generated/runtime","./shared/fallback"]}`, "#module", true},
+		{"authored first fallback", `{"#shared/value":["./shared/value"],"#module":["./shared/fallback","./shared/generated/runtime"]}`, "#module", false},
+		{"exact alias overrides wildcard", `{"#shared/*":["./shared/*"],"#shared/generated/runtime":["./shared/fallback"]}`, "#shared/generated/runtime", false},
+		{"tree root candidate", `{"#shared/*":["./shared/*"],"#module":["./shared/generated"]}`, "#module", true},
+		{"unowned missing import", `{"#shared/*":["./shared/*"]}`, "#shared/missing/runtime", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeWorkspace(t, root, map[string]string{
+				"package.json":              `{"name":"fixture"}`,
+				"app/tsconfig.json":         `{"compilerOptions":{"module":"preserve","moduleResolution":"bundler","paths":` + tc.paths + `},"include":["shared/**/*.ts"]}`,
+				"app/shared/value.ts":       "export const value = 1;\n",
+				"app/shared/fallback.ts":    "export const generated = 'authored';\n",
+				"app/plugins/tsconfig.json": `{"extends":"../tsconfig.json","include":["*.ts"]}`,
+				"app/plugins/consumer.ts":   "import { value } from '#shared/value';\nimport { generated } from '" + tc.specifier + "';\nexport const result = [value, generated];\n",
+				"app/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_codegen")
+ts_codegen(
+    name = "generated",
+    generator = "//:generator",
+    out_dir = "shared/generated",
+    visibility = ["//visibility:public"],
+)
+`,
+			})
+			for _, state := range []string{"cold", "materialized", "deleted"} {
+				switch state {
+				case "materialized":
+					for _, name := range []string{"runtime", "index"} {
+						writeFile(t, filepath.Join(root, "app/shared/generated/"+name+".d.ts"), "export declare const generated: string;\n")
+					}
+				case "deleted":
+					if err := os.RemoveAll(filepath.Join(root, "app/shared/generated")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for pass := 1; pass <= 2; pass++ {
+					captureLog(t, func() { convergeGazelle(t, root) })
+					found := false
+					for _, r := range loadRules(t, root, "app/plugins") {
+						if r.Kind() != "ts_compile" {
+							continue
+						}
+						found = true
+						deps := r.AttrStrings("deps")
+						if !slices.Contains(deps, "//app") || slices.Contains(deps, "//app:generated") != tc.wantGenerator {
+							t.Errorf("%s pass %d: deps = %v, want //app and generator=%t", state, pass, deps, tc.wantGenerator)
+						}
+					}
+					if !found {
+						t.Fatal("nested consumer has no ts_compile owner")
+					}
+				}
+			}
+		})
+	}
+}

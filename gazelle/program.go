@@ -26,9 +26,10 @@ var tsgoRlocationpath string
 // paths relative to it and the compiler's libs under ../ or bundled:///.
 type program struct {
 	explainfiles.Listing
-	dir      string
-	refused  string
-	manifest bool
+	candidates []resolutionCandidate
+	dir        string
+	refused    string
+	manifest   bool
 }
 
 // One run's listings, one store every directory's config shares: the packages
@@ -401,16 +402,21 @@ func (p *program) typeEdges() []explainfiles.Edge {
 // listing is kept whatever the exit; TS18003 alone is a program with no inputs.
 func runListing(repoRoot, tsgo, subject string, args []string,
 ) (*program, error) {
+	args = append(append([]string{}, args...), "--traceResolution", "--locale", "en")
 	cmd := exec.Command(tsgo, args...)
 	cmd.Dir = repoRoot
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
-	l, err := explainfiles.Parse(stdout.String())
+	listing, candidates, err := splitResolutionTrace(repoRoot, stdout.String())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", subject, err)
 	}
-	p := &program{Listing: *l}
+	l, err := explainfiles.Parse(listing)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", subject, err)
+	}
+	p := &program{Listing: *l, candidates: candidates}
 	switch {
 	case runErr == nil:
 		return p, nil

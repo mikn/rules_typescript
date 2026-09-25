@@ -90,7 +90,7 @@ func codegenTreeKey(root string) string {
 // resolveCodegenTree is the out_dir ts_codegen whose tree imp sits under;
 // deepest root first, so a nested tree answers for its own subtree.
 func resolveCodegenTree(ix *resolve.RuleIndex, imp string, from label.Label) string {
-	for dir := path.Dir(imp); ; dir = path.Dir(dir) {
+	for dir := imp; ; dir = path.Dir(dir) {
 		if dir == "" || dir == "." || dir == "/" || dir == ".." {
 			return ""
 		}
@@ -113,6 +113,13 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	deps := map[string]bool{}
 	for _, dep := range imps.deps {
 		deps[dep] = true
+	}
+	for _, candidate := range imps.candidates {
+		if firstParty(candidate.path) {
+			if dep := resolveCodegenTree(ix, candidate.path, from); dep != "" {
+				deps[dep] = true
+			}
+		}
 	}
 	edges := imps.edges
 	if imps.config != "" {

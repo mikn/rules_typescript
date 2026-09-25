@@ -49,7 +49,7 @@ func TestProgram_ArgvPinsPrettyFalse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "-p\npkg/tsconfig.json\n--noEmit\n--listFilesOnly\n--explainFiles\n--pretty\nfalse\n"
+	want := "-p\npkg/tsconfig.json\n--noEmit\n--listFilesOnly\n--explainFiles\n--pretty\nfalse\n--traceResolution\n--locale\nen\n"
 	if string(got) != want {
 		t.Errorf("tsgo argv:\n%s\nwant:\n%s", got, want)
 	}
@@ -429,7 +429,7 @@ func TestProgram_AForeignProjectIsNotListed(t *testing.T) {
 		t.Fatalf("tsgo did not list pkg/tsconfig.json: %v", err)
 	}
 	if !strings.Contains(string(got), "pkg/tsconfig.json\n") ||
-		strings.Contains(string(got), "--traceResolution") {
+		!strings.Contains(string(got), "--traceResolution") {
 		t.Errorf("tsgo argv for pkg:\n%s", got)
 	}
 	if strings.Contains(logged, "no importer") {
@@ -454,7 +454,7 @@ func TestProgram_CombinedVitestRunArgv(t *testing.T) {
 	want := "--noEmit\n--listFilesOnly\n--explainFiles\n--ignoreConfig\n" +
 		"--allowJs\n--module\nesnext\n--moduleResolution\nbundler\n" +
 		"--skipLibCheck\n--pretty\nfalse\na/vitest.config.mts\n" +
-		"b/vitest.workers.config.mjs\n"
+		"b/vitest.workers.config.mjs\n--traceResolution\n--locale\nen\n"
 	if string(got) != want {
 		t.Errorf("tsgo argv:\n%s\nwant:\n%s", got, want)
 	}
