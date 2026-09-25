@@ -80,14 +80,15 @@ func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 	if err := json.Unmarshal(out, &config); err != nil {
 		return nil, nil, fmt.Errorf("printed no config (%v):\n%s", err, out)
 	}
+	if len(config.CompilerOptions) == 0 || string(config.CompilerOptions) == "null" || config.CompilerOptions[0] != '{' {
+		return nil, nil, fmt.Errorf("unsupported --showConfig schema: expected a compilerOptions object; select a compiler that emits nested compilerOptions with string enum values")
+	}
 	var options effectiveOptions
-	if len(config.CompilerOptions) != 0 {
-		if err := json.Unmarshal(config.CompilerOptions, &options); err != nil {
-			return nil, nil, err
-		}
-		if err := json.Unmarshal(config.CompilerOptions, &options.compilerOptions); err != nil {
-			return nil, nil, err
-		}
+	if err := json.Unmarshal(config.CompilerOptions, &options); err != nil {
+		return nil, nil, err
+	}
+	if err := json.Unmarshal(config.CompilerOptions, &options.compilerOptions); err != nil {
+		return nil, nil, err
 	}
 	return &options, config.Files, nil
 }

@@ -36,6 +36,7 @@ go_test(
     size = "small",
     srcs = [
         "check_test.go",
+        "config_compiler_test.go",
         "emit_test.go",
         "exclude_test.go",
         "main_test.go",
@@ -44,8 +45,10 @@ go_test(
         "showconfig_test.go",
         "tsgo_test.go",
     ],
-    data = glob(["testdata/**"]),
+    data = glob(["testdata/**"]) + ["//ts/toolchain:tsgo_resolved"],
     embed = [":tsaction_lib"],
+    env = {"TSGO_RLOCATION": "$(rlocationpath //ts/toolchain:tsgo_resolved)"},
+    deps = ["@io_bazel_rules_go//go/runfiles"],
 )
 
 tools_toolchain(
