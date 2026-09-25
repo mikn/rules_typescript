@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
-import fixture from "../foreign_fixtures/value.json";
+import { answer } from "../foreign_fixtures/a";
 
-it("projects an excluded package JSON import into compiler and runtime inputs", () => {
-  const answer: number = fixture.answer;
+it("retains transitive source and JSON imports from an excluded package", () => {
   expect(answer).toBe(42);
 });

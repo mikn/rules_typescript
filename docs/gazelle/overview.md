@@ -106,9 +106,8 @@ pnpm installs nothing for it, so a bare import under it resolves through
 whatever an importer above hoisted, or not at all. That directory and every
 directory below it, down to the next `package.json` that is an importer, is
 outside the package model: a `tsconfig.json` there is not listed and is no
-package, its files are no src of the package above, a file of it a program
-above lists is unowned, and the run names the manifest once. A project meant
-to build is listed in `pnpm-workspace.yaml`.
+package, and the run names the manifest once. A project meant to build on its
+own is listed in `pnpm-workspace.yaml`.
 
 A file belongs to the nearest package at or above its directory when that
 package's program lists it. A file that package does not list belongs to no
@@ -117,6 +116,18 @@ programs that reached it, and so names a listed file under a directory the walk
 did not enter (`# gazelle:exclude`, `.bazelignore`, `# gazelle:ignore`). A file
 two programs list, a parent's and a nested package's, is the nested package's
 alone, and the parent's edge to it is a dep.
+
+An import into an unowned source file becomes a direct `srcs` label in the
+consumer. Gazelle follows that file's compiler-observed imports, including
+transitive source and JSON inputs, declaration files with existing JavaScript
+companions, and npm type references. The compile rule still enforces its
+supported source formats and the consuming target's npm importer chain; this
+does not allow two conflicting resolutions of one npm package in that target.
+Existing target owners, explicit resolve overrides and generated-output
+owners remain dependencies; traversal stops at those boundaries. Labels use
+the nearest existing Bazel package. Gazelle does not create exports, widen
+visibility or include unrelated neighboring sources. Runtime assets and package
+metadata that the compiler does not list still need an existing data owner.
 
 Within a package, a `*.test.*` or `*.spec.*` file is a test file, a `.d.ts`,
 `.d.mts` or `.d.cts` a declaration, and every other listed file a library

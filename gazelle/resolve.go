@@ -114,17 +114,19 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	for _, dep := range imps.deps {
 		deps[dep] = true
 	}
-	for _, candidate := range imps.candidates {
-		if firstParty(candidate.path) {
-			if dep := resolveCodegenTree(ix, candidate.path, from); dep != "" {
-				deps[dep] = true
+	addCandidates := func(candidates []resolutionCandidate) {
+		for _, candidate := range candidates {
+			if firstParty(candidate.path) {
+				if dep := resolveCodegenTree(ix, candidate.path, from); dep != "" {
+					deps[dep] = true
+				}
 			}
 		}
 	}
-	edges := imps.edges
+	addCandidates(imps.candidates)
+	var configEdges []explainfiles.Edge
 	if imps.config != "" {
-		configEdges := tc.programs.configEdges(c.RepoRoot, imps.config)
-		edges = append(edges, configEdges...)
+		configEdges = tc.programs.configEdges(c.RepoRoot, imps.config)
 		srcs := configSrcLabels(c, tc, tc.programs.configSrcs(c.RepoRoot, imps.config),
 			imps.config, from)
 		if len(srcs) > 0 {
@@ -140,17 +142,41 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	for _, src := range r.AttrStrings("srcs") {
 		srcs[src] = true
 	}
-	for i, e := range edges {
-		inputs := srcs
-		if i >= len(imps.edges) {
-			inputs = nil
+	program := tc.programs.programs[from.Pkg]
+	byFrom := program.edgesBySource()
+	reached := map[string]bool{}
+	queue := slices.Clone(imps.edges)
+	for len(queue) > 0 {
+		e := queue[0]
+		queue = queue[1:]
+		dep, source := edgeDep(c, ix, tc, e, from, reported, srcs)
+		if dep != "" {
+			deps[dep] = true
 		}
-		if dep := edgeDep(c, ix, tc, e, from, reported, inputs); dep != "" {
+		if source && !reached[e.To] {
+			reached[e.To] = true
+			if program != nil {
+				addCandidates(tc.programs.ownedCandidates(from.Pkg, []string{e.To}))
+			}
+			queue = append(queue, sourceEdges(byFrom, []string{e.To})...)
+			if twin := javaScriptTwin(e.To, func(file string) bool {
+				st, err := os.Stat(filepath.Join(c.RepoRoot, filepath.FromSlash(file)))
+				return err == nil && st.Mode().IsRegular()
+			}); twin != "" {
+				queue = append(queue, explainfiles.Edge{From: e.From, To: twin, Specifier: e.Specifier, Kind: e.Kind})
+			}
+		}
+	}
+	for _, e := range configEdges {
+		if dep, _ := edgeDep(c, ix, tc, e, from, reported, nil); dep != "" {
 			deps[dep] = true
 		}
 	}
 	if len(srcs) > 0 {
 		r.SetAttr("srcs", slices.Sorted(maps.Keys(srcs)))
+	}
+	if imps.reportSrcDrops != nil {
+		imps.reportSrcDrops(r)
 	}
 	// A types entry naming a codegen out that is not in the checkout (D9).
 	own := filepath.Join(c.RepoRoot, filepath.FromSlash(from.Pkg), "tsconfig.json")
@@ -210,11 +236,11 @@ func configSrcPackage(c *config.Config, tc *tsConfig, file, configDir string) st
 }
 
 func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
-	e explainfiles.Edge, from label.Label, reported, srcs map[string]bool) string {
+	e explainfiles.Edge, from label.Label, reported, srcs map[string]bool) (dep string, source bool) {
 	s := tc.programs
 	if !firstParty(e.To) {
 		if npmPackageName(e.To) == "" {
-			return ""
+			return "", false
 		}
 		if tc.lock == nil {
 			if !s.noLockSaid {
@@ -222,33 +248,34 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 				log.Printf("typescript: no %s at the repository root, so no hub "+
 					"declares an npm package; npm imports get no dep", pnpmLockfileName)
 			}
-			return ""
+			return "", false
 		}
-		return tc.lock.edgeLabel(e, from.Pkg)
+		return tc.lock.edgeLabel(e, from.Pkg), false
 	}
 	spec := resolve.ImportSpec{Lang: languageName, Imp: e.To}
 	if lbl, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
-		return lbl.Rel(from.Repo, from.Pkg).String()
+		return lbl.Rel(from.Repo, from.Pkg).String(), false
 	}
 	if codegen, ok := tc.codegenOuts[e.To]; ok {
-		return codegen.Rel(from.Repo, from.Pkg).String()
+		return codegen.Rel(from.Repo, from.Pkg).String(), false
 	}
 	if lbl := resolveProtoOutput(c, ix, e.To, from); lbl != "" {
-		return lbl
+		return lbl, false
 	}
 	if lbl := resolveCodegenTree(ix, e.To, from); lbl != "" {
-		return lbl
+		return lbl, false
 	}
 	if tc.lock != nil {
 		if lbl, ok := tc.lock.memberView(e.Specifier, e.From, from.Pkg); ok {
-			return lbl
+			return lbl, false
 		}
 	}
 	if lbl, held := ruleHolding(ix, spec, from); held {
-		return lbl
+		return lbl, false
 	}
 	if owner := s.owner(e.To); owner == "" {
-		if srcs != nil && path.Ext(e.To) == ".json" {
+		if srcs != nil && (slices.Contains(tsSourceExtensions, path.Ext(e.To)) ||
+			slices.Contains([]string{".js", ".jsx", ".mjs", ".cjs", ".json"}, path.Ext(e.To))) {
 			if st, err := os.Stat(filepath.Join(c.RepoRoot, filepath.FromSlash(e.To))); err == nil && st.Mode().IsRegular() {
 				pkg := configSrcPackage(c, tc, e.To, "")
 				name := e.To
@@ -257,10 +284,10 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 				}
 				if _, ok := srcLabel(name); !ok {
 					reportEdge(from, e, "file name contains ':'; no Bazel label can name it", reported)
-					return ""
+					return "", false
 				}
 				srcs[label.New(from.Repo, pkg, name).Rel(from.Repo, from.Pkg).String()] = true
-				return ""
+				return "", true
 			}
 		}
 		reportEdge(from, e, s.whyUnowned(e.To), reported)
@@ -268,7 +295,7 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 		reportEdge(from, e, tsconfigIn(owner)+" lists it and no rule there has it "+
 			"in srcs", reported)
 	}
-	return ""
+	return "", false
 }
 
 // ruleHolding is the rule whose srcs hold the file, relative to from; a rule of
