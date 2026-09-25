@@ -1,4 +1,7 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_binary")
+load("//vite:plugin.bzl", "esbuild_bundle")
 
 # Tools shipped with rules_typescript.
 # Shell scripts referenced by macros in ts/private/pnpm.bzl; the tsserver hook
@@ -8,6 +11,15 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "add_package_wrapper.sh",
+    "query-editor.mjs",
+    "query-editor.test.mjs",
+    "query-editor-native.mjs",
+    "live-editor-native.mjs",
+    "testdata/disable-execve.cjs",
+    "testdata/native-lsp-process.mjs",
+    "verify-editor.mjs",
+    "verify-editor-cli.mjs",
+    "verify-editor.test.mjs",
     "pnpm_wrapper.sh",
     "tsserver-hook.js",
     "tsserver-hook-resolver.js",
@@ -32,4 +44,62 @@ filegroup(
 bzl_library(
     name = "rust_tool",
     srcs = ["rust_tool.bzl"],
+)
+
+node_modules(
+    name = "editor_node_modules",
+    hoist = "//tools/editor_deps:node_modules/.pnpm/node_modules",
+    deps = [
+        "@npm_editor//:chokidar",
+        "@npm_editor//:esbuild",
+    ],
+)
+
+esbuild_bundle(
+    name = "native_session",
+    srcs = ["verify-editor.mjs"],
+    out = "native/verify-editor.mjs",
+    entry_point = "verify-editor.mjs",
+    node_modules = ":editor_node_modules",
+)
+
+[
+    esbuild_bundle(
+        name = name + "_bundle",
+        srcs = [name + ".mjs"] + (["verify-editor.mjs"] if name == "verify-editor.test" else []),
+        out = "native/" + name + ".mjs",
+        entry_point = name + ".mjs",
+        external = [] if name == "verify-editor.test" else ["./verify-editor.mjs"],
+        node_modules = ":editor_node_modules",
+    )
+    for name in [
+        "verify-editor-cli",
+        "query-editor",
+        "verify-editor.test",
+        "query-editor.test",
+        "query-editor-native",
+        "live-editor-native",
+        "testdata/native-lsp-process",
+    ]
+]
+
+filegroup(
+    name = "native_editor_runtime",
+    srcs = [
+        ":native_session",
+        ":query-editor_bundle",
+        ":verify-editor-cli_bundle",
+    ],
+)
+
+ts_binary(
+    name = "verify_editor",
+    data = [":native_session"],
+    entry_point = ":verify-editor-cli_bundle",
+)
+
+ts_binary(
+    name = "query_editor",
+    data = [":native_session"],
+    entry_point = ":query-editor_bundle",
 )

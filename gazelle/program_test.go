@@ -42,7 +42,7 @@ func TestProgram_ArgvPinsPrettyFalse(t *testing.T) {
 	if err := os.WriteFile(bin, []byte(fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argv)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := listProgram(root, "pkg", bin); err != nil {
+	if _, err := listProgram(root, "pkg/tsconfig.json", bin); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(argv)
@@ -60,7 +60,7 @@ func TestProgram_ArgvPinsPrettyFalse(t *testing.T) {
 func TestProgram_ExitCodePolicy(t *testing.T) {
 	root := t.TempDir()
 
-	p, err := listProgram(root, "pkg",
+	p, err := listProgram(root, "pkg/tsconfig.json",
 		fakeTsgo(t, root, "tsgo-no-inputs", noInputsOutput+"\n", 2))
 	if err != nil {
 		t.Fatalf("an exit 2 explained by TS18003 failed the listing: %v", err)
@@ -69,7 +69,7 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 		t.Errorf("program = %+v, want pkg with no roots and no refusal", p)
 	}
 
-	if _, err := listProgram(root, "pkg",
+	if _, err := listProgram(root, "pkg/tsconfig.json",
 		fakeTsgo(t, root, "tsgo-silent", "", 1)); err == nil {
 		t.Error("an exit 1 with no diagnostic did not fail the listing")
 	} else if !strings.Contains(err.Error(), "pkg/tsconfig.json") {
@@ -80,7 +80,7 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 		"  Use '\"paths\": {\"*\": [\"./*\"]}' instead.\n" +
 		"pkg/src/a.ts\n" +
 		"   Matched by include pattern 'src/**/*.ts' in 'pkg/tsconfig.json'\n"
-	p, err = listProgram(root, "pkg",
+	p, err = listProgram(root, "pkg/tsconfig.json",
 		fakeTsgo(t, root, "tsgo-baseurl", removedOption, 2))
 	if err != nil {
 		t.Fatalf("an exit 2 explained by TS5102 failed the run: %v", err)
@@ -97,7 +97,7 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 		"   Matched by include pattern 'src/**/*.ts' in 'pkg/tsconfig.json'\n" +
 		"pkg/src/broken.ts\n" +
 		"   Matched by include pattern 'src/**/*.ts' in 'pkg/tsconfig.json'\n"
-	p, err = listProgram(root, "pkg",
+	p, err = listProgram(root, "pkg/tsconfig.json",
 		fakeTsgo(t, root, "tsgo-syntax", syntaxError, 2))
 	if err != nil {
 		t.Fatalf("an exit 2 explained by a syntax error failed the run: %v", err)
@@ -108,7 +108,7 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 	}
 
 	unreadable := noInputsOutput + "\npkg/tsconfig.json(2,1): error TS1005: ']' expected.\n"
-	p, err = listProgram(root, "pkg",
+	p, err = listProgram(root, "pkg/tsconfig.json",
 		fakeTsgo(t, root, "tsgo-unreadable", unreadable, 2))
 	if err != nil {
 		t.Fatalf("an exit 2 with nothing listed failed the run instead of refusing the program: %v", err)

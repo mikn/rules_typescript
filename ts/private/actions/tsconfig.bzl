@@ -7,6 +7,7 @@ same file. The ts_config's jsx and module declarations are checked against
 the chain.
 """
 
+load("//ts/private:editor_path.bzl", "editor_project_path")
 load("//ts/private:toolchain.bzl", "get_tools_toolchain")
 
 # The file the action config extends FIRST, so every key the user's chain sets
@@ -62,6 +63,8 @@ def tsconfig_action(
     options_file = ctx.actions.declare_file(
         "{}.options.json".format(ctx.label.name),
     )
+    editor = ctx.actions.declare_file("{}.ide.template.json".format(ctx.label.name))
+    editor_path = editor_project_path(ctx.label)
     config_args = ctx.actions.args()
     config_args.use_param_file("@%s", use_always = False)
     config_args.set_param_file_format("multiline")
@@ -71,6 +74,8 @@ def tsconfig_action(
     config_args.add(baseline_file, format = "-baseline=%s")
     config_args.add(tsconfig, format = "-out=%s")
     config_args.add(options_file, format = "-options=%s")
+    config_args.add(editor, format = "-editor_out=%s")
+    config_args.add(editor_path, format = "-editor_path=%s")
     config_args.add(ctx.bin_dir.path, format = "-bin_dir=%s")
     if not emit:
         config_args.add("-source_only")
@@ -91,16 +96,19 @@ def tsconfig_action(
             retained_types.append(file)
         else:
             config_args.add(file, format = "-type_input=%s")
+    for file in depset(check_srcs, transitive = [dep_dts]).to_list():
+        if not file.is_source and not file.short_path.startswith("../"):
+            config_args.add(file.short_path, format = "-generated_directory=%s" if file.is_directory else "-generated_file=%s")
     config_args.add_all(check_srcs)
     ctx.actions.run(
         inputs = depset(
             check_srcs + tsconfig_chain + retained_types,
             transitive = [tsgo.files],
         ),
-        outputs = [tsconfig, options_file],
+        outputs = [tsconfig, options_file, editor],
         executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["tsconfig", config_args],
         mnemonic = "TsConfig",
         progress_message = "TsConfig %{label}",
     )
-    return struct(tsconfig = tsconfig, options = options_file)
+    return struct(tsconfig = tsconfig, options = options_file, editor = editor)

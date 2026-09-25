@@ -68,7 +68,7 @@ func generateAll(t *testing.T, root string,
 		for _, e := range entries {
 			name := e.Name()
 			switch {
-			case strings.HasPrefix(name, "."), strings.HasPrefix(name, "bazel-"):
+			case name == ".git", strings.HasPrefix(name, "bazel-"):
 			case e.IsDir():
 				subdirs = append(subdirs, name)
 			case name == "BUILD.bazel":
@@ -1227,5 +1227,51 @@ ts_compile(
 		"withdrawn"
 	if !strings.Contains(g.logged, withdrawn) {
 		t.Errorf("the stale BUILD file was not named:\n%s", g.logged)
+	}
+}
+
+func TestKeptBuildConfigOwnsProgramInsteadOfEditorSolution(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":            rootManifest,
+		"app/tsconfig.json":       `{"extends":"./tsconfig.build.json","files":[],"include":[],"references":[{"path":"../.bazel/editor.json"}]}`,
+		"app/tsconfig.build.json": `{"compilerOptions":{"strict":true},"include":["input.ts"]}`,
+		"app/input.ts":            "export const value: string = 'value';\n",
+		"app/BUILD.bazel": loadDefs + `"ts_config")
+ts_config(
+ name = "tsconfig",
+ src = "tsconfig.build.json", # keep
+)
+`,
+	}))
+	config := mustRule(t, g.results["app"], "ts_config", tsConfigTargetName)
+	if got := config.AttrString("src"); got != "tsconfig.build.json" {
+		t.Fatalf("selected config %q", got)
+	}
+	compiled := mustRule(t, g.results["app"], "ts_compile", "app")
+	wantStrings(t, "authored build roots", compiled.AttrStrings("srcs"), []string{"input.ts"})
+}
+
+func TestSelectedConfigBasesDoNotDependOnDirectoryTraversalOrder(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":            rootManifest,
+		"app/tsconfig.build.json": `{"extends":"../zbase/tsconfig.build.json","include":["input.ts"]}`,
+		"app/tsconfig.json":       `{"files":[],"references":[{"path":"../.bazel/app.json"}]}`,
+		"app/input.ts":            "export const value: string = 'value';\n",
+		"app/BUILD.bazel": loadDefs + `"ts_config")
+ts_config(name = "tsconfig", src = "tsconfig.build.json") # keep
+`,
+		"zbase/tsconfig.build.json": `{"compilerOptions":{"strict":true}}`,
+		"zbase/tsconfig.json":       `{"extends":"./tsconfig.build.json","files":[],"references":[]}`,
+		"zbase/BUILD.bazel": loadDefs + `"ts_config")
+ts_config(name = "tsconfig", src = "tsconfig.build.json") # keep
+`,
+		"wrapper/tsconfig.json": `{"extends":"../zbase/tsconfig.json","include":["input.ts"]}`,
+		"wrapper/input.ts":      "export const value = 1;\n",
+	}), func(c *config.Config) { c.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"} })
+	selected := mustRule(t, g.results["app"], "ts_config", tsConfigTargetName)
+	wantStrings(t, "selected base", selected.AttrStrings("deps"), []string{"//zbase:tsconfig"})
+	wrapper := mustRule(t, g.results["wrapper"], "ts_config", tsConfigTargetName)
+	if len(wrapper.AttrStrings("deps")) != 0 {
+		t.Fatalf("wrapper incorrectly names different selected source: %v", wrapper.AttrStrings("deps"))
 	}
 }

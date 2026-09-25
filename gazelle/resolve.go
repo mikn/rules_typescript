@@ -265,7 +265,7 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 		}
 		reportEdge(from, e, s.whyUnowned(e.To), reported)
 	} else {
-		reportEdge(from, e, tsconfigIn(owner)+" lists it and no rule there has it "+
+		reportEdge(from, e, s.configPath(owner)+" lists it and no rule there has it "+
 			"in srcs", reported)
 	}
 	return ""
@@ -311,7 +311,7 @@ func configTypeEdges(c *config.Config, ix *resolve.RuleIndex, selected string, o
 		if p.manifest || p.refused != "" {
 			continue
 		}
-		source := tsconfigIn(p.dir)
+		source := getConfig(c).programs.configPath(p.dir)
 		if len(configs) == 0 && path.Join(configLabel.Pkg, configLabel.Name) == source {
 			return p.typeEdges()
 		}

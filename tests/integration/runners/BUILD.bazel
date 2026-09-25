@@ -56,8 +56,22 @@ _RUNNERS = [
         name = name + "_runner",
         testonly = True,
         srcs = ["%s/main.go" % name],
+        data = [
+            "//tools:query-editor_bundle",
+            "//tools:query-editor.test_bundle",
+            "//tools:query-editor-native_bundle",
+            "//tools:live-editor-native_bundle",
+            "//tools:testdata/native-lsp-process_bundle",
+            "//tools:native_editor_runtime",
+            "//ts/toolchain:node_resolved",
+            "//ts/toolchain:tsgo_resolved",
+        ] if name == "lsp" else [],
         visibility = ["//tests/integration:__subpackages__"],
-        deps = ["//tests/integration/harness"] + ([
+        x_defs = {
+            "main.nodeRlocationpath": "$(rlocationpath //ts/toolchain:node_resolved)",
+            "main.tsgoRlocationpath": "$(rlocationpath //ts/toolchain:tsgo_resolved)",
+        } if name == "lsp" else {},
+        deps = ["//tests/integration/harness"] + (["@io_bazel_rules_go//go/runfiles"] if name == "lsp" else []) + ([
             "@com_github_bazelbuild_buildtools//build",
             "@gazelle//rule",
         ] if name == "gazelle_roundtrip" else []),

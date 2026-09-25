@@ -558,25 +558,37 @@ func (it *IT) Runfile(rel string) string {
 	return path
 }
 
-// Exec runs a command outside Bazel, in the workspace under the nested Bazel's
-// environment plus env; its output is kept beside the nested build logs.
-func (it *IT) Exec(
-	logName string, env []string, name string, args ...string,
-) (*Log, error) {
+func (it *IT) Command(env []string, name string, args ...string) *exec.Cmd {
 	fmt.Printf("INFO: %s %s %s\n", strings.Join(env, " "), name,
 		strings.Join(args, " "))
 	cmd := exec.Command(name, args...)
 	cmd.Dir = it.WorkspaceDir
 	cmd.Env = append(nestedEnv(), env...)
-	out := &strings.Builder{}
+	return cmd
+}
+
+// Exec runs a command outside Bazel, in the workspace under the nested Bazel's
+// environment plus env; its output is kept beside the nested build logs.
+func (it *IT) Exec(
+	logName string, env []string, name string, args ...string,
+) (*Log, error) {
+	cmd := it.Command(env, name, args...)
+	path := it.Scratch(logName)
+	out, err := os.Create(path)
+	if err != nil {
+		it.Fail("cannot create %s: %v", path, err)
+	}
 	cmd.Stdout = out
 	cmd.Stderr = out
-	err := cmd.Run()
-	log := &Log{Path: it.Scratch(logName), Text: out.String()}
-	if writeErr := os.WriteFile(log.Path, []byte(log.Text), 0o644); writeErr != nil {
-		it.Fail("cannot write %s: %v", log.Path, writeErr)
+	runErr := cmd.Run()
+	if err := out.Close(); err != nil {
+		it.Fail("cannot close %s: %v", path, err)
 	}
-	return log, err
+	text, err := os.ReadFile(path)
+	if err != nil {
+		it.Fail("cannot read %s: %v", path, err)
+	}
+	return &Log{Path: path, Text: string(text)}, runErr
 }
 
 // Server is a `bazel run` target left running, and the base URL it answers on.

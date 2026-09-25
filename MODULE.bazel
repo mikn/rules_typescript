@@ -385,6 +385,11 @@ npm.translate_lock(
     name = "npm_esbuild",
     pnpm_lock = "//vite/esbuild:pnpm-lock.yaml",
 )
+npm.translate_lock(
+    name = "npm_editor",
+    patches = ["//tools/editor_deps:chokidar@5.0.0.patch"],
+    pnpm_lock = "//tools/editor_deps:pnpm-lock.yaml",
+)
 
 # The dev hubs: nothing outside this module's tests names them, so no
 # consumer's MODULE.bazel.lock records them.
@@ -432,7 +437,7 @@ npm.translate_lock(
     name = "npm_ts_proto",
     pnpm_lock = "//proto/private:pnpm-lock.yaml",
 )
-use_repo(npm, "npm", "npm_esbuild", "npm_ts_proto", "pnpm")
+use_repo(npm, "npm", "npm_editor", "npm_esbuild", "npm_ts_proto", "pnpm")
 
 use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind", "npm_workers")
 

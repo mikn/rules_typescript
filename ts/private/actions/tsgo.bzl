@@ -18,6 +18,7 @@ same program with the declaration emit on its command line and the .d.ts as
 its outputs, so it runs when a dependent's compile reads them.
 """
 
+load("//ts/private:editor_path.bzl", "editor_project_path")
 load("//ts/private:providers.bzl", "label_text")
 load("//ts/private:toolchain.bzl", "get_tools_toolchain")
 
@@ -128,6 +129,24 @@ def _run_tsgo(ctx, run_args, inputs, outputs, mnemonic, checkers):
         progress_message = mnemonic + " %{label}",
         execution_requirements = requirements,
     )
+
+def tsgo_editor(ctx, tsgo, tsconfig, template, importers, overlays, manifests, srcs, chain, dep_dts, npm_files):
+    editor = ctx.actions.declare_file("{}.ide.tsconfig.json".format(ctx.label.name))
+    args = program_args(ctx, "{}/{}.ide-program".format(tsconfig.dirname, ctx.label.name), srcs, chain, dep_dts, importers, overlays, manifests)
+    args.add(template, format = "-editor-template=%s")
+    args.add(editor, format = "-editor-out=%s")
+    args.add("-editor-path=" + editor_project_path(ctx.label))
+    if ctx.file.tsconfig:
+        args.add(ctx.file.tsconfig, format = "-tsconfig=%s")
+    for file in depset(srcs, transitive = [dep_dts]).to_list():
+        if not file.is_source and not file.is_directory and not file.short_path.startswith("../"):
+            args.add(file, format = "-editor-generated-file=%s")
+    args.add("--")
+    args.add(tsgo.tsgo_binary)
+    args.add("--project", tsconfig)
+    args.add_all(["--noEmit", "--listFilesOnly", "--explainFiles", "--pretty", "false"])
+    _run_tsgo(ctx, args, program_inputs(tsconfig, srcs, chain, dep_dts, npm_files, [template], tool_files = tsgo.files), [editor], "TsIdeProject", 0)
+    return editor
 
 def tsgo_check(
         ctx,

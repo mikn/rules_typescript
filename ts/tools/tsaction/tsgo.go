@@ -27,6 +27,11 @@ func runTsgo(args []string) error {
 	verifyCopies := flags.Bool("verify-copies", false, "fail if the tool changes a copied input")
 	discoverConfig := flags.String("discover-tsconfig", "", "generated program config exposed to tools that discover tsconfig.json beside sources")
 	var sources, copies, importers, overlays, manifests, toolEnv stringList
+	editorTemplate := flags.String("editor-template", "", "editor project template")
+	editorOut := flags.String("editor-out", "", "compiler-resolved editor project output")
+	editorPath := flags.String("editor-path", "", "editor project workspace destination")
+	var editorFiles stringList
+	flags.Var(&editorFiles, "editor-generated-file", "declared generated scalar input (repeatable)")
 	flags.Var(&sources, "source",
 		"an input of the action in the source tree, linked at its path under "+
 			"the root (repeatable); the output tree is linked whole")
@@ -130,7 +135,9 @@ func runTsgo(args []string) error {
 		}
 		env = append(env, name+"="+absolute)
 	}
-	if own == nil {
+	if *editorTemplate != "" {
+		err = editorRun(*root, cmdline, *project, *editorTemplate, *editorOut, *editorPath, editorFiles, env...)
+	} else if own == nil {
 		err = runToolIn(*root, os.Stdout, cmdline, env...)
 	} else {
 		err = checkedRun(*root, cmdline, own, chain, *project, env...)

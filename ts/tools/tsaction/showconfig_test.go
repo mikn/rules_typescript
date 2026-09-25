@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 // Captures of `tsgo --showConfig -p` (7.0.2), paths relative to the written
@@ -732,6 +734,79 @@ func TestDeclaredDirectoryDoesNotInventAmbientChild(t *testing.T) {
 	}
 	writeFile(t, tree+"/index.d.ts", "declare const treeValue: string;\n")
 	mustWriteTsconfig(t, e.tsconfigArgs())
+}
+
+func TestEditorGeneratedDirectoryNeverFallsBackToStaleSources(t *testing.T) {
+	chain := &tsconfig.Resolved{Paths: map[string][]string{"#app/*": {"./src/*"}}, PathsDir: "app"}
+	projected := map[string][]string{"#app/*": {"../../app/src/*", "../../bazel-bin/app/src/*"}}
+	projectGeneratedPaths(projected, chain, ".bazel/tsconfig", []string{"app/src/generated"}, nil)
+	actual := projected["#app/generated/*"]
+	if len(actual) != 1 || actual[0] != "../../bazel-bin/app/src/generated/*" {
+		t.Fatalf("generated directory has stale fallback: %v", actual)
+	}
+	if len(projected["#app/*"]) != 2 {
+		t.Fatal("unrelated authored aliases changed")
+	}
+}
+
+func TestEditorProjectRetainsAuthoredOptionsWithoutCompilerCycle(t *testing.T) {
+	a := actionConfig{project: "app/tsconfig.build.json", baseline: "bazel-out/k8-fastbuild/bin/app/lib.tsconfig_baseline.json", out: "bazel-out/k8-fastbuild/bin/app/lib.tsconfig.json", binDir: "bazel-out/k8-fastbuild/bin", editorPath: "app/.bazel/tsconfig/lib.json"}
+	config := &tsconfigFile{CompilerOptions: map[string]any{"types": []string{"node"}, "composite": false}, Files: []string{"../../../../app/input.ts"}, Include: []string{"./generated/output.ts"}, Exclude: []string{}}
+	editor := a.editorConfig(config, nil)
+	bases := editor["extends"].([]string)
+	if len(bases) != 2 || bases[1] != "../../tsconfig.build.json" {
+		t.Fatalf("authored config identity: %v", bases)
+	}
+	includes := editor["include"].([]string)
+	if len(includes) != 1 || includes[0] != "../../../bazel-bin/app/generated/output.ts" {
+		t.Fatalf("generated root relocation: %v", includes)
+	}
+}
+
+func TestEditorAliasInsideGeneratedTreeCannotResolveDeletedSourceChild(t *testing.T) {
+	chain := &tsconfig.Resolved{Paths: map[string][]string{"#entry": {"./generated/index"}, "#types/*": {"./generated/types/*"}}, PathsDir: "app"}
+	out := map[string][]string{}
+	projectGeneratedPaths(out, chain, ".bazel/tsconfig", []string{"app/generated"}, nil)
+	for key, want := range map[string]string{"#entry": "../../bazel-bin/app/generated/index", "#types/*": "../../bazel-bin/app/generated/types/*"} {
+		if got := out[key]; len(got) != 1 || got[0] != want {
+			t.Errorf("%s = %v, want canonical only %s", key, got, want)
+		}
+	}
+}
+
+func TestEditorProjectionKeepsSpecificAliasAndFallbackOrder(t *testing.T) {
+	chain := &tsconfig.Resolved{Paths: map[string][]string{"#x/*": {"authored/*", "generated/*"}, "#x/special": {"override.ts"}}, PathsDir: "app"}
+	projected := map[string][]string{"#x/special": {"../../app/override.ts", "../../bazel-bin/app/override.ts"}}
+	projectGeneratedPaths(projected, chain, ".bazel/tsconfig", nil, []string{"app/generated/special.ts", "app/generated/value.ts"})
+	if got := projected["#x/special"]; !reflect.DeepEqual(got, []string{"../../app/override.ts", "../../bazel-bin/app/override.ts"}) {
+		t.Fatalf("specific authored alias changed: %v", got)
+	}
+	want := []string{"../../app/authored/value", "../../bazel-bin/app/generated/value.ts"}
+	if got := projected["#x/value"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("fallback order = %v, want %v", got, want)
+	}
+}
+
+func TestEditorOverlappingWildcardCannotHideUnobservedGeneratedScalar(t *testing.T) {
+	chain := &tsconfig.Resolved{Paths: map[string][]string{"#*": {"generated/*"}, "#a*a": {"authored/*"}}, PathsDir: "app"}
+	projected := map[string][]string{"#*": {"../../app/generated/*", "../../bazel-bin/app/generated/*"}}
+	projectGeneratedPaths(projected, chain, ".bazel/tsconfig", nil, []string{"app/generated/a.ts"})
+	want := []string{"../../bazel-bin/app/generated/a.ts"}
+	if got := projected["#a"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("nonmatching wildcard hid canonical generated scalar: %v, want %v", got, want)
+	}
+}
+
+func TestEditorScalarGeneratedRuntimeExtensionCannotReadStaleSource(t *testing.T) {
+	chain := &tsconfig.Resolved{Paths: map[string][]string{"#generated/*": {"generated/*"}}, PathsDir: "app"}
+	out := map[string][]string{}
+	projectGeneratedPaths(out, chain, ".bazel/tsconfig", nil, []string{"app/generated/value.ts", "app/generated/module.mts", "app/generated/common.d.cts"})
+	for specifier, file := range map[string]string{"value.js": "value.ts", "module.mjs": "module.mts", "common.cjs": "common.d.cts"} {
+		want := []string{"../../bazel-bin/app/generated/" + file}
+		if got := out["#generated/"+specifier]; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s = %v, want %v", specifier, got, want)
+		}
+	}
 }
 
 func TestUnsupportedShowConfigCannotSilentlyDiscardCompilerOptions(t *testing.T) {

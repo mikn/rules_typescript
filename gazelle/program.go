@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/rules_go/go/runfiles"
 
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
@@ -28,6 +29,7 @@ type program struct {
 	explainfiles.Listing
 	candidates []resolutionCandidate
 	dir        string
+	config     string
 	refused    string
 	manifest   bool
 }
@@ -41,6 +43,7 @@ type programStore struct {
 	tsgo              string
 	skipped           bool
 	programs          map[string]*program
+	configs           map[string]string
 	packages          map[string]map[string]bool
 	generatedPackages map[string]bool
 	visited           map[string][]string
@@ -63,6 +66,7 @@ type programStore struct {
 func newProgramStore() *programStore {
 	return &programStore{
 		programs:          map[string]*program{},
+		configs:           map[string]string{},
 		packages:          map[string]map[string]bool{},
 		generatedPackages: map[string]bool{},
 		visited:           map[string][]string{},
@@ -133,9 +137,10 @@ func (s *programStore) visit(rel string, files []string) {
 
 // Listed from Configure, before any directory generates: every package and
 // every base an extends names is known when a rule asks about an ancestor.
-func listTsConfigProgram(repoRoot, rel string, tc *tsConfig) {
+func listTsConfigProgram(c *config.Config, rel string, tc *tsConfig) {
+	repoRoot := c.RepoRoot
 	store := tc.programs
-	cfg := tsconfigIn(rel)
+	cfg := store.configPath(rel)
 	if m := tc.foreignManifest; m != "" {
 		refused := foreignReason(m)
 		store.record(&program{dir: rel, refused: refused})
@@ -143,7 +148,7 @@ func listTsConfigProgram(repoRoot, rel string, tc *tsConfig) {
 		store.sayForeign(m)
 		return
 	}
-	store.readBases(repoRoot, rel)
+	store.readBases(c, rel)
 	inputs, ok := programNamesInputs(filepath.Join(repoRoot, cfg))
 	var refused string
 	switch {
@@ -169,10 +174,11 @@ func listTsConfigProgram(repoRoot, rel string, tc *tsConfig) {
 	if err != nil {
 		log.Fatalf("typescript: %s: %v", cfg, err)
 	}
-	p, err := listProgram(repoRoot, rel, tsgo)
+	p, err := listProgram(repoRoot, cfg, tsgo)
 	if err != nil {
 		log.Fatalf("typescript: %v", err)
 	}
+	p.dir = rel
 	store.record(p)
 	if p.refused != "" {
 		store.say("%s: not listed: %s", cfg, p.refused)
@@ -231,13 +237,14 @@ func plural(n int, many string, one ...string) string {
 
 // readBases records the tsconfig.json files rel's own extends names, the
 // ts_config deps; a base of another name has no ts_config and is said.
-func (s *programStore) readBases(repoRoot, rel string) {
-	own := filepath.Join(repoRoot, filepath.FromSlash(tsconfigIn(rel)))
+func (s *programStore) readBases(c *config.Config, rel string) {
+	repoRoot := c.RepoRoot
+	own := filepath.Join(repoRoot, filepath.FromSlash(s.configPath(rel)))
 	f, err := tsconfig.Read(own)
 	if err != nil {
 		return
 	}
-	dir := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	dir := filepath.Dir(own)
 	for _, spec := range f.Extends {
 		basePath, ok := tsconfig.ResolveExtends(dir, spec)
 		if !ok {
@@ -251,13 +258,12 @@ func (s *programStore) readBases(repoRoot, rel string) {
 			continue
 		}
 		baseRel = filepath.ToSlash(baseRel)
-		if path.Base(baseRel) != "tsconfig.json" {
-			log.Printf("typescript: %s extends %q, a file Gazelle writes no "+
-				"ts_config for (only a tsconfig.json is); declare that dep by "+
-				"hand under # keep", tsconfigIn(rel), spec)
+		baseDir := parentDir(baseRel)
+		s.readSelectedConfig(c, baseDir)
+		if baseRel != s.configPath(baseDir) {
+			log.Printf("typescript: %s extends %q, which no selected ts_config owns; declare that dep under # keep", s.configPath(rel), spec)
 			continue
 		}
-		baseDir := parentDir(baseRel)
 		if !slices.Contains(s.bases[rel], baseDir) {
 			s.bases[rel] = append(s.bases[rel], baseDir)
 		}
@@ -280,8 +286,8 @@ func (s *programStore) sayForeign(manifest string) {
 		orRepoRoot(parentDir(manifest)))
 }
 
-func listProgram(repoRoot, rel, tsgo string) (*program, error) {
-	cfg := path.Join(rel, "tsconfig.json")
+func listProgram(repoRoot, cfg, tsgo string) (*program, error) {
+	rel := parentDir(cfg)
 	// --pretty false: a FORCE_COLOR in the environment would otherwise colour the diagnostics.
 	args := []string{"-p", cfg, "--noEmit", "--listFilesOnly", "--explainFiles",
 		"--pretty", "false"}
@@ -290,6 +296,7 @@ func listProgram(repoRoot, rel, tsgo string) (*program, error) {
 		return nil, err
 	}
 	p.dir = rel
+	p.config = cfg
 	return p, nil
 }
 
@@ -387,7 +394,10 @@ func (s *programStore) requireInstall(repoRoot string) {
 }
 
 func (p *program) typeEdges() []explainfiles.Edge {
-	cfg := tsconfigIn(p.dir)
+	cfg := p.config
+	if cfg == "" {
+		cfg = tsconfigIn(p.dir)
+	}
 	var out []explainfiles.Edge
 	for _, entries := range [][]explainfiles.TypeEntry{p.Types, p.Implicit} {
 		for _, te := range entries {
@@ -469,4 +479,11 @@ func listManifestProgram(repoRoot, rel string, tc *tsConfig) {
 	p.dir = rel
 	p.manifest = true
 	tc.programs.record(p)
+}
+
+func (s *programStore) configPath(dir string) string {
+	if config := s.configs[dir]; config != "" {
+		return config
+	}
+	return tsconfigIn(dir)
 }

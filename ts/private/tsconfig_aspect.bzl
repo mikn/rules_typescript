@@ -15,6 +15,7 @@ look.
 """
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("//ts/private:editor_path.bzl", "editor_project_path")
 load("//ts/private:providers.bzl", "TsConfigInfo")
 load(
     "//ts/private:toolchain.bzl",
@@ -562,6 +563,8 @@ def _rlocation(ctx, file):
     return ctx.workspace_name + "/" + file.short_path
 
 def _refresh_workspace_files_impl(ctx):
+    if not ctx.attr.files and not ctx.attr.editor_projects:
+        fail("refresh_workspace_files needs files or editor_projects")
     entries = []
     inputs = []
     for src, dest in ctx.attr.files.items():
@@ -576,6 +579,17 @@ def _refresh_workspace_files_impl(ctx):
         for copy in src[WorkspaceCopyInfo].entries.to_list():
             inputs.append(copy.file)
             entries.append({"rlocation": _rlocation(ctx, copy.file), "dest": copy.dest})
+
+    for dep in ctx.attr.editor_projects:
+        if OutputGroupInfo not in dep or not hasattr(dep[OutputGroupInfo], "ide_tsconfig"):
+            fail("{} has no compiler program to project for the editor".format(dep.label))
+        inputs.extend(dep[OutputGroupInfo].ide_generated_sources.to_list())
+        for file in dep[OutputGroupInfo].ide_tsconfig.to_list():
+            inputs.append(file)
+            entries.append({
+                "rlocation": _rlocation(ctx, file),
+                "dest": editor_project_path(dep.label),
+            })
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".manifest.json")
     ctx.actions.write(manifest, json.encode(entries))
@@ -602,12 +616,13 @@ refresh_workspace_files = rule(
     implementation = _refresh_workspace_files_impl,
     executable = True,
     attrs = {
+        "editor_projects": attr.label_list(),
         "files": attr.label_keyed_string_dict(
             doc = """Maps each single-file target to its destination, relative to the workspace root.
 
 A target that also returns WorkspaceCopyInfo contributes the files named there,
 each to the destination that provider carries.""",
-            allow_empty = False,
+            allow_empty = True,
             allow_files = True,
         ),
     },
@@ -650,7 +665,8 @@ def ts_refresh_tsconfig(
         tsconfig = "tsconfig.json",
         extra_exclude = [],
         nested_tsconfigs = [],
-        test = False):
+        test = False,
+        generated_sources = False):
     """Declares the IDE tsconfig, the run target that installs it, and its staleness test.
 
     Args:
@@ -659,7 +675,8 @@ def ts_refresh_tsconfig(
                   `<name>_test`.
         deps:     ts_compile and ts_test targets the IDE should see. The
                   aspect follows `deps` from each one.
-        tsconfig: Where in the workspace the file is written.
+        tsconfig: Where in the workspace the file is written; None preserves authored configs.
+        generated_sources: Materialize generated inputs and compiler-owned editor projects.
         extra_exclude:
                   Globs added to the generated `exclude`, for TypeScript trees
                   that are not in this module's build graph. Anchor each with
@@ -678,31 +695,33 @@ def ts_refresh_tsconfig(
         test:     Add a diff_test that fails when `tsconfig` is stale. Turn it
                   on once `tsconfig` is checked in.
     """
-    ide_tsconfig(
-        name = name + ".generated",
-        testonly = True,
-        deps = deps,
-        extra_exclude = extra_exclude,
-        nested_tsconfigs = nested_tsconfigs,
-        tsconfig_path = tsconfig,
-    )
-    for nested in nested_tsconfigs:
-        _nested_tsconfig_file(
-            name = "{}.nested.{}".format(name, nested.replace("/", "_").replace(".", "_")),
+    if tsconfig == None and (test or nested_tsconfigs):
+        fail("tsconfig = None preserves authored configs; omit test and nested_tsconfigs.")
+    if tsconfig != None:
+        ide_tsconfig(
+            name = name + ".generated",
             testonly = True,
-            generator = ":" + name + ".generated",
-            dest = nested,
+            deps = deps,
+            extra_exclude = extra_exclude,
+            nested_tsconfigs = nested_tsconfigs,
+            tsconfig_path = tsconfig,
         )
-    ide_hook_data(
-        name = name + ".hook_data",
-        testonly = True,
-        deps = deps,
-    )
-    refresh_workspace_files(
-        name = name,
-        testonly = True,
-        files = {
-            ":" + name + ".generated": tsconfig,
+        for nested in nested_tsconfigs:
+            _nested_tsconfig_file(
+                name = "{}.nested.{}".format(name, nested.replace("/", "_").replace(".", "_")),
+                testonly = True,
+                generator = ":" + name + ".generated",
+                dest = nested,
+            )
+    config_files = {}
+    if tsconfig != None:
+        ide_hook_data(
+            name = name + ".hook_data",
+            testonly = True,
+            deps = deps,
+        )
+        config_files[":" + name + ".generated"] = tsconfig
+        config_files |= {
             ":" + name + ".hook_data": ".bazel/tsserver-hook-data.json",
             "@rules_typescript//tools:tsserver-hook.js": ".bazel/tsserver-hook.js",
             "@rules_typescript//tools:tsserver-hook-resolver.js": ".bazel/tsserver-hook-resolver.js",
@@ -711,7 +730,12 @@ def ts_refresh_tsconfig(
             "@rules_typescript//tools:tsserver-plugin-package.json": _PLUGIN_DIR + "/package.json",
             "@rules_typescript//tools:tsserver-plugin-resolver": _PLUGIN_DIR + "/tsserver-hook-resolver.js",
             "@rules_typescript//tools:tsserver-plugin-worker": _PLUGIN_DIR + "/tsserver-hook-worker.js",
-        },
+        }
+    refresh_workspace_files(
+        name = name,
+        testonly = True,
+        editor_projects = deps if generated_sources else [],
+        files = config_files,
         visibility = ["//visibility:public"],
     )
     if test:

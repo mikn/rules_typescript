@@ -38,13 +38,17 @@ bzl_library(
 bzl_library(
     name = "tsconfig",
     srcs = ["tsconfig.bzl"],
-    deps = ["//ts/private:toolchain"],
+    deps = [
+        "//ts/private:editor_path",
+        "//ts/private:toolchain",
+    ],
 )
 
 bzl_library(
     name = "tsgo",
     srcs = ["tsgo.bzl"],
     deps = [
+        "//ts/private:editor_path",
         "//ts/private:providers",
         "//ts/private:toolchain",
     ],
