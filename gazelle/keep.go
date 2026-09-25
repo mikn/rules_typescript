@@ -6,7 +6,6 @@ package typescript
 import (
 	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -65,10 +64,23 @@ func reportManagedAttrDrops(args language.GenerateArgs, gen []*rule.Rule, import
 					continue
 				}
 				dropped := droppedAttrValues(args, have, want, attr)
-				if attr == "srcs" && i < len(imports) {
-					dropped = slices.DeleteFunc(dropped, func(value string) bool {
-						return importedJSONSource(args, value, imports[i])
-					})
+				if attr == "srcs" && len(dropped) > 0 && i < len(imports) {
+					if imps, ok := imports[i].(*ruleImports); ok && imps != nil {
+						imps.reportSrcDrops = func(final *rule.Rule) {
+							retained := map[label.Label]bool{}
+							for _, value := range final.AttrStrings("srcs") {
+								if lbl, err := label.Parse(value); err == nil {
+									retained[sourceLabelIdentity(lbl, args)] = true
+								}
+							}
+							dropped = slices.DeleteFunc(dropped, func(value string) bool {
+								lbl, err := label.Parse(value)
+								return err == nil && retained[sourceLabelIdentity(lbl, args)]
+							})
+							reportDroppedValues(args, have, attr, dropped)
+						}
+						continue
+					}
 				}
 				reportDroppedValues(args, have, attr, dropped)
 			}
@@ -202,26 +214,10 @@ func attrKept(r *rule.Rule, key string) bool {
 	return false
 }
 
-func importedJSONSource(args language.GenerateArgs, value string, imports any) bool {
-	imps, ok := imports.(*ruleImports)
-	if !ok || imps == nil {
-		return false
+func sourceLabelIdentity(lbl label.Label, args language.GenerateArgs) label.Label {
+	lbl = lbl.Abs(args.Config.RepoName, args.Rel)
+	if lbl.Repo == "" {
+		lbl.Repo = args.Config.RepoName
 	}
-	file, err := label.Parse(value)
-	if err != nil {
-		return false
-	}
-	file = file.Abs(args.Config.RepoName, args.Rel)
-	if file.Repo == "" {
-		file.Repo = args.Config.RepoName
-	}
-	if file.Repo != args.Config.RepoName || path.Ext(file.Name) != ".json" {
-		return false
-	}
-	for _, edge := range imps.edges {
-		if edge.To == path.Join(file.Pkg, file.Name) {
-			return true
-		}
-	}
-	return false
+	return lbl
 }

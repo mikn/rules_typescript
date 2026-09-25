@@ -143,6 +143,12 @@ func (s *programStore) srcs(pkg string, tc *tsConfig) srcSet {
 // javaScriptTwin is the x.mjs beside a declaration x.d.mts (x.js, x.cjs
 // likewise): tsc drops it from the program and resolves "./x.mjs" to x.d.mts.
 func (s *programStore) javaScriptTwin(f string) string {
+	return javaScriptTwin(f, func(twin string) bool {
+		return slices.Contains(s.files[parentDir(twin)], path.Base(twin))
+	})
+}
+
+func javaScriptTwin(f string, exists func(string) bool) string {
 	for _, pair := range [][2]string{
 		{".d.ts", ".js"}, {".d.mts", ".mjs"}, {".d.cts", ".cjs"},
 	} {
@@ -151,7 +157,7 @@ func (s *programStore) javaScriptTwin(f string) string {
 			continue
 		}
 		twin := stem + pair[1]
-		if slices.Contains(s.files[parentDir(f)], path.Base(twin)) {
+		if exists(twin) {
 			return twin
 		}
 	}

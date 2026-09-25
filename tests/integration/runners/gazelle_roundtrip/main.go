@@ -83,7 +83,7 @@ func main() {
 		it.Write(it.Path("wrangler_lock/pnpm-lock.yaml"),
 			it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
-		const foreignExports = `exports_files(["value.json"], visibility = ["//foreign_json:__pkg__"])
+		const foreignExports = `exports_files(["value.json", "a.ts", "nested/b.ts", "companion.d.mts", "companion.mjs"], visibility = ["//foreign_json:__pkg__"])
 `
 		it.Write(it.Path("foreign_fixtures/BUILD.bazel"), foreignExports)
 
@@ -151,19 +151,21 @@ func main() {
 		}
 
 		requireLabels(it, "srcs", "//foreign_json:foreign_json_test", []string{
+			"//foreign_fixtures:a.ts", "//foreign_fixtures:companion.d.mts",
+			"//foreign_fixtures:companion.mjs", "//foreign_fixtures:nested/b.ts",
 			"//foreign_fixtures:value.json", "//foreign_json:foreign.test.ts",
 		})
 		if it.Read(it.Path("foreign_fixtures/BUILD.bazel")) != foreignExports {
-			it.Fail("Gazelle changed the excluded JSON owner's exports")
+			it.Fail("Gazelle changed the excluded source owner's exports")
 		}
 		it.MustBazel("test", "//foreign_json:foreign_json_test")
 		func() {
 			defer it.Write(it.Path("foreign_fixtures/BUILD.bazel"), foreignExports)
-			it.Write(it.Path("foreign_fixtures/BUILD.bazel"), "exports_files([\"value.json\"], visibility = [\"//visibility:private\"])\n")
+			it.Write(it.Path("foreign_fixtures/BUILD.bazel"), strings.Replace(foreignExports, "//foreign_json:__pkg__", "//visibility:private", 1))
 			log, err := it.BazelLog("foreign_json_visibility", "build", "//foreign_json:foreign_json_test")
 			if err == nil || !log.Contains("not visible") {
 				log.Dump()
-				it.Fail("foreign JSON import bypassed its owner's visibility")
+				it.Fail("foreign source import bypassed its owner's visibility")
 			}
 		}()
 

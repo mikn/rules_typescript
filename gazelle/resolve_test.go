@@ -1074,3 +1074,66 @@ func TestResolveEdges_ForeignJSONColonDoesNotPoisonLabels(t *testing.T) {
 		t.Fatalf("unlabelable input has no diagnostic: %s", logged)
 	}
 }
+
+func TestResolveEdges_UnownedClosureStopsAtExistingOwners(t *testing.T) {
+	for _, owner := range []string{"none", "indexed", "override", "codegen", "tree", "dependency only"} {
+		t.Run(owner, func(t *testing.T) {
+			c, tc := edgeRepo(t, edgeListings)
+			c.ValidBuildFileNames = []string{"BUILD.bazel"}
+			const a = "foreign/a.ts"
+			const b = "foreign/nested/b.ts"
+			for _, file := range []string{a, b, "foreign/nested/value.json", "foreign/unused.ts"} {
+				writeFile(t, filepath.Join(c.RepoRoot, file), "")
+			}
+			writeFile(t, filepath.Join(c.RepoRoot, "foreign/BUILD.bazel"), "")
+			writeFile(t, filepath.Join(c.RepoRoot, "foreign/nested/BUILD.bazel"), "")
+			rootEdge := importEdge("web/test.ts", "../foreign/a", a)
+			tc.programs.programs["web"].Edges = []explainfiles.Edge{
+				rootEdge,
+				importEdge(a, "./nested/b", b),
+				importEdge(b, "../a", a),
+				importEdge(b, "./value.json", "foreign/nested/value.json"),
+				importEdge(a, "zod", storeZod),
+				{From: storeZod, To: storeTypesNode, Kind: explainfiles.TypeReference, Specifier: "node"},
+			}
+			tc.programs.programs["web"].candidates = []resolutionCandidate{{from: a, path: "cold/output"}}
+			rules := []indexedRule{{kind: "ts_codegen", name: "generated", pkg: "", outDir: "cold"}}
+			switch owner {
+			case "indexed":
+				rules = append(rules, indexedRule{kind: "ts_compile", name: "owner", pkg: "foreign", srcs: []string{"a.ts"}})
+			case "override":
+				f, err := rule.LoadData("BUILD.bazel", "", []byte("# gazelle:resolve typescript foreign/a.ts //foreign:owner\n"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				(&resolve.Configurer{}).Configure(c, "", f)
+			case "codegen":
+				tc.codegenOuts = map[string]label.Label{a: label.New("", "foreign", "owner")}
+			case "tree":
+				rules = append(rules, indexedRule{kind: "ts_codegen", name: "owner", pkg: "", outDir: "foreign"})
+			}
+			ix := buildIndex(t, c, rules...)
+			if owner == "dependency only" {
+				_, source := edgeDep(c, ix, tc, rootEdge, label.New("", "web", "web_test"), map[string]bool{}, nil)
+				if source {
+					t.Fatal("dependency-only resolver selected a direct source")
+				}
+				return
+			}
+			r, logged := resolveEdgesOf(t, c, ix, "ts_test", "web", "web_test", &ruleImports{edges: []explainfiles.Edge{rootEdge}})
+			if logged != "" {
+				t.Fatalf("resolved closure reported missing: %s", logged)
+			}
+			var wantSrcs []string
+			wantDeps := []string{"//foreign:owner"}
+			if owner == "none" {
+				wantSrcs = []string{"//foreign/nested:b.ts", "//foreign/nested:value.json", "//foreign:a.ts"}
+				wantDeps = []string{"//:generated", "@npm//:types_node", "@npm//:zod"}
+			} else if owner == "tree" {
+				wantDeps = []string{"//:owner"}
+			}
+			wantStrings(t, "srcs", r.AttrStrings("srcs"), wantSrcs)
+			wantStrings(t, "deps", r.AttrStrings("deps"), wantDeps)
+		})
+	}
+}

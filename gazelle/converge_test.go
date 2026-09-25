@@ -607,6 +607,70 @@ func TestForeignJSONImportRemovalPreservesOnlyExplicitKeep(t *testing.T) {
 	}
 }
 
+func TestUnownedSourceClosureConvergesAfterImportRemoval(t *testing.T) {
+	requireTsgo(t)
+	const source = "import { answer } from '../fixtures/a'; export { answer };\n"
+	const exports = `exports_files(
+    [
+        "a.ts",
+        "nested/b.ts",
+    ],
+    visibility = ["//app:__pkg__"],
+)
+`
+	root := writeTree(t, map[string]string{
+		"app/tsconfig.json":     `{"compilerOptions":{"module":"preserve","moduleResolution":"bundler"},"files":["index.ts"]}`,
+		"app/index.ts":          source,
+		"fixtures/BUILD.bazel":  exports,
+		"fixtures/package.json": `{"name":"foreign-project"}`,
+		"fixtures/a.ts":         "export { answer } from './nested/b';\n",
+		"fixtures/nested/b.ts":  "export const answer = 42;\n",
+		"fixtures/unused.ts":    "import 'does-not-exist';\n",
+	})
+	convergeGazelle(t, root)
+	initial := buildFileText(t, root, "app")
+	want := []string{"//fixtures:a.ts", "//fixtures:nested/b.ts", "index.ts"}
+	assertSources := func(expected []string) {
+		t.Helper()
+		for _, r := range loadRules(t, root, "app") {
+			if r.Kind() == "ts_compile" {
+				got := r.AttrStrings("srcs")
+				slices.Sort(got)
+				wantStrings(t, "srcs", got, expected)
+				return
+			}
+		}
+		t.Fatal("missing compile rule")
+	}
+	assertSources(want)
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+	if strings.Contains(logged, "is no longer declared") || buildFileText(t, root, "app") != initial {
+		t.Fatalf("retained source closure did not converge: %s", logged)
+	}
+	buildPath := filepath.Join(root, "app/BUILD.bazel")
+	writeFile(t, buildPath, strings.ReplaceAll(initial, "//fixtures:", "@converge_repo_root//fixtures:"))
+	logged = captureLog(t, func() { convergeGazelle(t, root) })
+	if strings.Contains(logged, "is no longer declared") {
+		t.Fatalf("equivalent source labels reported dropped: %s", logged)
+	}
+	writeFile(t, filepath.Join(root, "app/index.ts"), "export const answer = 42;\n")
+	logged = captureLog(t, func() { convergeGazelle(t, root) })
+	assertSources([]string{"index.ts"})
+	if !strings.Contains(logged, "is no longer declared") {
+		t.Fatalf("removed source imports were not reported: %s", logged)
+	}
+	writeFile(t, filepath.Join(root, "app/index.ts"), source)
+	convergeGazelle(t, root)
+	assertSources(want)
+	actual, err := os.ReadFile(filepath.Join(root, "fixtures/BUILD.bazel"))
+	if err != nil || string(actual) != exports {
+		t.Fatalf("foreign source owner changed: %s, %v", actual, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "fixtures/nested/BUILD.bazel")); !os.IsNotExist(err) {
+		t.Fatalf("foreign source directory became a Bazel package: %v", err)
+	}
+}
+
 func TestGeneratedTreeImportRetainsDirectOwnerWithoutOutputFiles(t *testing.T) {
 	requireTsgo(t)
 	cases := []struct {

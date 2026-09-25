@@ -555,26 +555,37 @@ func vitestConfigFor(args language.GenerateArgs, tc *tsConfig,
 // ruleImports is what GenerateRules hands Resolve for one rule: the edges of
 // the files it compiles, its vitest config and the deps no edge names.
 type ruleImports struct {
-	candidates []resolutionCandidate
-	edges      []explainfiles.Edge
-	config     string
-	deps       []string
+	candidates     []resolutionCandidate
+	edges          []explainfiles.Edge
+	config         string
+	deps           []string
+	reportSrcDrops func(*rule.Rule)
 }
 
 // ownedEdges is the edges of pkg's program from the given files, the type
 // references of the store files those reach, and the tsconfig's type entries.
 func (s *programStore) ownedEdges(pkg string, files ...[]string,
 ) []explainfiles.Edge {
+	p := s.programs[pkg]
+	return append(sourceEdges(p.edgesBySource(), files...), p.typeEdges()...)
+}
+
+func (p *program) edgesBySource() map[string][]explainfiles.Edge {
+	byFrom := map[string][]explainfiles.Edge{}
+	if p != nil {
+		for _, e := range p.Edges {
+			byFrom[e.From] = append(byFrom[e.From], e)
+		}
+	}
+	return byFrom
+}
+
+func sourceEdges(byFrom map[string][]explainfiles.Edge, files ...[]string) []explainfiles.Edge {
 	from := map[string]bool{}
 	for _, list := range files {
 		for _, f := range list {
 			from[f] = true
 		}
-	}
-	p := s.programs[pkg]
-	byFrom := map[string][]explainfiles.Edge{}
-	for _, e := range p.Edges {
-		byFrom[e.From] = append(byFrom[e.From], e)
 	}
 	reached := maps.Clone(from)
 	queue := slices.Sorted(maps.Keys(from))
@@ -593,7 +604,7 @@ func (s *programStore) ownedEdges(pkg string, files ...[]string,
 			}
 		}
 	}
-	return append(out, p.typeEdges()...)
+	return out
 }
 
 func (s *programStore) compileImports(pkg string, set srcSet) *ruleImports {

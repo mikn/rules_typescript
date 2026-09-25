@@ -398,7 +398,7 @@ func resolveProtoLibrary(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule, 
 	tc := getConfig(c)
 	reported := map[string]bool{}
 	for _, edge := range configTypeEdges(c, ix, imps.identity.Tsconfig, imps.identity.owner) {
-		if dep := edgeDep(c, ix, tc, edge, from, reported, nil); dep != "" {
+		if dep, _ := edgeDep(c, ix, tc, edge, from, reported, nil); dep != "" {
 			deps[dep] = true
 		}
 	}
