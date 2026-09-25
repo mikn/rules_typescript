@@ -555,9 +555,10 @@ func vitestConfigFor(args language.GenerateArgs, tc *tsConfig,
 // ruleImports is what GenerateRules hands Resolve for one rule: the edges of
 // the files it compiles, its vitest config and the deps no edge names.
 type ruleImports struct {
-	edges  []explainfiles.Edge
-	config string
-	deps   []string
+	candidates []resolutionCandidate
+	edges      []explainfiles.Edge
+	config     string
+	deps       []string
 }
 
 // ownedEdges is the edges of pkg's program from the given files, the type
@@ -596,15 +597,19 @@ func (s *programStore) ownedEdges(pkg string, files ...[]string,
 }
 
 func (s *programStore) compileImports(pkg string, set srcSet) *ruleImports {
-	return &ruleImports{edges: s.ownedEdges(pkg, set.library, set.declaration)}
+	return &ruleImports{
+		edges:      s.ownedEdges(pkg, set.library, set.declaration),
+		candidates: s.ownedCandidates(pkg, set.library, set.declaration),
+	}
 }
 
 // A ts_test's runtime is its deps, so the manifest union joins the edges.
 func (s *programStore) testImports(repoRoot string, lock *npmLock,
 	pkg, compile, cfg string, set srcSet) *ruleImports {
 	imps := &ruleImports{
-		edges:  s.ownedEdges(pkg, set.library, set.declaration, set.test),
-		config: cfg,
+		edges:      s.ownedEdges(pkg, set.library, set.declaration, set.test),
+		candidates: s.ownedCandidates(pkg, set.library, set.declaration, set.test),
+		config:     cfg,
 	}
 	if compile != "" {
 		imps.deps = append(imps.deps, compile)
@@ -727,4 +732,20 @@ func sourceExportOwner(s *programStore, source string) string {
 
 func sourceExportPackage(s *programStore, dir string) bool {
 	return s.packages[dir] != nil || s.emission.files[dir] != nil || s.generatedPackages[dir] || dir == ""
+}
+
+func (s *programStore) ownedCandidates(pkg string, files ...[]string) []resolutionCandidate {
+	from := map[string]bool{}
+	for _, list := range files {
+		for _, file := range list {
+			from[file] = true
+		}
+	}
+	var out []resolutionCandidate
+	for _, candidate := range s.programs[pkg].candidates {
+		if from[candidate.from] {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
