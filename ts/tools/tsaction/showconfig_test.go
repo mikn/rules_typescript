@@ -733,3 +733,19 @@ func TestDeclaredDirectoryDoesNotInventAmbientChild(t *testing.T) {
 	writeFile(t, tree+"/index.d.ts", "declare const treeValue: string;\n")
 	mustWriteTsconfig(t, e.tsconfigArgs())
 }
+
+func TestUnsupportedShowConfigCannotSilentlyDiscardCompilerOptions(t *testing.T) {
+	for _, wire := range []string{`{"target":9,"module":200,"jsx":4}`, `{}`, `null`, `{"compilerOptions":null}`, `{"compilerOptions":[]}`, `{"compilerOptions":"es2022"}`} {
+		t.Run(wire, func(t *testing.T) {
+			if _, _, err := decodeShowConfig([]byte(wire)); err == nil || !strings.Contains(err.Error(), "unsupported --showConfig schema") {
+				t.Fatalf("unsupported wire accepted: %s: %v", wire, err)
+			}
+		})
+	}
+	if _, _, err := decodeShowConfig([]byte(`{"compilerOptions":{"target":9}}`)); err == nil {
+		t.Fatal("numeric enum accepted as a compiler option string")
+	}
+	if _, _, err := decodeShowConfig([]byte(`{"compilerOptions":{}}`)); err != nil {
+		t.Fatalf("empty supported options rejected: %v", err)
+	}
+}
