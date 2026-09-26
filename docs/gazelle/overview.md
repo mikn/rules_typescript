@@ -48,9 +48,12 @@ bazel run //:gazelle
 
 Five things, without program-membership directives.
 
-1. **Every `tsconfig.json`**, listed through tsgo from the repository root:
+1. **Every selected compiler configuration**, normally `tsconfig.json`. A kept
+   `src` on the package's canonical `ts_config(name = "tsconfig")` selects an
+   authored alternative, independently of an editor solution wrapper. It is
+   listed through tsgo from the repository root:
    `tsgo -p <dir>/tsconfig.json --noEmit --listFilesOnly --explainFiles
-   --pretty false`. The listing is the program's files and every edge between
+--pretty false`. The listing is the program's files and every edge between
    them -- each import, module augmentation, `/// <reference>` directive and
    `types` entry, with the file it resolved to. The binary is the toolchain's,
    carried in `gazelle_typescript`'s runfiles, so the program Gazelle reads is
@@ -155,17 +158,17 @@ a source, and a BUILD file there is emptied and named the same way.
 
 ## What Gazelle Writes
 
-| Rule | Name | Attributes Gazelle owns |
-|------|------|-------------------------|
-| `ts_compile` | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
-| `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
-| `ts_dev_server` | `dev` (`dev_server` when the compile target is `dev`) | `entry_point`, `plugin`, `node_modules`, `visibility` |
-| `filegroup` | `vitest_config` | `srcs`, `visibility` |
-| `filegroup` | `wrangler_config` | `srcs`, `visibility` |
-| `node_modules` | `node_modules` | `deps`, `parent`, `hoist`, `visibility` |
-| `node_modules_member` | `node_modules/<member name>` | `member`, `visibility` |
-| `npm_virtual_store` | `node_modules/.pnpm` | |
+| Rule                  | Name                                                    | Attributes Gazelle owns                                                                     |
+| --------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `ts_compile`          | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility`                                                    |
+| `ts_test`             | `<basename>_test`                                       | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
+| `ts_config`           | `tsconfig`                                              | `src`, `deps`, `visibility`                                                                 |
+| `ts_dev_server`       | `dev` (`dev_server` when the compile target is `dev`)   | `entry_point`, `plugin`, `node_modules`, `visibility`                                       |
+| `filegroup`           | `vitest_config`                                         | `srcs`, `visibility`                                                                        |
+| `filegroup`           | `wrangler_config`                                       | `srcs`, `visibility`                                                                        |
+| `node_modules`        | `node_modules`                                          | `deps`, `parent`, `hoist`, `visibility`                                                     |
+| `node_modules_member` | `node_modules/<member name>`                            | `member`, `visibility`                                                                      |
+| `npm_virtual_store`   | `node_modules/.pnpm`                                    |                                                                                             |
 
 Per package: a `ts_compile` when the program has a library file, holding the
 library files, every owned declaration and the data files; a `ts_test` when it

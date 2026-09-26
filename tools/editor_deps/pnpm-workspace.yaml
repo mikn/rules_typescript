@@ -1,0 +1,2 @@
+patchedDependencies:
+  chokidar@5.0.0: chokidar@5.0.0.patch

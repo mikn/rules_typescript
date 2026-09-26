@@ -1,0 +1,10 @@
+load("@npm_editor//:defs.bzl", "npm_virtual_store")
+
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "chokidar@5.0.0.patch",
+])
+
+npm_virtual_store(name = "node_modules/.pnpm")

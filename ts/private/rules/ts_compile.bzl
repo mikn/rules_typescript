@@ -98,6 +98,7 @@ load(
     "ownership_manifest",
     "tsgo_check",
     "tsgo_declare",
+    "tsgo_editor",
 )
 
 _TS_EXTENSIONS = ["ts", "tsx"]
@@ -608,6 +609,7 @@ def compile_program(
 
     tsconfig = None
     options_file = None
+    editor_config = None
     if needs_config:
         tsgo = tsgo_toolchain_info.tsgo_info
 
@@ -653,12 +655,27 @@ def compile_program(
         )
         tsconfig = written.tsconfig
         options_file = written.options
+        editor_config = written.editor
 
     validation_outputs = []
     format_stamp = format_action(ctx, ctx.attr._format[FormatConfigInfo], ctx.files.srcs)
     if format_stamp:
         validation_outputs.append(format_stamp)
     program_inputs = check_srcs + joined + json_srcs + dep_json + dep_manifests
+    if editor_config:
+        editor_config = tsgo_editor(
+            ctx,
+            tsgo = tsgo,
+            tsconfig = tsconfig,
+            template = editor_config,
+            importers = importers,
+            overlays = sorted(overlays.keys()),
+            manifests = dep_manifests,
+            srcs = program_inputs,
+            chain = tsconfig_chain,
+            dep_dts = dep_dts_depset,
+            npm_files = npm_files,
+        )
     if program_srcs:
         if emit and compile_srcs:
             emit_action(
@@ -834,6 +851,13 @@ def compile_program(
     # resolution with the editor's; a target with no program generates none.
     if tsconfig:
         output_groups["tsconfig"] = depset([tsconfig])
+    if editor_config:
+        output_groups["ide_tsconfig"] = depset([editor_config])
+    output_groups["ide_generated_sources"] = depset([baseline_file] + [
+        f
+        for f in depset(program_inputs, transitive = [dep_dts_depset]).to_list()
+        if not f.is_source and not f.short_path.startswith("../")
+    ])
     if validation_outputs:
         output_groups["_validation"] = depset(validation_outputs)
 

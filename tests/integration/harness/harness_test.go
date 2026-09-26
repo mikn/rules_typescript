@@ -2,6 +2,7 @@ package harness
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -244,5 +245,35 @@ func TestNestedEnvDropsTestTmpdir(t *testing.T) {
 
 	if got, count := envValue(nestedEnv(), "TEST_TMPDIR"); count != 0 {
 		t.Errorf("TEST_TMPDIR = %q (%d entries), want it dropped", got, count)
+	}
+}
+
+func TestExecPersistsOutputBeforeChildExit(t *testing.T) {
+	const marker = "stdout before exit\nstderr before exit\n"
+	if path := os.Getenv("RULES_TS_TEST_LIVE_LOG"); path != "" {
+		if _, err := os.Stdout.WriteString("stdout before exit\n"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stderr.WriteString("stderr before exit\n"); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != marker {
+			t.Fatalf("log not persisted before child exit: %q, %v", data, err)
+		}
+		os.Exit(7)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := &IT{WorkspaceDir: t.TempDir(), scratchDir: t.TempDir()}
+	log, err := it.Exec("live.log", []string{"RULES_TS_TEST_LIVE_LOG=" + it.Scratch("live.log")}, executable, "-test.run=^TestExecPersistsOutputBeforeChildExit$")
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 7 {
+		t.Fatalf("child exit = %v; output: %s", err, log.Text)
+	}
+	if log.Text != marker {
+		t.Fatalf("returned log = %q, want %q", log.Text, marker)
 	}
 }

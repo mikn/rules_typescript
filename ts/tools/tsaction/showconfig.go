@@ -97,10 +97,12 @@ func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 // tsconfig cannot: where the sandbox puts things and which tool declares it.
 type actionConfig struct {
 	tsgo, project, baseline, out, options string
+	editorOut, editorPath                 string
 	binDir                                string
 	jsx, module                           string
 	typesDeps                             stringList
 	typeInputs                            stringList
+	generatedDirectories, generatedFiles  stringList
 	srcs                                  []string
 	isolatedDeclarations                  bool
 	libCheck                              bool
@@ -128,6 +130,8 @@ func writeTsconfig(args []string) error {
 	flags.StringVar(&a.baseline, "baseline", "", "the ruleset's baseline options, extended before the user's file")
 	flags.StringVar(&a.out, "out", "", "the tsconfig to write")
 	flags.StringVar(&a.options, "options", "", "the oxc options file to write")
+	flags.StringVar(&a.editorOut, "editor_out", "", "the editor project output")
+	flags.StringVar(&a.editorPath, "editor_path", "", "the editor project workspace destination")
 	flags.StringVar(&a.binDir, "bin_dir", "", "the output tree's root")
 	flags.StringVar(&a.jsx, "jsx", "",
 		"the ts_config's jsx: \"preserve\" names a .tsx's emit .jsx")
@@ -137,6 +141,8 @@ func writeTsconfig(args []string) error {
 		"to types when the user's chain sets neither types nor typeRoots "+
 		"(repeatable)")
 	flags.Var(&a.typeInputs, "type_input", "a declared generated dependency file (repeatable)")
+	flags.Var(&a.generatedDirectories, "generated_directory", "workspace-relative generated directory (repeatable)")
+	flags.Var(&a.generatedFiles, "generated_file", "workspace-relative generated file (repeatable)")
 	flags.BoolVar(&a.isolatedDeclarations, "isolated_declarations", false, "oxc emits the declarations, so every export must be annotated")
 	flags.BoolVar(&a.sourceOnly, "source_only", false, "the program publishes sources without emitting JavaScript")
 	flags.BoolVar(&a.libCheck, "lib_check", false, "check the program's .d.ts closure too")
@@ -182,6 +188,14 @@ func writeTsconfig(args []string) error {
 	}
 	if err := writeJSON(a.out, config); err != nil {
 		return err
+	}
+	if a.editorOut != "" {
+		if a.editorPath == "" {
+			return fmt.Errorf("editor_out requires editor_path")
+		}
+		if err := writeJSON(a.editorOut, a.editorConfig(config, chain)); err != nil {
+			return err
+		}
 	}
 	return writeJSON(a.options, options)
 }
@@ -430,9 +444,10 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 				continue
 			}
 			target := path.Join(chain.PathsDir, value)
-			rewritten = append(rewritten,
-				explicitlyRelative(relativePath(dir, target)),
-				explicitlyRelative(relativePath(dir, path.Join(a.binDir, target))))
+			rewritten = append(rewritten, explicitlyRelative(relativePath(dir, target)))
+			if a.binDir != "" {
+				rewritten = append(rewritten, explicitlyRelative(relativePath(dir, path.Join(a.binDir, target))))
+			}
 		}
 		out[key] = rewritten
 	}
@@ -557,4 +572,189 @@ func writeJSON(name string, v any) error {
 		return err
 	}
 	return os.WriteFile(name, append(data, '\n'), 0o644)
+}
+
+func (a *actionConfig) editorConfig(config *tsconfigFile, chain *tsconfig.Resolved) map[string]any {
+	dir := path.Dir(a.editorPath)
+	remap := func(value string) string {
+		for _, file := range a.generatedFiles {
+			if value == file {
+				return path.Join("bazel-bin", value)
+			}
+		}
+		for _, directory := range a.generatedDirectories {
+			if value == directory || strings.HasPrefix(value, directory+"/") {
+				return path.Join("bazel-bin", value)
+			}
+		}
+		if value == a.binDir {
+			return "bazel-bin"
+		}
+		return strings.Replace(value, a.binDir+"/", "bazel-bin/", 1)
+	}
+	relocate := func(values []string) []string {
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			target := value
+			if !path.IsAbs(target) {
+				target = path.Join(path.Dir(a.out), value)
+			}
+			out = append(out, fileRelative(dir, remap(target)))
+		}
+		return out
+	}
+	extends := []string{fileRelative(dir, remap(a.baseline))}
+	if a.project != "" {
+		extends = append(extends, fileRelative(dir, a.project))
+	}
+	opts := map[string]any{}
+	for _, key := range []string{"composite", "incremental", "declaration", "declarationMap", "emitDeclarationOnly", "declarationDir", "isolatedDeclarations", "types"} {
+		if value, ok := config.CompilerOptions[key]; ok {
+			opts[key] = value
+		}
+	}
+	if a.hasJavaScriptSrc() {
+		opts["allowJs"] = true
+	}
+	if a.libCheck {
+		opts["skipLibCheck"] = false
+	}
+	opts["rootDir"] = relativePath(dir, "")
+	opts["rootDirs"] = []string{relativePath(dir, ""), relativePath(dir, "bazel-bin")}
+	if chain != nil {
+		projected := *a
+		projected.binDir = ""
+		if paths := projected.paths(chain, dir); paths != nil {
+			projectGeneratedPaths(paths, chain, dir, a.generatedDirectories, a.generatedFiles)
+			opts["paths"] = paths
+		}
+	}
+	exclude := relocate(config.Exclude)
+	for _, directory := range a.generatedDirectories {
+		exclude = append(exclude, fileRelative(dir, path.Join(directory, "**/*")))
+	}
+	for _, file := range a.generatedFiles {
+		exclude = append(exclude, fileRelative(dir, file))
+	}
+	return map[string]any{"extends": extends, "compilerOptions": opts, "files": relocate(config.Files), "include": relocate(config.Include), "exclude": exclude, "references": []string{}}
+}
+
+func projectGeneratedPaths(out map[string][]string, chain *tsconfig.Resolved, dir string, directories, files []string) {
+	keys := map[string]bool{}
+	for alias, values := range chain.Paths {
+		keys[alias] = true
+		for _, value := range values {
+			if path.IsAbs(value) {
+				continue
+			}
+			target := path.Join(chain.PathsDir, value)
+			if strings.Count(alias, "*") != 1 || strings.Count(target, "*") != 1 {
+				continue
+			}
+			parts := strings.SplitN(target, "*", 2)
+			if parts[1] == "" {
+				for _, generated := range directories {
+					if strings.HasPrefix(generated+"/", parts[0]) {
+						keys[strings.Replace(alias, "*", strings.TrimPrefix(generated+"/", parts[0])+"*", 1)] = true
+					}
+				}
+			}
+			for _, file := range files {
+				for _, generated := range editorFileSpecifiers(file) {
+					if strings.HasPrefix(generated, parts[0]) && strings.HasSuffix(generated, parts[1]) {
+						middle := strings.TrimSuffix(strings.TrimPrefix(generated, parts[0]), parts[1])
+						keys[strings.Replace(alias, "*", middle, 1)] = true
+					}
+				}
+			}
+		}
+	}
+	for key := range keys {
+		selected, middle := editorAliasOwner(chain.Paths, key)
+		projected := []string{}
+		changed := false
+		for _, value := range chain.Paths[selected] {
+			if path.IsAbs(value) {
+				projected = append(projected, value)
+				continue
+			}
+			target := path.Join(chain.PathsDir, strings.Replace(value, "*", middle, 1))
+			generated := false
+			for _, directory := range directories {
+				if target == directory || strings.HasPrefix(target, directory+"/") {
+					generated = true
+				}
+			}
+			scalars := map[string]bool{}
+			for _, file := range files {
+				for _, specifier := range editorFileSpecifiers(file) {
+					if target == specifier {
+						generated = true
+						scalars[file] = true
+					}
+				}
+			}
+			if len(scalars) == 1 {
+				for file := range scalars {
+					target = file
+				}
+			}
+			if generated {
+				projected = append(projected, fileRelative(dir, path.Join("bazel-bin", target)))
+			} else {
+				projected = append(projected, fileRelative(dir, target))
+			}
+			changed = changed || generated
+		}
+		if changed {
+			out[key] = projected
+		}
+	}
+}
+
+func editorFileSpecifiers(file string) []string {
+	suffix := ""
+	for _, extension := range typesEntryExtensions {
+		if strings.HasSuffix(file, extension) && len(extension) > len(suffix) {
+			suffix = extension
+		}
+	}
+	if suffix == "" {
+		return []string{file}
+	}
+	stem := strings.TrimSuffix(file, suffix)
+	runtime := ".js"
+	if strings.HasSuffix(suffix, "mts") {
+		runtime = ".mjs"
+	} else if strings.HasSuffix(suffix, "cts") {
+		runtime = ".cjs"
+	}
+	values := []string{file, stem, stem + runtime}
+	if suffix == ".tsx" {
+		values = append(values, stem+".jsx")
+	}
+	return values
+}
+
+func editorAliasOwner(paths map[string][]string, specifier string) (string, string) {
+	if _, ok := paths[specifier]; ok {
+		return specifier, "*"
+	}
+	selected, middle := "", ""
+	longest := -1
+	for alias := range paths {
+		if strings.Count(alias, "*") != 1 {
+			continue
+		}
+		parts := strings.SplitN(alias, "*", 2)
+		if len(specifier) < len(parts[0])+len(parts[1]) || !strings.HasPrefix(specifier, parts[0]) || !strings.HasSuffix(specifier, parts[1]) {
+			continue
+		}
+		if len(parts[0]) > longest || (len(parts[0]) == longest && alias < selected) {
+			selected = alias
+			middle = strings.TrimSuffix(strings.TrimPrefix(specifier, parts[0]), parts[1])
+			longest = len(parts[0])
+		}
+	}
+	return selected, middle
 }

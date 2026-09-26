@@ -14,6 +14,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 
 	"github.com/mikn/rules_typescript/ts/tools/jsonc"
 	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
@@ -103,21 +104,8 @@ func isGeneratedTsConfig(path string) bool {
 	return strings.Contains(doc.Comment, generatedTsConfigMarker)
 }
 
-// handWrittenTsConfigIn returns the workspace-relative path of dir's own
-// tsconfig.json, or "" when it has none or the one it has is generated.
-func handWrittenTsConfigIn(dir, repoRoot string) string {
-	candidate := filepath.Join(dir, "tsconfig.json")
-	if st, err := os.Stat(candidate); err != nil || st.IsDir() {
-		return ""
-	}
-	if isGeneratedTsConfig(candidate) {
-		return ""
-	}
-	rel, err := filepath.Rel(repoRoot, candidate)
-	if err != nil {
-		return ""
-	}
-	return filepath.ToSlash(rel)
+func isEditorProjectDir(rel string) bool {
+	return strings.Contains("/"+rel+"/", "/.bazel/tsconfig/")
 }
 
 // ---- Configurer implementation ---------------------------------------------
@@ -125,6 +113,9 @@ func handWrittenTsConfigIn(dir, repoRoot string) string {
 // configureTsConfig is tsLang.Configure for one directory: the parent's config
 // cloned, the codegens declared here, the program listed.
 func configureTsConfig(c *config.Config, rel string, f *rule.File) {
+	if isEditorProjectDir(rel) {
+		return
+	}
 	var tc *tsConfig
 	if parent, ok := c.Exts[languageName]; ok {
 		tc = parent.(*tsConfig).clone()
@@ -163,8 +154,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		tc.programs.foreign[rel] = tc.foreignManifest
 	}
 	tc.recordCodegens(c.RepoName, rel, f)
-	if handWrittenTsConfigIn(currentDir, c.RepoRoot) != "" {
-		listTsConfigProgram(c.RepoRoot, rel, tc)
+	tc.programs.selectConfig(rel, f)
+	if tc.programs.hasAuthoredConfig(c.RepoRoot, rel) {
+		listTsConfigProgram(c, rel, tc)
 	} else if hasPackageJSON(currentDir) {
 		listManifestProgram(c.RepoRoot, rel, tc)
 	}
@@ -210,4 +202,47 @@ func typesEntryFiles(tsConfigPath, rel string) []string {
 		}
 	}
 	return files
+}
+
+func (s *programStore) hasAuthoredConfig(root, rel string) bool {
+	file := filepath.Join(root, filepath.FromSlash(s.configPath(rel)))
+	info, err := os.Stat(file)
+	return err == nil && !info.IsDir() && !isGeneratedTsConfig(file)
+}
+
+func (s *programStore) selectConfig(rel string, f *rule.File) {
+	if f != nil {
+		for _, r := range f.Rules {
+			if r.Kind() != "ts_config" || r.Name() != tsConfigTargetName || (!r.ShouldKeep() && !attrKept(r, "src")) {
+				continue
+			}
+			literal, ok := r.Attr("src").(*bzl.StringExpr)
+			if !ok {
+				continue
+			}
+			src := strings.TrimPrefix(literal.Value, ":")
+			if src == "" || strings.Contains(src, ":") || path.IsAbs(src) || strings.HasPrefix(path.Clean(src), "../") {
+				log.Fatalf("typescript: %s: kept ts_config src must name a file in this package", rel)
+			}
+			s.configs[rel] = path.Join(rel, src)
+		}
+	}
+}
+
+func (s *programStore) readSelectedConfig(c *config.Config, rel string) {
+	if _, known := s.configs[rel]; known {
+		return
+	}
+	for _, name := range c.ValidBuildFileNames {
+		filename := filepath.Join(c.RepoRoot, filepath.FromSlash(rel), name)
+		if _, err := os.Stat(filename); os.IsNotExist(err) {
+			continue
+		}
+		file, err := rule.LoadFile(filename, rel)
+		if err != nil {
+			log.Fatalf("typescript: reading selected config owner %s: %v", filename, err)
+		}
+		s.selectConfig(rel, file)
+		return
+	}
 }

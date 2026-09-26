@@ -765,3 +765,49 @@ func requireNoTsConfigTypesFilegroup(t *testing.T, root string) {
 		}
 	}
 }
+
+func TestEditorRefreshDoesNotChangeDiscoveredInputs(t *testing.T) {
+	requireTsgo(t)
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"tsconfig.json":                       `{"files":["index.ts"]}`,
+		"index.ts":                            "export const root = 1;\n",
+		"pkg/tsconfig.json":                   `{"files":["index.ts"]}`,
+		"pkg/index.ts":                        "export const nested = 1;\n",
+		"pkg/.bazel/other.json":               `{}`,
+		"pkg/.bazel/tsconfig-other/data.json": `{}`,
+		"pkg/.hidden/data.json":               `{}`,
+	})
+	convergeGazelle(t, root)
+	before := convergeSnapshot(t, root)
+	for _, name := range []string{".bazel/other.json", ".bazel/tsconfig-other/data.json", ".hidden/data.json"} {
+		if !strings.Contains(before["pkg/BUILD.bazel"], name) {
+			t.Fatalf("unrelated authored data missing before refresh: %s", name)
+		}
+	}
+	writeWorkspace(t, root, map[string]string{
+		".bazel/tsconfig/root_test.json":       `{"files":["../../index.ts"]}`,
+		"pkg/.bazel/tsconfig/pkg_test.json":    `{"files":["../../index.ts"]}`,
+		"pkg/.bazel/tsconfig/nested/data.json": `{}`,
+	})
+	convergeGazelle(t, root)
+	if diff := snapshotDiff(before, convergeSnapshot(t, root)); diff != "" {
+		t.Fatalf("editor refresh changed discovered inputs:\n%s", diff)
+	}
+	writeWorkspace(t, root, map[string]string{
+		"pkg/.bazel/tsconfig/tsconfig.json": `{"extends":"./missing-authored-config.json"}`,
+	})
+	convergeGazelle(t, root)
+	if diff := snapshotDiff(before, convergeSnapshot(t, root)); diff != "" {
+		t.Fatalf("editor cache config changed discovered inputs:\n%s", diff)
+	}
+	for _, dir := range []string{".bazel/tsconfig", "pkg/.bazel/tsconfig"} {
+		if err := os.RemoveAll(filepath.Join(root, dir)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	convergeGazelle(t, root)
+	if diff := snapshotDiff(before, convergeSnapshot(t, root)); diff != "" {
+		t.Fatalf("editor cache deletion changed discovered inputs:\n%s", diff)
+	}
+}

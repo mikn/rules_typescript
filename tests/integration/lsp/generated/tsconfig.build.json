@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "#generated/*": ["./generated/*"],
+      "#types/*": ["./generated/types/*"],
+      "#ordered/*": ["./authored/*", "./generated/*"],
+      "#specific/*": ["./generated/*"],
+      "#specific/value": ["./override.ts"]
+    }
+  },
+  "include": [
+    "consumer.ts",
+    "standalone.test.ts",
+    "generated/**/*.ts",
+    "override.ts",
+    "authored/**/*.ts"
+  ]
+}

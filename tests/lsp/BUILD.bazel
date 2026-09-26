@@ -51,6 +51,10 @@ node_modules(
     name = "node_modules",
     testonly = True,
     hoist = "//tests/npm:node_modules/.pnpm/node_modules",
+    visibility = [
+        "//:__pkg__",
+        "//tests/integration:__subpackages__",
+    ],
     deps = ["@npm//:typescript"],
 )
 

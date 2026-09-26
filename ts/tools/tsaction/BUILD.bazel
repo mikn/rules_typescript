@@ -8,6 +8,7 @@ go_library(
     name = "tsaction_lib",
     srcs = [
         "check.go",
+        "editor.go",
         "emit.go",
         "exclude.go",
         "main.go",
@@ -37,6 +38,7 @@ go_test(
     srcs = [
         "check_test.go",
         "config_compiler_test.go",
+        "editor_test.go",
         "emit_test.go",
         "exclude_test.go",
         "main_test.go",
@@ -45,9 +47,21 @@ go_test(
         "showconfig_test.go",
         "tsgo_test.go",
     ],
-    data = glob(["testdata/**"]) + ["//ts/toolchain:tsgo_resolved"],
+    args = ["-test.v"],
+    data = glob(["testdata/**"]) + [
+        "//tools:native_session",
+        "//tools:verify-editor.test_bundle",
+        "//tools:verify-editor-cli_bundle",
+        "//ts/toolchain:node_resolved",
+        "//ts/toolchain:tsgo_resolved",
+    ],
     embed = [":tsaction_lib"],
-    env = {"TSGO_RLOCATION": "$(rlocationpath //ts/toolchain:tsgo_resolved)"},
+    env = {
+        "NODE_RLOCATION": "$(rlocationpath //ts/toolchain:node_resolved)",
+        "TSGO_RLOCATION": "$(rlocationpath //ts/toolchain:tsgo_resolved)",
+        "VERIFIER_RLOCATION": "$(rlocationpath //tools:verify-editor-cli_bundle)",
+        "WATCHER_TEST_RLOCATION": "$(rlocationpath //tools:verify-editor.test_bundle)",
+    },
     deps = ["@io_bazel_rules_go//go/runfiles"],
 )
 

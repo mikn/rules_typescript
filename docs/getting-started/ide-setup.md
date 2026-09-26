@@ -10,6 +10,56 @@ read:
    outputs with no tsconfig reload. It is a layer on top of the generated file,
    and it needs editor configuration; the generated file needs none.
 
+## Generated inputs with authored build configurations
+
+For a program that imports generated sources or declaration trees, set
+`ts_refresh_tsconfig(tsconfig = None, generated_sources = True, deps = [...])`.
+Choose the complete owning program, including its test inputs when applicable.
+Refresh materializes its generated compiler inputs and writes an editor project
+at `<package>/.bazel/tsconfig/<target>.json`, preserving the compiler package’s
+ancestor lookup for ambient type packages. It leaves source-side generator
+outputs and authored configurations unchanged. This mode needs no tsserver plugin.
+
+Keep the authored compiler program in `tsconfig.build.json`, owned by the
+package's `ts_config(name = "tsconfig", src = "tsconfig.build.json")` with
+`# keep` on `src`. Gazelle reads that selected file. The normal `tsconfig.json`
+is a tracked solution wrapper: extend the build config, set `files` and `include`
+to empty arrays, and reference the generated editor project. TypeScript discovers
+the referenced program when a source file opens. Tools that read the wrapper's
+options still inherit them; compiler commands name the build config directly.
+
+Run `bazel run --run_validations=false --output_groups=-_validation //:refresh_tsconfig` before starting the
+editor. The output-group override cancels an explicit `+_validation` in a workspace rc. Use the same target with ibazel for input changes. Validation stays on
+ordinary builds; a type error must not prevent refreshing the editor that fixes
+it. Refresh lists the staged build program with the selected compiler, without semantic checking. Observed scalar alias imports point to the generated file that compiler selected, even after a build emits JavaScript beside it. The compiler applies authored alias specificity and fallback order. When all observed importers agree on a generated file, the editor receives that exact destination; conflicting importer destinations leave the template unchanged. This is a resolution snapshot: refresh after inputs change to recompute fallback choices.
+
+Unobserved scalar aliases still point only into canonical Bazel outputs. When multiple generated files share a spelling, refresh does not guess which a future import will select; the next normal refresh observes that import. Generated directory aliases remain wildcard mappings.
+This does not redirect a relative import away from an existing source-side file:
+TypeScript checks the importing directory first. Keep such outputs current through
+their existing generator, or avoid a conflicting source output. The project output is derived state; ignore
+`.bazel/` in version control.
+
+The nested [LSP fixture](../../tests/integration/lsp/generated) declares the
+solution wrapper and generated inputs. The Bazel-owned verifier
+launches `<tsgo> --lsp --stdio` and checks native project discovery and existing definition files. It checks expected editor errors and runs the CLI project as an error-level sanity check. Suggestions, information and hints remain in raw results but do not gate editor functionality. Invoke it as `bazel run @rules_typescript//tools:verify_editor -- /absolute/compiler /absolute/probes.json`. Its inputs name source files, import specifiers, expected project paths and optional canonical definition paths. Generated-member completion and live add/delete behavior belong to the persistent-session fixture.
+
+### Native queries for tools
+
+`@rules_typescript//tools:query_editor` uses the same native session as the verifier. Its arguments are `<absolute-compiler-executable> <logical-workspace> <query-json>`. The JSON names `file`, `operation` (`completion`, `definition`, `hover`, `references`, or `diagnostics`), and a zero-based UTF-16 `position` for operations other than diagnostics. References optionally accepts `includeDeclaration`. Results include the discovered project, server identity and unfiltered operation result; failures go to stderr with a nonzero exit.
+
+Create a Bazel-owned launch script during existing workspace preparation, then invoke that script for queries:
+
+```sh
+bazel run --script_path=/absolute/state/query-editor @rules_typescript//tools:query_editor
+/absolute/state/query-editor /absolute/compiler /absolute/workspace '{"file":"src/main.ts","operation":"diagnostics"}'
+```
+
+A single CLI query opens and closes a session without generation or CLI typechecking. For a long-lived client, invoke the same launcher with `<compiler> <workspace> --module-path` and import the returned canonical module path. This declared bundle includes its watcher dependency and does not resolve packages from the caller’s checkout. Call `withNativeSession({ executable, cwd, signal }, async session => ...)` once for the client lifetime and use `session.query({ file, operation, position, signal })` for each request. The outer signal owns process and watcher cleanup; a query signal sends standard LSP request cancellation without restarting the server. Native process failure rejects the session callback even while the client is idle.
+
+The session installs the compiler's dynamic file subscriptions before acknowledging registration. The selected native compiler emits recursive directory and literal file subscriptions. The bundled watcher follows readable directory symlinks within those scopes, including subscriptions outside the checkout. Kernel-rejected `ELOOP` paths are reported and skipped; other watch errors and unsupported subscription shapes fail explicitly. Open documents synchronize changed disk text with LSP document versions. File updates are asynchronous: a query during generation may still observe the previous output, and later queries observe the updated program. The client does not regenerate sources or maintain a separate generation registry.
+
+Bootstrap may use the caller's existing refresh lock to obtain the module after preparation; do not hold that lock for the session lifetime. Normal completion sends `shutdown` and `exit` and awaits process closure. On POSIX, session cancellation terminates the owned native process group; Windows terminates only the direct child. The `//tests/integration/runners:lsp_runner` fixture passed on Linux AMD64 with `@typescript/native-preview@7.0.0-dev.20260707.2`, retaining build caches: one live session observed actual Bazel source-file and declaration-tree additions and deletions through completion, hover and definition queries. Actual application qualification remains pending. No query timeout or retry is added.
+
 ## Setup
 
 Declare the target once, in your root `BUILD.bazel`:
@@ -46,14 +96,14 @@ bazel run //:refresh_tsconfig
 
 That writes, into the source tree:
 
-| Path | What it is |
-|---|---|
-| `tsconfig.json` | Compiler options and the `paths` map; checked in |
-| `.bazel/tsserver-hook-data.json` | The same graph facts, in the shape the plugin reads |
-| `.bazel/node_modules/@rules_typescript/tsserver-plugin/` | The tsserver plugin, as a package tsserver can load by name |
-| `.bazel/tsserver-hook.js` | A preload variant for a client that resolves through the public `ts.resolveModuleName`; see [What the preload does not reach](#what-the-preload-does-not-reach) |
-| `.bazel/tsserver-hook-resolver.js` | The map builder both front-ends share |
-| `.bazel/tsserver-hook-worker.js` | Its background worker |
+| Path                                                     | What it is                                                                                                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig.json`                                          | Compiler options and the `paths` map; checked in                                                                                                                |
+| `.bazel/tsserver-hook-data.json`                         | The same graph facts, in the shape the plugin reads                                                                                                             |
+| `.bazel/node_modules/@rules_typescript/tsserver-plugin/` | The tsserver plugin, as a package tsserver can load by name                                                                                                     |
+| `.bazel/tsserver-hook.js`                                | A preload variant for a client that resolves through the public `ts.resolveModuleName`; see [What the preload does not reach](#what-the-preload-does-not-reach) |
+| `.bazel/tsserver-hook-resolver.js`                       | The map builder both front-ends share                                                                                                                           |
+| `.bazel/tsserver-hook-worker.js`                         | Its background worker                                                                                                                                           |
 
 The target copies those files into the source tree, so it runs only under
 `bazel run`.
@@ -64,10 +114,10 @@ Add `.bazel` to `.bazelignore`, so Bazel never reads the plugin's files as a
 package. This repository's own `.bazelignore` starts with that line.
 
 !!! warning "It replaces the file at `tsconfig` wholesale"
-    A migrating repository already has a root `tsconfig.json`, and the first
-    `bazel run //:refresh_tsconfig` overwrites it: `include`, `baseUrl`,
-    `module` and every other option in it, not only `paths`. The generated file
-    is a complete config and carries nothing over from yours.
+A migrating repository already has a root `tsconfig.json`, and the first
+`bazel run //:refresh_tsconfig` overwrites it: `include`, `baseUrl`,
+`module` and every other option in it, not only `paths`. The generated file
+is a complete config and carries nothing over from yours.
 
     Move the generator, not your file. Under Gazelle the file keeps its name:
     a directory is a package because it holds a file named `tsconfig.json`,
@@ -109,14 +159,14 @@ Three edits make that build:
    with a `# keep`, since `deps` is
    [Gazelle's](../gazelle/directives.md#attributes-gazelle-owns):
 
-    ```python
-    ts_config(
-        name = "tsconfig",
-        src = "tsconfig.json",
-        deps = ["tsconfig.bazel.json"],  # keep
-        visibility = ["//visibility:public"],
-    )
-    ```
+   ```python
+   ts_config(
+       name = "tsconfig",
+       src = "tsconfig.json",
+       deps = ["tsconfig.bazel.json"],  # keep
+       visibility = ["//visibility:public"],
+   )
+   ```
 
 2. **An option the root block cannot hold puts every package on the nested
    list.** Gazelle wires your file onto every target, so a `"module": "ESNext"`
@@ -124,14 +174,14 @@ Three edits make that build:
    targets, and the first `bazel run //:refresh_tsconfig` fails instead of
    writing:
 
-    ```
-    ts_refresh_tsconfig: the nested_tsconfigs list does not match what the
-    graph needs.
-      add:    src/app/tsconfig.json, src/lib/tsconfig.json
-    ```
+   ```
+   ts_refresh_tsconfig: the nested_tsconfigs list does not match what the
+   graph needs.
+     add:    src/app/tsconfig.json, src/lib/tsconfig.json
+   ```
 
-    List them in `nested_tsconfigs` ([Nested Tsconfigs](#nested-tsconfigs)), or
-    drop the option from your file.
+   List them in `nested_tsconfigs` ([Nested Tsconfigs](#nested-tsconfigs)), or
+   drop the option from your file.
 
 3. **Each nested package exports its `tsconfig.json`.** The staleness
    `diff_test` for a nested entry names `//<pkg>:tsconfig.json`, and the
@@ -286,9 +336,9 @@ disagrees.
 
 ### What Fragments Cover
 
-| | Covered by | Reaches package-private targets |
-|---|---|---|
-| `ts_compile` source roots | fragments, and the data file | yes, via fragments |
+|                           | Covered by                   | Reaches package-private targets |
+| ------------------------- | ---------------------------- | ------------------------------- |
+| `ts_compile` source roots | fragments, and the data file | yes, via fragments              |
 
 npm packages are in neither: TypeScript resolves them through the checkout's
 `node_modules` ([npm Packages](#npm-packages)).
@@ -386,9 +436,7 @@ entry is needed with it.
 
 ```json
 {
-  "tsserver.globalPlugins": [
-    { "name": "@rules_typescript/tsserver-plugin", "location": ".bazel" }
-  ]
+  "tsserver.globalPlugins": [{ "name": "@rules_typescript/tsserver-plugin", "location": ".bazel" }]
 }
 ```
 
