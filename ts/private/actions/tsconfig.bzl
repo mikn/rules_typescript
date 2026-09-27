@@ -39,13 +39,37 @@ def write_baseline_tsconfig(ctx):
     )
     return out
 
+def classify_tsconfig_inputs(check_srcs, dep_dts):
+    retained_types = []
+    type_paths = []
+    generated_inputs = []
+
+    # Generated scalar paths avoid a declaration-emission dependency during configuration.
+    for file in dep_dts.to_list():
+        if file.is_source or file.is_directory:
+            retained_types.append(file)
+        else:
+            type_paths.append(file)
+        if not file.is_source:
+            generated_inputs.append(file)
+    generated_inputs.extend([
+        file
+        for file in check_srcs
+        if not file.is_source
+    ])
+    return struct(
+        retained_types = retained_types,
+        type_paths = type_paths,
+        generated_inputs = depset(generated_inputs, order = "postorder"),
+    )
+
 def tsconfig_action(
         ctx,
         tsgo,
         check_srcs,
         tsconfig_chain,
         baseline_file,
-        dep_dts,
+        classified_inputs,
         declared_jsx,
         declared_module,
         types_deps,
@@ -83,19 +107,13 @@ def tsconfig_action(
         config_args.add("-isolated_declarations")
     if lib_check:
         config_args.add("-lib_check")
-    retained_types = []
-
-    # Directory children are unknown until their generator runs.
-    for file in dep_dts.to_list():
-        if file.is_source or file.is_directory:
-            retained_types.append(file)
-        else:
-            config_args.add(file, format = "-type_input=%s")
+    config_args.add_all(classified_inputs.type_paths, format_each = "-type_input=%s")
     config_args.add_all(check_srcs)
     ctx.actions.run(
         inputs = depset(
-            check_srcs + tsconfig_chain + retained_types,
+            check_srcs + tsconfig_chain + classified_inputs.retained_types,
             transitive = [tsgo.files],
+            order = "postorder",
         ),
         outputs = [tsconfig, options_file],
         executable = get_tools_toolchain(ctx).tsaction,

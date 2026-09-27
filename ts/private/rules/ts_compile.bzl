@@ -73,6 +73,7 @@ load(
     "TsConfigInfo",
     "TsInfo",
     "label_text",
+    "ts_owner",
 )
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE")
 load(
@@ -88,6 +89,7 @@ load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load("//ts/private/actions:manifest.bzl", "manifest_action")
 load(
     "//ts/private/actions:tsconfig.bzl",
+    "classify_tsconfig_inputs",
     "tsconfig_action",
     "write_baseline_tsconfig",
 )
@@ -98,6 +100,7 @@ load(
     "ownership_manifest",
     "tsgo_check",
     "tsgo_declare",
+    "tsgo_editor",
 )
 
 _TS_EXTENSIONS = ["ts", "tsx"]
@@ -427,7 +430,8 @@ def compile_program(
     )
     own_importers = [importer.dir for importer in chain]
     dependency_importers = {}
-    for record in depset(transitive = owner_sets).to_list():
+    dependency_owners = depset(transitive = owner_sets).to_list()
+    for record in dependency_owners:
         for directory in record.importers:
             if directory not in own_importers:
                 dependency_importers[directory] = True
@@ -443,7 +447,7 @@ def compile_program(
     dep_dts_depset = depset(
         transitive = [
             record.type_inputs
-            for record in depset(transitive = owner_sets).to_list()
+            for record in dependency_owners
             if record.label not in held_as_sources
         ],
         order = "postorder",
@@ -545,8 +549,10 @@ def compile_program(
     manifest = None
     for src in data_srcs:
         rel = _package_relative_path(src, pkg)
-        staged = ctx.actions.declare_file(rel)
-        ctx.actions.symlink(output = staged, target_file = src)
+        staged = src
+        if src.path != out_base + "/" + rel:
+            staged = ctx.actions.declare_file(rel)
+            ctx.actions.symlink(output = staged, target_file = src)
         data_staged.append(staged)
         if rel == "package.json":
             if emit:
@@ -572,12 +578,20 @@ def compile_program(
     joined = depset(transitive = joined_source_sets).to_list()
 
     direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
+    editor_inputs = check_srcs + dts_outputs + [
+        src if src.is_source else staged
+        for src, staged in zip(data_srcs, data_staged)
+    ] + as_built
     owners = depset(
-        [struct(
-            label = label_text(ctx.label),
-            files = depset(
-                check_srcs + dts_outputs + data_staged + as_built,
-            ),
+        [ts_owner(
+            label = ctx.label,
+            files = depset(check_srcs + dts_outputs + data_staged + as_built, order = "postorder"),
+            source_files = depset([file for file in editor_inputs if file.is_source], order = "postorder"),
+            generated_inputs = depset([
+                file
+                for file in editor_inputs
+                if not file.is_source
+            ], order = "postorder"),
             declarations = direct_dts,
             type_inputs = direct_dts if emit else depset(check_srcs),
             importers = tuple([importer.dir for importer in chain]),
@@ -608,7 +622,14 @@ def compile_program(
 
     tsconfig = None
     options_file = None
+    editor_config = None
+    program_inputs = check_srcs + joined + json_srcs + dep_json + dep_manifests
     if needs_config:
+        # Dependency data provenance comes from its owner, not its staged copy.
+        classified_inputs = classify_tsconfig_inputs(
+            check_srcs + joined + json_srcs + dep_manifests,
+            dep_dts_depset,
+        )
         tsgo = tsgo_toolchain_info.tsgo_info
 
         declare_root = None
@@ -639,7 +660,7 @@ def compile_program(
             check_srcs = check_srcs + joined,
             tsconfig_chain = tsconfig_chain,
             baseline_file = baseline_file,
-            dep_dts = dep_dts_depset,
+            classified_inputs = classified_inputs,
             declared_jsx = declared_jsx,
             declared_module = declared_module,
             types_deps = sorted([
@@ -658,7 +679,36 @@ def compile_program(
     format_stamp = format_action(ctx, ctx.attr._format[FormatConfigInfo], ctx.files.srcs)
     if format_stamp:
         validation_outputs.append(format_stamp)
-    program_inputs = check_srcs + joined + json_srcs + dep_json + dep_manifests
+    if tsconfig and all([
+        getattr(record, "source_files", None) != None and getattr(record, "generated_inputs", None) != None
+        for record in dependency_owners
+    ]):
+        editor_package_scopes = [file for file in data_staged if file.basename == "package.json"]
+        editor_sources = depset(
+            transitive = [record.source_files for record in dependency_owners],
+            order = "postorder",
+        )
+        editor_config = tsgo_editor(
+            ctx,
+            tsgo = tsgo,
+            tsconfig = tsconfig,
+            baseline = baseline_file,
+            generated_inputs = depset(
+                transitive = [classified_inputs.generated_inputs] + [record.generated_inputs for record in dependency_owners],
+                order = "postorder",
+            ),
+            importers = importers,
+            overlays = sorted(overlays.keys()),
+            manifests = dep_manifests,
+            srcs = program_inputs + editor_package_scopes,
+            chain = tsconfig_chain,
+            dep_dts = depset(
+                transitive = [dep_dts_depset, editor_sources],
+                order = "postorder",
+            ),
+            npm_files = npm_files,
+            checkers = checkers,
+        )
     if program_srcs:
         if emit and compile_srcs:
             emit_action(
@@ -834,6 +884,14 @@ def compile_program(
     # resolution with the editor's; a target with no program generates none.
     if tsconfig:
         output_groups["tsconfig"] = depset([tsconfig])
+    if editor_config:
+        output_groups["ide_tsconfig"] = depset([editor_config])
+        output_groups["ide_generated_sources"] = depset(
+            # Passthrough JSON still materializes without becoming a generated identity.
+            [file for file in tsconfig_chain if not file.is_source] + dep_json + editor_package_scopes,
+            transitive = [classified_inputs.generated_inputs, npm_files],
+            order = "postorder",
+        )
     if validation_outputs:
         output_groups["_validation"] = depset(validation_outputs)
 

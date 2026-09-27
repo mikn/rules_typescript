@@ -12,48 +12,20 @@ import (
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
-func TestResolutionTraceKeepsCandidatesOutOfListedFilesAndEdges(t *testing.T) {
+func TestResolutionCandidatesRebaseSharedFactsWithoutChangingAttribution(t *testing.T) {
 	root := t.TempDir()
-	from := filepath.Join(root, "app/plugins/consumer.ts")
-	candidate := filepath.Join(root, "app/shared/generated/runtime")
-	listing := "app/plugins/consumer.ts\n   Matched by include pattern '*.ts' in 'app/plugins/tsconfig.json'\nerror TS2307: missing import\n"
-	trace := "======== Resolving module '#generated/runtime' from '" + from + "'. ========\n" +
-		"Loading module as file / folder, candidate module location '" + candidate + "', target file types: TypeScript, Declaration.\n" +
-		"Directory '" + filepath.Dir(candidate) + "' does not exist, skipping all lookups in it.\n" +
-		"======== Module name '#generated/runtime' was not resolved. ========\n" +
-		"======== Resolving type reference directive 'node', containing file '" + from + "', root directory not set. ========\n" +
-		"======== Type reference directive 'node' was not resolved. ========\n"
-	got, candidates, err := splitResolutionTrace(root, trace+listing)
-	if err != nil {
-		t.Fatal(err)
+	observations := []explainfiles.ResolutionCandidate{
+		{Kind: explainfiles.Import, From: filepath.Join(root, "app/consumer.ts"), Specifier: "#generated", Path: filepath.Join(root, "generated/first")},
+		{Kind: explainfiles.TypeReference, From: filepath.Join(root, "app/consumer.ts"), Specifier: "../types", Path: filepath.Join(root, "types")},
+		{Kind: explainfiles.Import, From: filepath.Join(root, "other/consumer.ts"), Specifier: "#generated", Path: filepath.Join(root, "../shared/second")},
 	}
-	if got != listing {
-		t.Fatalf("listing changed: %q", got)
+	got, err := relativeResolutionCandidates(root, observations)
+	want := []resolutionCandidate{
+		{"app/consumer.ts", "#generated", "generated/first"},
+		{"other/consumer.ts", "#generated", "../shared/second"},
 	}
-	want := []resolutionCandidate{{"app/plugins/consumer.ts", "#generated/runtime", "app/shared/generated/runtime"}}
-	if !reflect.DeepEqual(candidates, want) {
-		t.Fatalf("candidates = %+v, want %+v", candidates, want)
-	}
-}
-
-func TestResolutionTraceRejectsLostCandidateAttribution(t *testing.T) {
-	root := t.TempDir()
-	start := "======== Resolving module '#module' from '" + filepath.Join(root, "app/index.ts") + "'. ========\n"
-	end := "======== Module name '#module' was not resolved. ========\n"
-	for name, text := range map[string]string{
-		"nested":              start + start + end + end,
-		"unfinished":          start,
-		"mismatched end":      start + strings.ReplaceAll(end, "#module", "#other"),
-		"unframed candidate":  "Loading module as file / folder, candidate module location '/app/generated', target file types: TypeScript.\n",
-		"malformed candidate": start + "Loading module as file / folder, unknown format\n" + end,
-		"relative candidate":  start + "Loading module as file / folder, candidate module location 'generated', target file types: TypeScript.\n" + end,
-		"unknown boundary":    "======== Unrecognised resolver boundary ========\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, _, err := splitResolutionTrace(root, text); err == nil {
-				t.Fatal("malformed trace accepted")
-			}
-		})
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("rebasing changed candidate order, attribution or type-reference filtering: %+v, %v", got, err)
 	}
 }
 
@@ -102,13 +74,15 @@ func TestResolutionTracePreservesActualCompilerListing(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		text := string(raw)
+		listing, err := explainfiles.Parse(string(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if traced {
-			if !strings.Contains(text, "======== Resolving module 'dependency' from '") {
+			if !strings.Contains(string(raw), "======== Resolving module 'dependency' from '") {
 				t.Fatal("package imports continuation was not exercised")
 			}
-			var candidates []resolutionCandidate
-			text, candidates, err = splitResolutionTrace(root, text)
+			candidates, err := relativeResolutionCandidates(root, listing.Candidates)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,31 +96,11 @@ func TestResolutionTracePreservesActualCompilerListing(t *testing.T) {
 				t.Fatalf("missing actual cold-tree candidate: %+v", candidates)
 			}
 		}
-		listing, err := explainfiles.Parse(text)
-		if err != nil {
-			t.Fatal(err)
-		}
+		listed := &explainfiles.Listing{Files: listing.Files, Roots: listing.Roots, Edges: listing.Edges, Types: listing.Types, Implicit: listing.Implicit, Diagnostics: listing.Diagnostics}
 		if !traced {
-			baseline = listing
-		} else if !reflect.DeepEqual(listing, baseline) {
-			t.Fatalf("trace changed compiler listing: got %+v, want %+v", listing, baseline)
+			baseline = listed
+		} else if !reflect.DeepEqual(listed, baseline) {
+			t.Fatalf("trace changed compiler listing: got %+v, want %+v", listed, baseline)
 		}
-	}
-}
-
-func TestResolutionTraceKeepsOriginalImporterAcrossPackageRedirect(t *testing.T) {
-	root := t.TempDir()
-	text := "======== Resolving module '#alias' from '" + filepath.Join(root, "app/source.ts") + "'. ========\n" +
-		"Using 'imports' subpath '#alias' with target 'dependency'.\n" +
-		"======== Resolving module 'dependency' from '" + root + "/'. ========\n" +
-		"Loading module as file / folder, candidate module location '" + filepath.Join(root, "generated/runtime") + "', target file types: TypeScript.\n" +
-		"======== Module name '#alias' was not resolved. ========\n"
-	_, candidates, err := splitResolutionTrace(root, text)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []resolutionCandidate{{"app/source.ts", "#alias", "generated/runtime"}}
-	if !reflect.DeepEqual(candidates, want) {
-		t.Fatalf("candidates = %+v, want %+v", candidates, want)
 	}
 }

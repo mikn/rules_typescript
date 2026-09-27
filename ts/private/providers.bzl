@@ -70,7 +70,13 @@ store; a workspace member's hub view forwards the member's.
                   "record per first-party target in the closure, this one " +
                   "first -- the label a deps list writes, the sources, " +
                   "declarations, data and manifest as built it stages, and " +
-                  "its declarations, consumer type inputs and npm importer directories. The tsgo action names the owner " +
+                  "its declarations, consumer type inputs and npm importer directories. " +
+                  "Optional source_files and generated_inputs depsets enable generated editor projects; " +
+                  "absent or None provenance leaves ordinary compilation supported. " +
+                  "source_files holds authored inputs, including originals behind " +
+                  "data passthroughs; generated_inputs holds " +
+                  "generated checkout-exclusion identities, including original " +
+                  "sources behind emitted declarations, without requesting their outputs. The tsgo action names the owner " +
                   "of a listed file from `files`; a consumer's program " +
                   "reads the `type_inputs` of every record but a dep's it " +
                   "holds as sources. An npm package's declarations reach a " +
@@ -88,6 +94,18 @@ def label_text(label):
 def _or_direct(transitive, direct):
     return direct if transitive == None else transitive
 
+def ts_owner(label, files, declarations, type_inputs, importers = (), source_files = None, generated_inputs = None):
+    """One owner over existing depsets; only the producer knows passthrough origins."""
+    return struct(
+        label = label_text(label),
+        files = files,
+        source_files = source_files,
+        generated_inputs = generated_inputs,
+        declarations = declarations,
+        type_inputs = type_inputs,
+        importers = importers,
+    )
+
 def ts_info(
         js = _EMPTY,
         js_maps = _EMPTY,
@@ -104,18 +122,21 @@ def ts_info(
         transitive_es_twins = _EMPTY,
         npm_packages = _EMPTY,
         npm_files = _EMPTY,
-        label = None):
+        label = None,
+        source_files = None,
+        generated_inputs = None):
     """A TsInfo for a target without first-party deps: each closure it
     leaves unsaid is the direct set, and `label` makes it the one owner."""
     owners = _EMPTY
     if label:
-        owners = depset([struct(
-            label = label_text(label),
-            files = depset(transitive = [sources, declarations, data]),
+        owners = depset([ts_owner(
+            label = label,
+            files = depset(transitive = [sources, declarations, data], order = "postorder"),
             declarations = declarations,
             type_inputs = declarations,
-            importers = (),
-        )])
+            source_files = source_files,
+            generated_inputs = generated_inputs,
+        )], order = "postorder")
     return TsInfo(
         js = js,
         js_maps = js_maps,

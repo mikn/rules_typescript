@@ -188,6 +188,57 @@ func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 	}
 }
 
+func TestTsgoStep_EditorPreservesDeclaredSourceLinks(t *testing.T) {
+	for _, editor := range []bool{false, true} {
+		t.Run(map[bool]string{false: "build", true: "editor"}[editor], func(t *testing.T) {
+			files := []string{"pkg/package.json", "pkg/settings.json", "pkg/authored.d.ts", "pkg/ambient.d.ts", "pkg/sub/package.json"}
+			root, argv := newTsgoExecroot(t, "for f in "+strings.Join(files, " ")+"; do readlink \"$f\" >> \"$0.argv\"; done\n")
+			for _, file := range []string{"pkg/settings.json", "pkg/authored.d.ts", "pkg/ambient.d.ts"} {
+				writeFile(t, filepath.Join(root, file), "authored\n")
+				writeFile(t, filepath.Join(root, binDir, file), "generated\n")
+			}
+			writeFile(t, filepath.Join(root, binDir, "pkg/sub/dep.package.json"), "{}\n")
+			args := tsgoArgs(
+				"-source=pkg/settings.json", "-source=pkg/authored.d.ts",
+				"-overlay="+binDir+"/pkg", "-overlay="+binDir+"/pkg/sub",
+				"-manifest="+binDir+"/pkg/app.package.json",
+				"-manifest="+binDir+"/pkg/sub/dep.package.json",
+			)
+			if editor {
+				args = append(args,
+					"-editor-config="+binDir+"/pkg/app.tsconfig.json",
+					"-editor-bin-dir="+binDir,
+					"-editor-out="+binDir+"/pkg/app.ide.tsconfig.json",
+					"-editor-path=pkg/.bazel/tsconfig/app.json",
+				)
+			}
+			if err := runTsgo(append(args, "--", "external/tsgo/tsc")); err != nil {
+				t.Fatal(err)
+			}
+			want := []string{
+				filepath.Join(root, binDir, "pkg/app.package.json"),
+				filepath.Join(root, binDir, "pkg/settings.json"),
+				filepath.Join(root, binDir, "pkg/authored.d.ts"),
+				filepath.Join(root, binDir, "pkg/ambient.d.ts"),
+				filepath.Join(root, binDir, "pkg/sub/dep.package.json"),
+			}
+			if editor {
+				for i, file := range files[:3] {
+					want[i] = filepath.Join(root, file)
+				}
+			}
+			if got := recordedArgs(t, argv)[1:]; !reflect.DeepEqual(got, want) {
+				t.Fatalf("program source identities = %q, want %q", got, want)
+			}
+			for _, file := range files[1:4] {
+				if got, err := os.ReadFile(filepath.Join(root, file)); err != nil || string(got) != "authored\n" {
+					t.Errorf("layout changed checkout file %s: %q, %v", file, got, err)
+				}
+			}
+		})
+	}
+}
+
 // The overlay lays a dep's declarations, manifest and data over its package
 // and none of its JavaScript: a program reads a dep through its declarations.
 func TestTsgoStep_LaysNoJavaScriptOverThePackage(t *testing.T) {
@@ -585,31 +636,33 @@ func TestLintDiscoveryDoesNotReenterOriginalOrNestedConfigs(t *testing.T) {
 			if err := discoverProgramConfig(programRoot, generated, sources); err != nil {
 				t.Fatal(err)
 			}
-			shim := filepath.Join(programRoot, "pkg/tsconfig.json")
-			data, err := os.ReadFile(shim)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var fields map[string]any
-			if err := json.Unmarshal(data, &fields); err != nil {
-				t.Fatal(err)
-			}
-			if len(fields) != 2 || fields["extends"] != fileRelative("pkg", generated) {
-				t.Fatalf("discovery must reference the canonical program: %s", data)
-			}
-			if !reflect.DeepEqual(fields["compilerOptions"], map[string]any{"noEmit": true}) {
-				t.Fatalf("lint must validate JavaScript without attempting to overwrite its inputs: %s", data)
-			}
-			resolved, err := tsconfig.Resolve(shim)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if resolved.Module != "ESNext" || resolved.Types == nil || !reflect.DeepEqual(*resolved.Types, []string{"node"}) || resolved.Include == nil || !reflect.DeepEqual(*resolved.Include, []string{"../../../../pkg/**/*.ts"}) {
-				t.Fatalf("lost generated or original compiler configuration: %+v", resolved)
-			}
-			nestedResolved, err := tsconfig.Resolve(filepath.Join(programRoot, "pkg/nested/tsconfig.json"))
-			if err != nil || !reflect.DeepEqual(nestedResolved, resolved) {
-				t.Fatalf("nearer declared config bypassed the target program: %+v, %v", nestedResolved, err)
+			canonical := filepath.Join(programRoot, generated)
+			for _, shim := range []string{"pkg/tsconfig.json", "pkg/nested/tsconfig.json"} {
+				config := filepath.Join(programRoot, shim)
+				data, err := os.ReadFile(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var fields map[string]any
+				if err := json.Unmarshal(data, &fields); err != nil {
+					t.Fatal(err)
+				}
+				if len(fields) != 2 || fields["extends"] != fileRelative(filepath.ToSlash(filepath.Dir(shim)), generated) {
+					t.Fatalf("discovery must reference the canonical program: %s", data)
+				}
+				if !reflect.DeepEqual(fields["compilerOptions"], map[string]any{"noEmit": true}) {
+					t.Fatalf("lint must validate JavaScript without attempting to overwrite its inputs: %s", data)
+				}
+				resolved, err := tsconfig.Resolve(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if resolved.Module != "ESNext" || resolved.Types == nil || !reflect.DeepEqual(*resolved.Types, []string{"node"}) || resolved.Include == nil || !reflect.DeepEqual(*resolved.Include, []string{"../../../../pkg/**/*.ts"}) || resolved.IncludeDir != filepath.Dir(canonical) || resolved.Files != nil || resolved.Exclude != nil {
+					t.Fatalf("%s bypassed the canonical compiler program: %+v", config, resolved)
+				}
+				if !reflect.DeepEqual(resolved.Configs, []string{canonical, config}) {
+					t.Fatalf("%s lost its canonical base or distinct shim provenance: %v", config, resolved.Configs)
+				}
 			}
 			for file, want := range map[string]string{"base.json": base, original: project, generated: generatedBody, "pkg/nested/tsconfig.json": nested} {
 				got, err := os.ReadFile(file)
