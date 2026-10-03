@@ -97,10 +97,12 @@ func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 // tsconfig cannot: where the sandbox puts things and which tool declares it.
 type actionConfig struct {
 	tsgo, project, baseline, out, options string
+	editorPath                            string
 	binDir                                string
 	jsx, module                           string
 	typesDeps                             stringList
 	typeInputs                            stringList
+	generatedDirectories, generatedFiles  stringList
 	srcs                                  []string
 	isolatedDeclarations                  bool
 	libCheck                              bool
@@ -417,12 +419,12 @@ func isJavaScript(file string) bool {
 
 // paths is the user's map read from the directory of the chain file that set
 // it -- which showConfig does not print -- with a bin-dir twin per value.
-func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]string {
+func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) *tsconfig.Paths {
 	if chain.Paths == nil {
 		return nil
 	}
-	out := make(map[string][]string, len(chain.Paths))
-	for key, values := range chain.Paths {
+	out := &tsconfig.Paths{}
+	for key, values := range chain.Paths.Entries() {
 		rewritten := make([]string, 0, 2*len(values))
 		for _, value := range values {
 			if path.IsAbs(value) {
@@ -430,11 +432,12 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 				continue
 			}
 			target := path.Join(chain.PathsDir, value)
-			rewritten = append(rewritten,
-				explicitlyRelative(relativePath(dir, target)),
-				explicitlyRelative(relativePath(dir, path.Join(a.binDir, target))))
+			rewritten = append(rewritten, explicitlyRelative(relativePath(dir, target)))
+			if a.binDir != "" {
+				rewritten = append(rewritten, explicitlyRelative(relativePath(dir, path.Join(a.binDir, target))))
+			}
 		}
-		out[key] = rewritten
+		out.Set(key, rewritten)
 	}
 	return out
 }

@@ -27,6 +27,14 @@ func runTsgo(args []string) error {
 	verifyCopies := flags.Bool("verify-copies", false, "fail if the tool changes a copied input")
 	discoverConfig := flags.String("discover-tsconfig", "", "generated program config exposed to tools that discover tsconfig.json beside sources")
 	var sources, copies, importers, overlays, manifests, toolEnv stringList
+	var editor actionConfig
+	flags.StringVar(&editor.out, "editor-config", "", "compiler project to project for the editor")
+	flags.StringVar(&editor.baseline, "editor-baseline", "", "compiler baseline options")
+	flags.StringVar(&editor.binDir, "editor-bin-dir", "", "compiler output tree")
+	flags.Var(&editor.generatedDirectories, "editor-generated-directory", "workspace-relative generated directory (repeatable)")
+	flags.Var(&editor.generatedFiles, "editor-generated-file", "workspace-relative generated file (repeatable)")
+	editorOut := flags.String("editor-out", "", "compiler-resolved editor project output")
+	flags.StringVar(&editor.editorPath, "editor-path", "", "editor project workspace destination")
 	flags.Var(&sources, "source",
 		"an input of the action in the source tree, linked at its path under "+
 			"the root (repeatable); the output tree is linked whole")
@@ -69,7 +77,7 @@ func runTsgo(args []string) error {
 			}
 		}
 	}
-	err := layOutProgramRoot(*root, sources, importers, overlays, manifests)
+	err := editor.layOutProgramRoot(*root, sources, importers, overlays, manifests)
 	if err != nil {
 		return err
 	}
@@ -130,7 +138,10 @@ func runTsgo(args []string) error {
 		}
 		env = append(env, name+"="+absolute)
 	}
-	if own == nil {
+	if editor.out != "" {
+		editor.project = *project
+		err = editorRun(*root, cmdline, editor, *editorOut, env...)
+	} else if own == nil {
 		err = runToolIn(*root, os.Stdout, cmdline, env...)
 	} else {
 		err = checkedRun(*root, cmdline, own, chain, *project, env...)
@@ -236,7 +247,16 @@ func checkedRun(dir string, cmdline []string, own *ownership,
 // throughRoot is the exec-root path of a listed file the root links, or the
 // store path of a file under a chain link, which tsgo lists at the link.
 func throughRoot(rootAbs, execroot, listed string) string {
-	at := filepath.Join(rootAbs, filepath.FromSlash(listed))
+	at := filepath.FromSlash(listed)
+	if !filepath.IsAbs(at) {
+		at = filepath.Join(rootAbs, at)
+	}
+	// Type-package resolution can realpath a source link before listing it.
+	if _, staged := belowLinkedRoot(rootAbs, at); !staged {
+		if rel, ok := belowLinkedRoot(execroot, at); ok {
+			listed = rel
+		}
+	}
 	if underNodeModules(listed) && storeKeyOf(listed) == "" {
 		real, err := filepath.EvalSymlinks(at)
 		if err != nil {
@@ -246,7 +266,7 @@ func throughRoot(rootAbs, execroot, listed string) string {
 		if storeKeyOf(store) == "" {
 			return listed
 		}
-		if rel, ok := below(execroot, real); ok {
+		if rel, ok := belowLinkedRoot(execroot, real); ok {
 			return rel
 		}
 		return store
@@ -258,10 +278,22 @@ func throughRoot(rootAbs, execroot, listed string) string {
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(at), target)
 	}
-	if rel, ok := below(execroot, target); ok {
+	if rel, ok := belowLinkedRoot(execroot, target); ok {
 		return rel
 	}
 	return listed
+}
+
+// Compiler paths can bypass a symlinked checkout while source links retain it.
+func belowLinkedRoot(root, target string) (string, bool) {
+	if relative, ok := below(root, target); ok {
+		return relative, true
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", false
+	}
+	return below(canonical, target)
 }
 
 // below is target relative to dir when target is under it.
@@ -286,9 +318,38 @@ const outputTree = "bazel-out"
 func layOutProgramRoot(
 	root string, sources, importers, overlays, manifests []string,
 ) error {
+	return (&actionConfig{}).layOutProgramRoot(root, sources, importers, overlays, manifests)
+}
+
+func (a *actionConfig) layOutProgramRoot(
+	root string, sources, importers, overlays, manifests []string,
+) error {
 	execroot, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+	a.srcs = sources
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	var editor *editorProjection
+	if a.out != "" {
+		editor = &editorProjection{actionConfig: a, root: rootAbs, workspace: execroot}
+		raw, err := os.ReadFile(a.out)
+		if err != nil {
+			return err
+		}
+		var config tsconfigFile
+		if err := json.Unmarshal(raw, &config); err != nil {
+			return err
+		}
+		editor.compilerOptions = config.CompilerOptions
+		for _, key := range []string{"outDir", "declarationDir"} {
+			if value, ok := config.CompilerOptions[key].(string); ok && value != "" {
+				editor.outputContext = true
+			}
+		}
 	}
 	if err := os.RemoveAll(root); err != nil {
 		return err
@@ -301,7 +362,25 @@ func layOutProgramRoot(
 			return fmt.Errorf("-source=%s is under %s, which the root links "+
 				"whole", file, outputTree)
 		}
+		if editor != nil && filepath.Base(file) == "package.json" {
+			if err := editor.checkPackageContext(file, file, file); err != nil {
+				return err
+			}
+		}
 		if err := linkAt(root, execroot, filepath.FromSlash(file)); err != nil {
+			return err
+		}
+	}
+	// Empty parents let the compiler probe scalar identities without staging
+	// their bytes or guessing which extensions its resolver will try.
+	for _, file := range a.generatedFiles {
+		if editor != nil && filepath.Base(file) == "package.json" {
+			source := filepath.Join(a.binDir, file)
+			if err := editor.checkPackageContext(source, source, source); err != nil {
+				return err
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(filepath.FromSlash(file))), 0o755); err != nil {
 			return err
 		}
 	}
@@ -322,19 +401,30 @@ func layOutProgramRoot(
 			return err
 		}
 	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return err
+	if editor != nil {
+		for _, directory := range a.generatedDirectories {
+			if err := editor.checkGeneratedPackageContexts(directory); err != nil {
+				return err
+			}
+		}
 	}
 	for _, binDir := range overlays {
 		from := filepath.Join(execroot, filepath.FromSlash(binDir))
 		rel := filepath.FromSlash(binRelative(binDir))
-		if err := overlayDir(root, rootAbs, execroot, from, rel); err != nil {
+		if err := overlayDir(root, rootAbs, from, rel, editor); err != nil {
 			return err
 		}
 	}
 	for _, file := range manifests {
 		dir := filepath.FromSlash(binRelative(path.Dir(file)))
+		if editor != nil && editor.authored(filepath.Join(dir, "package.json")) {
+			continue
+		}
+		if editor != nil {
+			if err := editor.checkPackageNamespace(file, filepath.Join(dir, "package.json")); err != nil {
+				return err
+			}
+		}
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			return err
 		}
@@ -371,9 +461,7 @@ func importerDir(binDir string) string {
 	return dir
 }
 
-// overlayDir links every non-JavaScript file under from into root/rel over a
-// source of the same name; node_modules and the root itself skipped.
-func overlayDir(root, rootAbs, execroot, from, rel string) error {
+func overlayDir(root, rootAbs, from, rel string, editor *editorProjection) error {
 	entries, err := os.ReadDir(from)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -390,20 +478,28 @@ func overlayDir(root, rootAbs, execroot, from, rel string) error {
 			strings.HasPrefix(rootAbs, source+string(filepath.Separator)) {
 			continue
 		}
+		if editor != nil && editor.authored(filepath.Join(rel, entry.Name())) {
+			continue
+		}
 		st, err := os.Stat(source)
 		if err != nil {
 			return err
 		}
 		at := filepath.Join(root, rel, entry.Name())
 		if st.IsDir() {
-			if err := overlayDir(root, rootAbs, execroot, source,
-				filepath.Join(rel, entry.Name())); err != nil {
+			if err := overlayDir(root, rootAbs, source,
+				filepath.Join(rel, entry.Name()), editor); err != nil {
 				return err
 			}
 			continue
 		}
 		if isJavaScript(entry.Name()) {
 			continue
+		}
+		if editor != nil && entry.Name() == "package.json" {
+			if err := editor.checkPackageNamespace(source, filepath.Join(rel, entry.Name())); err != nil {
+				return err
+			}
 		}
 		if err := os.RemoveAll(at); err != nil {
 			return err

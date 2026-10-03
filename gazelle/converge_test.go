@@ -56,7 +56,7 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		for _, e := range entries {
 			name := e.Name()
 			switch {
-			case strings.HasPrefix(name, "."), strings.HasPrefix(name, "bazel-"):
+			case name == ".git", strings.HasPrefix(name, "bazel-"):
 			case e.IsDir():
 				subdirs = append(subdirs, name)
 			case name == "BUILD.bazel", name == "BUILD":

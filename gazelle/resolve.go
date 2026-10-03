@@ -153,8 +153,9 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 		r.SetAttr("srcs", slices.Sorted(maps.Keys(srcs)))
 	}
 	// A types entry naming a codegen out that is not in the checkout (D9).
-	own := filepath.Join(c.RepoRoot, filepath.FromSlash(from.Pkg), "tsconfig.json")
-	for _, file := range typesEntryFiles(own, from.Pkg) {
+	selected := tc.programs.configPath(from.Pkg)
+	own := filepath.Join(c.RepoRoot, filepath.FromSlash(selected))
+	for _, file := range typesEntryFiles(own, path.Dir(selected)) {
 		if codegen, ok := tc.codegenOuts[file]; ok {
 			deps[codegen.Rel(from.Repo, from.Pkg).String()] = true
 		}
@@ -265,7 +266,7 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 		}
 		reportEdge(from, e, s.whyUnowned(e.To), reported)
 	} else {
-		reportEdge(from, e, tsconfigIn(owner)+" lists it and no rule there has it "+
+		reportEdge(from, e, s.configPath(owner)+" lists it and no rule there has it "+
 			"in srcs", reported)
 	}
 	return ""
@@ -311,7 +312,7 @@ func configTypeEdges(c *config.Config, ix *resolve.RuleIndex, selected string, o
 		if p.manifest || p.refused != "" {
 			continue
 		}
-		source := tsconfigIn(p.dir)
+		source := getConfig(c).programs.configPath(p.dir)
 		if len(configs) == 0 && path.Join(configLabel.Pkg, configLabel.Name) == source {
 			return p.typeEdges()
 		}

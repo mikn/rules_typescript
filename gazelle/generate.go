@@ -21,6 +21,9 @@ import (
 // generateRules writes one directory: a package's targets, or the withdrawal
 // of what an earlier run left where no program is.
 func generateRules(args language.GenerateArgs) language.GenerateResult {
+	if isEditorProjectDir(args.Rel) {
+		return language.GenerateResult{}
+	}
 	tc := getConfig(args.Config)
 	s := tc.programs
 	s.visit(args.Rel, args.RegularFiles)
@@ -104,7 +107,7 @@ func nonPackageRules(args language.GenerateArgs, tc *tsConfig,
 	for _, r := range ownedRuleNames(args.Rel) {
 		switch {
 		case r.Kind() == "ts_config" && tc.programs.extended[args.Rel] &&
-			handWrittenTsConfigIn(args.Dir, args.Config.RepoRoot) != "":
+			tc.programs.hasAuthoredConfig(args.Config.RepoRoot, args.Rel):
 			res.Gen = append(res.Gen, tsConfigRule(args, tc))
 			res.Imports = append(res.Imports, nil)
 		case r.Kind() == "filegroup" && rootConfig != "":
@@ -227,7 +230,7 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 	if !compile && len(set.test) == 0 {
 		s.say("%s: the program lists only declaration files, so no target "+
 			"compiles them or stages the other files under %s",
-			tsconfigIn(pkg), orRepoRoot(pkg))
+			s.configPath(pkg), orRepoRoot(pkg))
 	}
 
 	if tsConfigAttr != "" {
@@ -321,7 +324,7 @@ func (s *programStore) dataFiles(pkg string, tc *tsConfig) []string {
 		for _, f := range s.files[dir] {
 			switch {
 			case f == "BUILD.bazel", f == "BUILD", programCandidate(f):
-			case dir == pkg && f == "tsconfig.json":
+			case path.Join(dir, f) == s.configPath(pkg), dir == pkg && f == "tsconfig.json":
 			case codegenWrites(path.Join(dir, f), tc):
 			default:
 				out = append(out, path.Join(dir, f))
@@ -358,7 +361,7 @@ func codegenLabels(f *rule.File) []string {
 // tsconfig.json its extends names as a dep, its jsx preserve and its module.
 func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	r := rule.NewRule("ts_config", tsConfigTargetName)
-	r.SetAttr("src", "tsconfig.json")
+	r.SetAttr("src", strings.TrimPrefix(tc.programs.configPath(args.Rel), args.Rel+"/"))
 	var deps []string
 	for _, base := range tc.programs.bases[args.Rel] {
 		deps = append(deps, "//"+base+":"+tsConfigTargetName)
@@ -368,7 +371,7 @@ func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 		r.SetAttr("deps", deps)
 	}
 	own := filepath.Join(args.Config.RepoRoot,
-		filepath.FromSlash(tsconfigIn(args.Rel)))
+		filepath.FromSlash(tc.programs.configPath(args.Rel)))
 	if programPreservesJsx(own) {
 		r.SetAttr("jsx", "preserve")
 	}
